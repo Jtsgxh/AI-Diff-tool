@@ -156,13 +156,6 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
   if (!isOpen || !scope) return null;
 
-  const quickQuestions = [
-    '⚠️ 存在并发竞争或死锁风险吗？',
-    '⚡ 性能开销如何评估？',
-    '🔍 是否破坏了接口向后兼容性？',
-    '🧪 建议如何编写单元测试用例？',
-  ];
-
   return (
     <div className="fixed inset-y-0 right-0 w-[540px] max-w-[90vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
       {/* Header */}
@@ -286,21 +279,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       </div>
 
       {/* Footer / Interactive Q&A Toolbar */}
-      <div className="p-3 bg-[#121319] border-t border-white/10 shrink-0 space-y-2.5">
-        {/* Quick Suggestion Chips */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-[11px]">
-          {quickQuestions.map((q, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleStartExplanation(q)}
-              disabled={isStreaming}
-              className="shrink-0 bg-white/5 hover:bg-purple-600/20 hover:border-purple-500/40 border border-white/10 text-slate-300 hover:text-purple-200 px-2 py-1 rounded transition disabled:opacity-50"
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-
+      <div className="p-3 bg-[#121319] border-t border-white/10 shrink-0">
         {/* Input Form */}
         <form onSubmit={handleSendQuestion} className="flex items-center space-x-2">
           <div className="relative flex-1">
