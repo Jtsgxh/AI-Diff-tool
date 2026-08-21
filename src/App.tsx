@@ -25,7 +25,7 @@ import {
 } from './components/AIExplanation/AIExplanationDrawer';
 import { SettingsModal } from './components/SettingsModal';
 import { OpenRepoModal } from './components/OpenRepoModal';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, PanelLeftOpen } from 'lucide-react';
 
 const DEFAULT_AI_CONFIG: AIProviderConfig = {
   provider: 'deepseek',
@@ -69,6 +69,19 @@ export const App: React.FC = () => {
   const [isExplanationOpen, setIsExplanationOpen] = useState<boolean>(false);
   const [explanationScope, setExplanationScope] = useState<ExplanationScope | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+
+  // Collapsible Git Commit Graph Panel
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('git_sidebar_collapsed') === 'true';
+  });
+
+  const handleToggleSidebar = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('git_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
 
   // AI Config
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(() => {
@@ -293,6 +306,8 @@ export const App: React.FC = () => {
         onRefresh={() => loadRepo(repoPath)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         isLoading={isLoadingRepo || isLoadingDiff}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebar={handleToggleSidebar}
       />
 
       {/* Repo Load Error Banner if any */}
@@ -313,19 +328,49 @@ export const App: React.FC = () => {
 
       {/* Main 3-Column Workspace Layout (Fork-Style) */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Column: Commit Graph DAG */}
-        <div className="w-[42%] min-w-[360px] max-w-[700px] h-full flex flex-col">
-          <CommitGraph
-            commits={commits}
-            selection={selection}
-            onSelectCommit={handleSelectCommit}
-            onCompareCommits={handleCompareCommits}
-            onExplainCommit={handleExplainCommit}
-          />
-        </div>
+        {/* Left Column: Commit Graph DAG (Expanded) */}
+        {!isSidebarCollapsed && (
+          <div className="w-[42%] min-w-[360px] max-w-[700px] h-full flex flex-col transition-all duration-200">
+            <CommitGraph
+              commits={commits}
+              selection={selection}
+              onSelectCommit={handleSelectCommit}
+              onCompareCommits={handleCompareCommits}
+              onExplainCommit={handleExplainCommit}
+              onCollapse={handleToggleSidebar}
+            />
+          </div>
+        )}
+
+        {/* Collapsed Left Sidebar Strip */}
+        {isSidebarCollapsed && (
+          <div
+            onClick={handleToggleSidebar}
+            className="w-10 bg-[#15161C] border-r border-white/10 hover:border-purple-500/40 flex flex-col items-center py-3 cursor-pointer select-none transition group text-slate-400 hover:text-purple-300 hover:bg-[#1A1B22] shrink-0 z-10"
+            title="点击展开 Git 提交历史图谱面板"
+          >
+            <button className="p-1.5 rounded-lg bg-white/5 group-hover:bg-purple-500/20 group-hover:text-purple-300 transition mb-4">
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+            <div className="flex-1 flex items-center justify-center">
+              <span
+                className="text-[11px] font-semibold tracking-wider text-slate-400 group-hover:text-purple-300 uppercase transition select-none"
+                style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+              >
+                📑 提交历史 ({commits.length})
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Middle Column: Files Panel */}
-        <div className="w-[20%] min-w-[200px] max-w-[320px] h-full flex flex-col">
+        <div
+          className={`${
+            isSidebarCollapsed
+              ? 'w-[24%] min-w-[240px] max-w-[380px]'
+              : 'w-[20%] min-w-[200px] max-w-[320px]'
+          } h-full flex flex-col transition-all duration-200`}
+        >
           <FilesPanel
             diffResult={diffResult}
             selectedFilePath={selectedFilePath}

@@ -11,6 +11,7 @@ import {
   User,
   Hash,
   Sparkles,
+  PanelLeftClose,
 } from 'lucide-react';
 
 interface CommitGraphProps {
@@ -19,6 +20,7 @@ interface CommitGraphProps {
   onSelectCommit: (hash: string) => void;
   onCompareCommits: (baseHash: string, targetHash: string) => void;
   onExplainCommit: (hash: string, message: string) => void;
+  onCollapse?: () => void;
 }
 
 const ROW_HEIGHT = 44;
@@ -31,6 +33,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onSelectCommit,
   onCompareCommits,
   onExplainCommit,
+  onCollapse,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHashA, setSelectedHashA] = useState<string | null>(null);
@@ -100,8 +103,18 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             </span>
           </div>
 
-          <div className="text-[11px] text-slate-400 flex items-center gap-1">
-            <span className="text-slate-500">按住 Ctrl/Cmd 单击两项对比</span>
+          <div className="flex items-center space-x-2">
+            <span className="text-[11px] text-slate-500 hidden xl:inline">按住 Ctrl/Cmd 对比</span>
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                className="p-1 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition flex items-center gap-1 text-[11px]"
+                title="收起 Git 提交历史面板 (释放更多代码对比空间)"
+              >
+                <PanelLeftClose className="w-3.5 h-3.5" />
+                <span className="text-[11px]">收起</span>
+              </button>
+            )}
           </div>
         </div>
 

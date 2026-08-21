@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   ChevronDown,
   Sparkles,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { RepoInfo, SelectionState } from '../types';
 
@@ -21,6 +23,8 @@ interface HeaderProps {
   onRefresh: () => void;
   onOpenSettings: () => void;
   isLoading: boolean;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -32,6 +36,8 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   onOpenSettings,
   isLoading,
+  isSidebarCollapsed,
+  onToggleSidebar,
 }) => {
   return (
     <header className="h-14 bg-[#14151B] border-b border-white/10 px-4 flex items-center justify-between select-none z-20">
@@ -71,6 +77,32 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 shrink-0" />
           </button>
+
+          {/* Collapsible Toggle for Left Git Commit Graph */}
+          {onToggleSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition shadow-sm ${
+                isSidebarCollapsed
+                  ? 'bg-purple-600/20 border-purple-500/50 text-purple-300 hover:bg-purple-600/30'
+                  : 'bg-[#1E2029] hover:bg-[#252834] border-white/10 text-slate-300 hover:text-white'
+              }`}
+              title={
+                isSidebarCollapsed
+                  ? '展开左侧 Git 提交历史图谱'
+                  : '收起左侧 Git 提交历史 (释放更多代码对比空间)'
+              }
+            >
+              {isSidebarCollapsed ? (
+                <PanelLeftOpen className="w-4 h-4 text-purple-400" />
+              ) : (
+                <PanelLeftClose className="w-4 h-4 text-slate-400" />
+              )}
+              <span className="hidden sm:inline font-medium text-[11px]">
+                {isSidebarCollapsed ? '展开历史' : '收起历史'}
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
