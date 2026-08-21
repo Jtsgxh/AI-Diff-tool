@@ -1,7 +1,8 @@
 {
-  "name": "peaceful-shannon",
+  "name": "ai-diff-tool",
   "version": "1.0.0",
-  "description": "",
+  "description": "AI-Powered Semantic Git Diff & Multi-File Code Review Tool with Autonomous Agent Engine",
+  "repository": "https://github.com/Jtsgxh/AI-Diff-tool.git",
   "main": "index.js",
   "scripts": {
     "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"tsx watch server/index.ts\" \"vite\"",

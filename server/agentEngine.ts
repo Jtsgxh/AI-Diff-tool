@@ -128,7 +128,7 @@ export class CodexAgentEngine {
       res.write(
         `data: ${JSON.stringify({
           type: 'chunk',
-          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenAI, Gemini 等）以启用 Codex 智能体全库审查。`,
+          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenAI, Gemini 等）以启用智能体全库审查。`,
         })}\n\n`
       );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -157,7 +157,7 @@ export class CodexAgentEngine {
       `data: ${JSON.stringify({
         type: 'status',
         phase: 'initializing',
-        message: 'Codex 智能体已连接，正在初始化代码库只读沙箱...',
+        message: '智能体引擎已就绪，已挂载 Git 高速索引只读沙箱...',
       })}\n\n`
     );
 
@@ -167,7 +167,7 @@ export class CodexAgentEngine {
     const basePrompt =
       config?.customSystemPrompt && config.customSystemPrompt.trim()
         ? config.customSystemPrompt.trim()
-        : `你是一位顶级资深架构师与代码审查专家。请对给定的 Git Diff 进行深度、精确的技术剖析。
+        : `你是一位顶级资深架构师与代码审查专家。请对给定的 Git Diff 进行深度、精确的代码级技术剖析。
 
 【审查原则与要求】：
 1. 直击核心代码细节：严禁空洞套话，严禁简单复述语法。必须精确指出涉及的类名、方法名、参数类型、数据结构与关键算法。
@@ -189,9 +189,9 @@ export class CodexAgentEngine {
     const systemPrompt = `${basePrompt}
 
 【可用工具说明】：
-- \`read_file\`: 阅读仓库中指定文件的关键代码段（可指定 start_line 与 end_line）。
-- \`search_code\`: 全局搜索某个符号、类名、接口或函数调用的所有使用位置（用于评估下游影响）。
-- \`find_files\`: 模糊搜索文件名，定位同名测试、接口契约或配置文件。`;
+- \`read_file\`: 阅读仓库中指定文件的源代码（支持 start_line 与 end_line 切片）。
+- \`search_code\`: 基于 Git 索引毫秒级全局搜索符号引用、类定义或下游调用（支持正则表达式）。
+- \`find_files\`: 基于 Git 索引快速定位相关同名测试、接口契约或配置文件。`;
 
     let initialUserMsg = '';
     if (scopeType === 'line' && targetLine) {
@@ -202,7 +202,7 @@ export class CodexAgentEngine {
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
         5000
-      )}\n\`\`\`\n\n${userPrompt ? `【附加要求】: ${userPrompt}\n\n` : ''}请对该行改动与关联上下文进行代码审查。`;
+      )}\n\`\`\`\n\n${userPrompt ? `【附加要求】: ${userPrompt}\n\n` : ''}请对该行改动与关联上下文进行深度代码审查。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
@@ -230,6 +230,9 @@ export class CodexAgentEngine {
     let finalReportText = '';
 
     try {
+      // =========================================================================
+      // Phase 1: Exploration Phase (Multi-Turn Tool Invocations)
+      // =========================================================================
       while (explorationTurn < maxExplorationTurns) {
         explorationTurn++;
 
@@ -241,12 +244,12 @@ export class CodexAgentEngine {
             message:
               explorationTurn === 1
                 ? '第 1 轮探查：正在分析 Diff 语义特征与外部引用...'
-                : `第 ${explorationTurn}/${maxExplorationTurns} 轮探查：已获取关联代码，Codex 正在推理...`,
+                : `第 ${explorationTurn}/${maxExplorationTurns} 轮探查：已获取关联代码，智能体正在推理...`,
             step: explorationTurn,
           })}\n\n`
         );
 
-        // Call LLM with user-configured timeout and retry
+        // Call LLM
         const response = await fetchWithRetry(
           url,
           {
@@ -279,7 +282,7 @@ export class CodexAgentEngine {
           res.write(
             `data: ${JSON.stringify({
               type: 'chunk',
-              text: `⚠️ **Codex Agent 接口调用失败 (${response.status})**: ${errText}`,
+              text: `⚠️ **智能体接口调用失败 (${response.status})**: ${errText}`,
             })}\n\n`
           );
           break;
@@ -361,7 +364,7 @@ export class CodexAgentEngine {
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: toolResult.slice(0, 3500),
+              content: toolResult.slice(0, 4000),
             });
           }
         } else {
@@ -374,68 +377,85 @@ export class CodexAgentEngine {
         }
       }
 
-      // Phase 2: Guaranteed Synthesis Phase (生成最终结构化报告)
+      // =========================================================================
+      // Phase 2: Guaranteed Synthesis Phase (True HTTP SSE Token Streaming)
+      // =========================================================================
       res.write(
         `data: ${JSON.stringify({
           type: 'status',
           phase: 'reporting',
-          message: '代码库探查就绪，正在生成跨模块深度审查报告...',
+          message: '代码库探查就绪，正在实时流式输出深度审查报告...',
         })}\n\n`
       );
 
-      if (!finalReportText) {
-        // Explicitly prompt for the complete structured report respecting user guidelines
+      if (finalReportText) {
+        // If already produced during exploration, stream immediately
+        res.write(`data: ${JSON.stringify({ type: 'chunk', text: finalReportText })}\n\n`);
+      } else {
+        // Explicitly prompt for the complete structured report with real-time SSE token streaming
         messages.push({
           role: 'user',
           content:
             '【探查阶段结束】请根据上述探查到的全部代码上下文与修改差异，按照设定的审查规则，直接输出最终完整的 Markdown 代码审查报告。',
         });
 
-        const synthesisRes = await fetchWithRetry(
-          url,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              model: model || 'deepseek-chat',
-              messages,
-              stream: false,
-            }),
-          },
-          40000,
-          2
-        );
+        const streamResponse = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model: model || 'deepseek-chat',
+            messages,
+            stream: true,
+          }),
+        });
 
-        if (synthesisRes.ok) {
-          const synthData: any = await synthesisRes.json();
-          const synthMsg = synthData.choices?.[0]?.message?.content || '';
-          const { cleanText } = extractAndStripDSML(synthMsg);
-          finalReportText = cleanText || synthMsg;
-        }
-      }
+        if (!streamResponse.ok) {
+          const errText = await streamResponse.text();
+          res.write(
+            `data: ${JSON.stringify({
+              type: 'chunk',
+              text: `### ⚠️ 生成报告失败 (${streamResponse.status}):\n${errText}`,
+            })}\n\n`
+          );
+        } else if (streamResponse.body) {
+          const reader = streamResponse.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let buffer = '';
 
-      // Stream the guaranteed final report to the user
-      if (finalReportText) {
-        const chunkSize = 35;
-        for (let i = 0; i < finalReportText.length; i += chunkSize) {
-          const chunk = finalReportText.slice(i, i + chunkSize);
-          res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`);
-          await new Promise((r) => setTimeout(r, 12));
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith('data: ')) continue;
+              const dataStr = trimmed.replace(/^data:\s*/, '');
+              if (dataStr === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(dataStr);
+                const delta = parsed.choices?.[0]?.delta?.content || '';
+                if (delta) {
+                  // Real-time zero latency token streaming directly to frontend drawer!
+                  res.write(`data: ${JSON.stringify({ type: 'chunk', text: delta })}\n\n`);
+                }
+              } catch {
+                // Ignore chunk parse errors
+              }
+            }
+          }
         }
-      } else {
-        res.write(
-          `data: ${JSON.stringify({
-            type: 'chunk',
-            text: `### ⚠️ 未能生成完整报告\n未能从大模型获取到最终总结，请点击右上角重试。`,
-          })}\n\n`
-        );
       }
 
       res.write(
         `data: ${JSON.stringify({
           type: 'status',
           phase: 'completed',
-          message: 'Codex 审查已完成',
+          message: '代码审查已完成',
         })}\n\n`
       );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -452,7 +472,7 @@ export class CodexAgentEngine {
       res.write(
         `data: ${JSON.stringify({
           type: 'chunk',
-          text: `\n\n❌ **Codex Agent 请求异常**: ${err.message}\n> 💡 建议：可点击右上角重新生成，或在顶部切换为「⚡ 直接 Diff 解释」快速模式。`,
+          text: `\n\n❌ **智能体请求异常**: ${err.message}\n> 💡 建议：可点击右上角重新生成，或在顶部切换为「⚡ 直接 Diff 解释」快速模式。`,
         })}\n\n`
       );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -463,4 +483,3 @@ export class CodexAgentEngine {
 }
 
 export const agentEngine = new CodexAgentEngine();
-

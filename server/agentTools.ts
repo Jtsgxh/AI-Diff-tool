@@ -1,6 +1,6 @@
-import path from 'path';
+﻿import path from 'path';
 import fs from 'fs';
-import { gitService } from './gitService';
+import simpleGit, { SimpleGit } from 'simple-git';
 
 export interface ToolDefinition {
   type: 'function';
@@ -45,17 +45,17 @@ export const AGENT_TOOLS_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'search_code',
-      description: '在整个代码库中全局搜索指定关键词、类名、函数名或符号引用，用于找出下游调用方或关联定义。',
+      description: '在整个代码库中利用 Git 索引全局检索符号引用、下游调用方或类/函数定义（支持正则表达式）。',
       parameters: {
         type: 'object',
         properties: {
           query: {
             type: 'string',
-            description: '搜索词 (例如: "DerivedAttributeSet" 或 "using GAS.Runtime")',
+            description: '搜索词或正则 (例如: "DerivedAttributeSet" 或 "class\\s+Player")',
           },
           file_extension: {
             type: 'string',
-            description: '限制文件扩展名 (可选，例如: ".cs" 或 ".ts")',
+            description: '限制文件扩展名过滤 (可选，例如: "*.cs" 或 "*.ts")',
           },
         },
         required: ['query'],
@@ -66,13 +66,13 @@ export const AGENT_TOOLS_DEFINITIONS: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'find_files',
-      description: '根据文件名模式模糊搜索文件路径，用于定位同名测试文件、配置文件或接口定义。',
+      description: '根据文件名模式通过 Git 索引快速定位文件路径，用于定位同名测试、接口契约或配置文件。',
       parameters: {
         type: 'object',
         properties: {
           pattern: {
             type: 'string',
-            description: '匹配模式 (例如: "AttributeSet" 或 "Test")',
+            description: '匹配模式 (例如: "*AttributeSet*" 或 "*Test*.cs")',
           },
         },
         required: ['pattern'],
@@ -83,9 +83,11 @@ export const AGENT_TOOLS_DEFINITIONS: ToolDefinition[] = [
 
 export class AgentTools {
   private repoRoot: string;
+  private git: SimpleGit;
 
   constructor(repoRoot: string) {
     this.repoRoot = path.resolve(repoRoot);
+    this.git = simpleGit(this.repoRoot);
   }
 
   private resolveSafePath(filePath: string): string {
@@ -147,9 +149,55 @@ export class AgentTools {
       return '搜索关键词过短';
     }
 
+    const maxResults = 35;
+    const cleanQuery = query.trim();
+
+    // 1. First Priority: Use high-speed native git grep (respects .gitignore, C-speed, multi-threaded)
+    try {
+      const gitArgs = ['grep', '-n', '-I', '-i', '-E', '-e', cleanQuery];
+      if (fileExtension) {
+        const globPattern = fileExtension.startsWith('*') ? fileExtension : `*${fileExtension}`;
+        gitArgs.push('--', globPattern);
+      }
+
+      const rawOutput = await this.git.raw(gitArgs);
+      if (rawOutput && rawOutput.trim()) {
+        const lines = rawOutput.trim().split('\n').filter(Boolean);
+        const limitedLines = lines.slice(0, maxResults);
+        const formatted = limitedLines
+          .map((line) => {
+            const parts = line.split(':');
+            if (parts.length >= 3) {
+              const file = parts[0];
+              const lineNum = parts[1];
+              const text = parts.slice(2).join(':').trim().slice(0, 200);
+              return `📄 ${file}:${lineNum} -> ${text}`;
+            }
+            return `📄 ${line.slice(0, 200)}`;
+          })
+          .join('\n');
+
+        return `【Git 索引高速检索 ("${cleanQuery}") - 匹配到 ${lines.length} 处 (展示前 ${limitedLines.length} 处)】:\n${formatted}`;
+      }
+    } catch (gitErr: any) {
+      // If git grep exited with 1, it means 0 matches found; if regex error, fallback to literal
+      if (gitErr.message && !gitErr.message.includes('exit code 1')) {
+        // Fallback to literal search if regex failed
+        try {
+          const literalArgs = ['grep', '-n', '-I', '-i', '-F', '-e', cleanQuery];
+          if (fileExtension) literalArgs.push('--', fileExtension.startsWith('*') ? fileExtension : `*${fileExtension}`);
+          const rawLiteral = await this.git.raw(literalArgs);
+          if (rawLiteral && rawLiteral.trim()) {
+            const lines = rawLiteral.trim().split('\n').filter(Boolean).slice(0, maxResults);
+            return `【Git 索引文本检索 ("${cleanQuery}")】:\n` + lines.map((l) => `📄 ${l.slice(0, 200)}`).join('\n');
+          }
+        } catch {}
+      }
+    }
+
+    // 2. Fallback: Fast directory walker (if outside Git)
     const results: { file: string; line: number; text: string }[] = [];
-    const maxResults = 30;
-    const lowerQuery = query.toLowerCase();
+    const lowerQuery = cleanQuery.toLowerCase();
 
     const walkDir = (dir: string) => {
       if (results.length >= maxResults) return;
@@ -178,7 +226,7 @@ export class AgentTools {
           }
           walkDir(fullPath);
         } else if (entry.isFile()) {
-          if (fileExtension && !entry.name.endsWith(fileExtension)) {
+          if (fileExtension && !entry.name.endsWith(fileExtension.replace('*', ''))) {
             continue;
           }
 
@@ -187,22 +235,20 @@ export class AgentTools {
             if (stat.size > 1024 * 1024) continue;
 
             const content = fs.readFileSync(fullPath, 'utf-8');
-            if (content.includes('\0')) continue; // skip binary
+            if (content.includes('\0')) continue;
 
-            const lines = content.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].toLowerCase().includes(lowerQuery)) {
+            const fileLines = content.split('\n');
+            for (let i = 0; i < fileLines.length; i++) {
+              if (fileLines[i].toLowerCase().includes(lowerQuery)) {
                 results.push({
                   file: relPath.replace(/\\/g, '/'),
                   line: i + 1,
-                  text: lines[i].trim().slice(0, 180),
+                  text: fileLines[i].trim().slice(0, 180),
                 });
                 if (results.length >= maxResults) break;
               }
             }
-          } catch {
-            // ignore unreadable files
-          }
+          } catch {}
         }
       }
     };
@@ -210,14 +256,14 @@ export class AgentTools {
     walkDir(this.repoRoot);
 
     if (results.length === 0) {
-      return `在代码库中未检索到关键词: "${query}"`;
+      return `在代码库中未检索到符号/关键词: "${cleanQuery}"`;
     }
 
     const formatted = results
       .map((r) => `📄 ${r.file}:${r.line} -> ${r.text}`)
       .join('\n');
 
-    return `【全局检索结果 ("${query}") - 共匹配 ${results.length} 处】:\n${formatted}`;
+    return `【代码库遍历检索 ("${cleanQuery}") - 共匹配 ${results.length} 处】:\n${formatted}`;
   }
 
   private async findFiles(pattern: string): Promise<string> {
@@ -225,9 +271,22 @@ export class AgentTools {
       return '文件名搜索词过短';
     }
 
+    const cleanPattern = pattern.trim();
+    const maxResults = 35;
+
+    // 1. First Priority: Git ls-files (instant C-speed index lookup)
+    try {
+      const globPattern = cleanPattern.includes('*') ? cleanPattern : `*${cleanPattern}*`;
+      const rawOutput = await this.git.raw(['ls-files', globPattern]);
+      if (rawOutput && rawOutput.trim()) {
+        const files = rawOutput.trim().split('\n').filter(Boolean).slice(0, maxResults);
+        return `【Git 快速定位文件 (共 ${files.length} 个)】:\n` + files.map((f) => `- ${f}`).join('\n');
+      }
+    } catch {}
+
+    // 2. Fallback: Fast directory walker
     const matchedFiles: string[] = [];
-    const maxResults = 30;
-    const lowerPattern = pattern.toLowerCase();
+    const lowerPattern = cleanPattern.toLowerCase();
 
     const walkDir = (dir: string) => {
       if (matchedFiles.length >= maxResults) return;
@@ -264,9 +323,9 @@ export class AgentTools {
     walkDir(this.repoRoot);
 
     if (matchedFiles.length === 0) {
-      return `未匹配到包含 "${pattern}" 的文件`;
+      return `未定位到匹配 "${cleanPattern}" 的文件`;
     }
 
-    return `【匹配到的文件路径】:\n` + matchedFiles.map((f) => `- ${f}`).join('\n');
+    return `【匹配到的文件路径 (共 ${matchedFiles.length} 个)】:\n` + matchedFiles.map((f) => `- ${f}`).join('\n');
   }
 }
