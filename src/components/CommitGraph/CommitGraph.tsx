@@ -254,37 +254,51 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 }`}
               >
                 {/* Commit Content */}
-                <div className="flex-1 flex items-center justify-between min-w-0 pr-2">
-                  <div className="flex items-center space-x-2 min-w-0">
+                <div className="flex-1 flex items-center justify-between min-w-0 pr-2 gap-2 overflow-hidden">
+                  <div className="flex-1 flex items-center space-x-1.5 min-w-0 overflow-hidden">
                     {/* Refs / Branch / Tag badges */}
                     {node.refs.length > 0 && (
-                      <div className="flex items-center space-x-1 shrink-0">
-                        {node.refs.map((ref) => {
+                      <div className="flex items-center space-x-1 shrink-0 max-w-[50%] overflow-hidden">
+                        {node.refs.slice(0, 2).map((ref) => {
                           const isHeadRef = ref.includes('HEAD');
                           const isTagRef = ref.startsWith('tag:');
+                          const cleanRef = ref.replace('tag: ', '').replace('HEAD -> ', '');
                           return (
                             <span
                               key={ref}
-                              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium flex items-center space-x-1 ${
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium flex items-center space-x-0.5 max-w-[130px] shrink-0 ${
                                 isHeadRef
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                   : isTagRef
                                   ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                                   : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
                               }`}
+                              title={cleanRef}
                             >
-                              {isTagRef ? <Tag className="w-2.5 h-2.5 mr-0.5" /> : <GitBranch className="w-2.5 h-2.5 mr-0.5" />}
-                              {ref.replace('tag: ', '').replace('HEAD -> ', '')}
+                              {isTagRef ? (
+                                <Tag className="w-2.5 h-2.5 shrink-0 mr-0.5" />
+                              ) : (
+                                <GitBranch className="w-2.5 h-2.5 shrink-0 mr-0.5" />
+                              )}
+                              <span className="truncate">{cleanRef}</span>
                             </span>
                           );
                         })}
+                        {node.refs.length > 2 && (
+                          <span
+                            className="text-[10px] px-1 py-0.5 rounded bg-white/10 text-slate-400 font-mono"
+                            title={node.refs.slice(2).join(', ')}
+                          >
+                            +{node.refs.length - 2}
+                          </span>
+                        )}
                       </div>
                     )}
 
                     {/* Commit Message */}
                     <span
-                      className={`text-xs font-medium truncate ${
-                        isCurrSelected ? 'text-white' : 'text-slate-200 group-hover:text-white'
+                      className={`text-xs font-medium truncate flex-1 min-w-[50px] ${
+                        isCurrSelected ? 'text-white font-semibold' : 'text-slate-200 group-hover:text-white'
                       }`}
                       title={node.message}
                     >
@@ -293,11 +307,11 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                   </div>
 
                   {/* Metadata: Author, Date, SHA */}
-                  <div className="flex items-center space-x-3 shrink-0 text-[11px] text-slate-400 font-mono ml-2">
-                    <span className="hidden xl:inline text-slate-400 truncate max-w-[100px] font-sans">
+                  <div className="flex items-center space-x-2.5 shrink-0 text-[11px] text-slate-400 font-mono ml-auto">
+                    <span className="hidden xl:inline text-slate-400 truncate max-w-[80px] font-sans">
                       {node.author}
                     </span>
-                    <span className="text-slate-500 whitespace-nowrap">{node.date.slice(5, 16)}</span>
+                    <span className="text-slate-500 whitespace-nowrap text-[10px]">{node.date.slice(5, 16)}</span>
                     <span className="bg-white/5 px-1.5 py-0.5 rounded text-slate-400 text-[10px]">
                       {node.shortHash}
                     </span>

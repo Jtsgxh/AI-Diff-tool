@@ -277,8 +277,8 @@ export const App: React.FC = () => {
 
       {/* Main 3-Column Workspace Layout (Fork-Style) */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Column: Commit Graph DAG (38% width) */}
-        <div className="w-[38%] min-w-[340px] max-w-[580px] h-full flex flex-col">
+        {/* Left Column: Commit Graph DAG */}
+        <div className="w-[42%] min-w-[360px] max-w-[700px] h-full flex flex-col">
           <CommitGraph
             commits={commits}
             selection={selection}
@@ -288,8 +288,8 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* Middle Column: Files Panel (22% width) */}
-        <div className="w-[22%] min-w-[220px] max-w-[340px] h-full flex flex-col">
+        {/* Middle Column: Files Panel */}
+        <div className="w-[20%] min-w-[200px] max-w-[320px] h-full flex flex-col">
           <FilesPanel
             diffResult={diffResult}
             selectedFilePath={selectedFilePath}
