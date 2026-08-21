@@ -58,6 +58,7 @@ export interface ExplanationScope {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  reasoning?: string;
   toolEvents?: AgentToolEvent[];
 }
 
@@ -69,8 +70,9 @@ export interface ReviewSession {
   engineMode: 'agent' | 'fast';
   isStreaming: boolean;
   initialReport: string;
+  initialReasoning?: string;
   currentFollowUpStream: string;
-  reasoningContent?: string;
+  currentFollowUpReasoning?: string;
   currentToolEvents: AgentToolEvent[];
   agentStatus: AgentStatusEvent | null;
   chatHistory: ChatMessage[];
@@ -184,8 +186,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           engineMode: mode,
           isStreaming: false,
           initialReport: cached.report,
+          initialReasoning: cached.reasoning || '',
           currentFollowUpStream: '',
-          reasoningContent: cached.reasoning || '',
+          currentFollowUpReasoning: '',
           currentToolEvents: cached.toolEvents || [],
           agentStatus: {
             type: 'status',
@@ -225,8 +228,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       engineMode: mode,
       isStreaming: true,
       initialReport: '',
+      initialReasoning: '',
       currentFollowUpStream: '',
-      reasoningContent: '',
+      currentFollowUpReasoning: '',
       currentToolEvents: [],
       agentStatus: {
         type: 'status',
@@ -293,7 +297,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             report: sess.initialReport,
             toolEvents: sess.currentToolEvents,
             chatHistory: sess.chatHistory,
-            reasoning: sess.reasoningContent,
+            reasoning: sess.initialReasoning,
             model: aiConfig.model,
             provider: aiConfig.provider,
           });
@@ -322,7 +326,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             accumulatedReasoning += chunk;
             updateSession(sessionId, (s) => ({
               ...s,
-              reasoningContent: (s.reasoningContent || '') + chunk,
+              initialReasoning: customPrompt
+                ? s.initialReasoning
+                : (s.initialReasoning || '') + chunk,
+              currentFollowUpReasoning: customPrompt
+                ? (s.currentFollowUpReasoning || '') + chunk
+                : '',
             }));
           },
           onToolEvent: (event) => {
@@ -358,6 +367,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                   {
                     role: 'assistant',
                     content: accumulatedStream,
+                    reasoning: accumulatedReasoning,
                     toolEvents: latestSession?.currentToolEvents,
                   },
                 ]
@@ -366,6 +376,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             const finalReport = customPrompt
               ? latestSession?.initialReport || ''
               : accumulatedStream;
+
+            const finalInitialReasoning = customPrompt
+              ? latestSession?.initialReasoning || ''
+              : accumulatedReasoning;
 
             updateSession(sessionId, (s) => ({
               ...s,
@@ -377,13 +391,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               },
               chatHistory: updatedChatHistory,
               currentFollowUpStream: '',
+              currentFollowUpReasoning: '',
             }));
 
             aiCache.set(cacheKey, {
               report: finalReport,
               toolEvents: latestSession?.currentToolEvents || accumulatedToolEvents,
               chatHistory: updatedChatHistory,
-              reasoning: latestSession?.reasoningContent || accumulatedReasoning,
+              reasoning: finalInitialReasoning,
               model: aiConfig.model,
               provider: aiConfig.provider,
             });
@@ -412,7 +427,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             accumulatedReasoning += chunk;
             updateSession(sessionId, (s) => ({
               ...s,
-              reasoningContent: (s.reasoningContent || '') + chunk,
+              initialReasoning: customPrompt
+                ? s.initialReasoning
+                : (s.initialReasoning || '') + chunk,
+              currentFollowUpReasoning: customPrompt
+                ? (s.currentFollowUpReasoning || '') + chunk
+                : '',
             }));
           },
           onChunk: (chunk) => {
@@ -428,13 +448,21 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             const updatedChatHistory: ChatMessage[] = customPrompt
               ? [
                   ...(latestSession?.chatHistory || []),
-                  { role: 'assistant', content: accumulatedStream },
+                  {
+                    role: 'assistant',
+                    content: accumulatedStream,
+                    reasoning: accumulatedReasoning,
+                  },
                 ]
               : latestSession?.chatHistory || [];
 
             const finalReport = customPrompt
               ? latestSession?.initialReport || ''
               : accumulatedStream;
+
+            const finalInitialReasoning = customPrompt
+              ? latestSession?.initialReasoning || ''
+              : accumulatedReasoning;
 
             updateSession(sessionId, (s) => ({
               ...s,
@@ -446,13 +474,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               },
               chatHistory: updatedChatHistory,
               currentFollowUpStream: '',
+              currentFollowUpReasoning: '',
             }));
 
             aiCache.set(cacheKey, {
               report: finalReport,
               toolEvents: latestSession?.currentToolEvents || [],
               chatHistory: updatedChatHistory,
-              reasoning: latestSession?.reasoningContent || accumulatedReasoning,
+              reasoning: finalInitialReasoning,
               model: aiConfig.model,
               provider: aiConfig.provider,
             });
@@ -554,7 +583,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       report: activeSession.initialReport,
       toolEvents: activeSession.currentToolEvents,
       chatHistory: nextChatHistory,
-      reasoning: activeSession.reasoningContent,
+      reasoning: activeSession.initialReasoning,
       model: aiConfig.model,
       provider: aiConfig.provider,
     });
@@ -814,8 +843,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 </div>
               )}
 
-            {/* 🧠 AI 深度思维推理链 (Thinking Process Accordion) */}
-            {activeSession.reasoningContent && (
+            {/* 🧠 初始审查深度思维推理链 (Thinking Process Accordion) */}
+            {activeSession.initialReasoning && (
               <div className="border border-purple-500/30 bg-[#161524] rounded-xl overflow-hidden shadow-md">
                 <div
                   onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
@@ -824,16 +853,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                   <div className="flex items-center space-x-2 text-xs font-semibold text-purple-200">
                     <Brain
                       className={`w-4 h-4 text-amber-300 ${
-                        activeSession.isStreaming &&
-                        !activeSession.initialReport &&
-                        !activeSession.currentFollowUpStream
+                        activeSession.isStreaming && !activeSession.initialReport
                           ? 'animate-pulse'
                           : ''
                       }`}
                     />
-                    <span>AI 深度思维推理链 (Thinking Process)</span>
+                    <span>初始审查深度思维推理链 (Thinking Process)</span>
                     <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px]">
-                      {activeSession.reasoningContent.length} 字符
+                      {activeSession.initialReasoning.length} 字符
                     </span>
                   </div>
                   <div className="flex items-center space-x-1.5 text-xs text-purple-300">
@@ -850,7 +877,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
                 {isThinkingExpanded && (
                   <div className="p-3.5 max-h-72 overflow-y-auto bg-[#101018] text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap selection:bg-purple-500/30 border-t border-white/5">
-                    {activeSession.reasoningContent}
+                    {activeSession.initialReasoning}
                   </div>
                 )}
               </div>
@@ -947,7 +974,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             )}
 
             {/* Chat Follow-Up History & Active Streaming */}
-            {(activeSession.chatHistory.length > 0 || activeSession.currentFollowUpStream) && (
+            {(activeSession.chatHistory.length > 0 ||
+              activeSession.currentFollowUpStream ||
+              activeSession.currentFollowUpReasoning) && (
               <div className="space-y-3.5 pt-4 border-t border-white/10">
                 <div className="flex items-center space-x-2 text-xs font-semibold text-purple-300">
                   <Bot className="w-4 h-4 text-purple-400" />
@@ -974,6 +1003,24 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                           : 'bg-[#181924] border border-white/5 text-slate-200'
                       }`}
                     >
+                      {/* Follow-up assistant message thinking chain accordion */}
+                      {msg.role === 'assistant' && msg.reasoning && (
+                        <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs">
+                          <details className="group">
+                            <summary className="flex items-center justify-between px-3 py-1.5 bg-purple-950/40 cursor-pointer select-none text-purple-300 hover:text-purple-200 hover:bg-purple-900/40 transition">
+                              <div className="flex items-center space-x-1.5 font-medium text-[11px]">
+                                <Brain className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                                <span>思考过程 ({msg.reasoning.length} 字符)</span>
+                              </div>
+                              <span className="text-[10px] text-purple-400 group-open:hidden">点击展开</span>
+                            </summary>
+                            <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0E0D17] text-[11px] font-mono text-slate-300 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
+                              {msg.reasoning}
+                            </div>
+                          </details>
+                        </div>
+                      )}
+
                       <div
                         className="prose prose-invert prose-xs max-w-none"
                         dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
@@ -989,21 +1036,47 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 ))}
 
                 {/* Active Streaming Follow-Up Bubble */}
-                {activeSession.isStreaming && activeSession.currentFollowUpStream && (
-                  <div className="flex items-start space-x-2.5 justify-start">
-                    <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
-                      <Bot className="w-3.5 h-3.5 text-purple-300" />
+                {activeSession.isStreaming &&
+                  (activeSession.currentFollowUpStream ||
+                    activeSession.currentFollowUpReasoning) && (
+                    <div className="flex items-start space-x-2.5 justify-start">
+                      <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
+                        <Bot className="w-3.5 h-3.5 text-purple-300" />
+                      </div>
+                      <div className="p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed bg-[#181924] border border-purple-500/30 text-slate-200 shadow-md flex-1">
+                        {/* Live reasoning during follow-up stream */}
+                        {activeSession.currentFollowUpReasoning && (
+                          <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs shadow-inner">
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-purple-950/50 text-purple-300 border-b border-white/5">
+                              <div className="flex items-center space-x-1.5 font-medium text-[11px]">
+                                <Brain className="w-3.5 h-3.5 text-amber-300 animate-pulse shrink-0" />
+                                <span>
+                                  正在思考追问... ({activeSession.currentFollowUpReasoning.length} 字符)
+                                </span>
+                              </div>
+                            </div>
+                            <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0E0D17] text-[11px] font-mono text-purple-200/90 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
+                              {activeSession.currentFollowUpReasoning}
+                            </div>
+                          </div>
+                        )}
+
+                        {activeSession.currentFollowUpStream ? (
+                          <div
+                            className="prose prose-invert prose-xs max-w-none"
+                            dangerouslySetInnerHTML={{
+                              __html: marked.parse(activeSession.currentFollowUpStream),
+                            }}
+                          />
+                        ) : (
+                          <div className="flex items-center space-x-2 text-purple-400 text-xs py-1">
+                            <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                            <span>AI 正在组织追问解答...</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed bg-[#181924] border border-purple-500/30 text-slate-200 shadow-md">
-                      <div
-                        className="prose prose-invert prose-xs max-w-none"
-                        dangerouslySetInnerHTML={{
-                          __html: marked.parse(activeSession.currentFollowUpStream),
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
+                  )}
               </div>
             )}
 
