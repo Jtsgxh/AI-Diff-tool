@@ -111,8 +111,20 @@ export interface StreamExplainPayload {
   onError: (err: Error) => void;
 }
 
+const activeStreams = new Map<string, () => void>();
+
 export async function streamExplainDiff(payload: StreamExplainPayload): Promise<() => void> {
   const abortController = new AbortController();
+
+  // Deduplicate: cancel any identical in-flight stream
+  const requestFingerprint = `diff::${payload.scopeType || ''}::${payload.filePath || ''}::${
+    payload.targetLine?.lineNumber || ''
+  }::${payload.userPrompt || ''}::${payload.diff?.length || 0}`;
+
+  if (activeStreams.has(requestFingerprint)) {
+    activeStreams.get(requestFingerprint)?.();
+    activeStreams.delete(requestFingerprint);
+  }
 
   // Determine session title & type for AI Logger
   let title = '⚡ 直接 Diff 解释';
@@ -139,6 +151,20 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
     userPrompt: payload.userPrompt,
     inputDiff: payload.diff,
   });
+
+  const cleanup = () => {
+    if (activeStreams.get(requestFingerprint) === cancel) {
+      activeStreams.delete(requestFingerprint);
+    }
+  };
+
+  const cancel = () => {
+    cleanup();
+    aiLogger.abortSession(logSessionId);
+    abortController.abort();
+  };
+
+  activeStreams.set(requestFingerprint, cancel);
 
   try {
     const res = await fetch(`${API_BASE}/ai/explain/stream`, {
@@ -187,6 +213,7 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
             const dataStr = trimmed.slice(6);
 
             if (dataStr === '[DONE]') {
+              cleanup();
               aiLogger.completeSession(logSessionId);
               payload.onComplete();
               return;
@@ -204,9 +231,11 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
             }
           }
         }
+        cleanup();
         aiLogger.completeSession(logSessionId);
         payload.onComplete();
       } catch (err: any) {
+        cleanup();
         if (err.name !== 'AbortError') {
           aiLogger.errorSession(logSessionId, err.message);
           payload.onError(err);
@@ -217,11 +246,9 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
     };
 
     read();
-    return () => {
-      aiLogger.abortSession(logSessionId);
-      abortController.abort();
-    };
+    return cancel;
   } catch (err: any) {
+    cleanup();
     if (err.name !== 'AbortError') {
       aiLogger.errorSession(logSessionId, err.message);
       payload.onError(err);
@@ -274,7 +301,19 @@ export async function streamAgentExplainDiff(
 ): Promise<() => void> {
   const abortController = new AbortController();
 
-  const title = `🧠 Codex 智能体深度审查 (${payload.filePath ? payload.filePath.split('/').pop() : '全库探查'})`;
+  // Deduplicate: cancel any identical in-flight agent stream
+  const requestFingerprint = `agent::${payload.repoPath}::${payload.scopeType || ''}::${
+    payload.filePath || ''
+  }::${payload.userPrompt || ''}::${payload.diff?.length || 0}`;
+
+  if (activeStreams.has(requestFingerprint)) {
+    activeStreams.get(requestFingerprint)?.();
+    activeStreams.delete(requestFingerprint);
+  }
+
+  const title = `🧠 Codex 智能体深度审查 (${
+    payload.filePath ? payload.filePath.split('/').pop() : '全库探查'
+  })`;
   const logSessionId = aiLogger.startSession({
     title,
     type: 'agent',
@@ -284,6 +323,20 @@ export async function streamAgentExplainDiff(
     userPrompt: payload.userPrompt,
     inputDiff: payload.diff,
   });
+
+  const cleanup = () => {
+    if (activeStreams.get(requestFingerprint) === cancel) {
+      activeStreams.delete(requestFingerprint);
+    }
+  };
+
+  const cancel = () => {
+    cleanup();
+    aiLogger.abortSession(logSessionId);
+    abortController.abort();
+  };
+
+  activeStreams.set(requestFingerprint, cancel);
 
   try {
     const res = await fetch(`${API_BASE}/ai/agent/explain/stream`, {
@@ -335,6 +388,7 @@ export async function streamAgentExplainDiff(
             try {
               const event = JSON.parse(dataStr);
               if (event.type === 'done') {
+                cleanup();
                 aiLogger.completeSession(logSessionId);
                 payload.onComplete();
                 return;
@@ -368,9 +422,11 @@ export async function streamAgentExplainDiff(
             }
           }
         }
+        cleanup();
         aiLogger.completeSession(logSessionId);
         payload.onComplete();
       } catch (err: any) {
+        cleanup();
         if (err.name !== 'AbortError') {
           aiLogger.errorSession(logSessionId, err.message);
           payload.onError(err);
@@ -381,11 +437,9 @@ export async function streamAgentExplainDiff(
     };
 
     read();
-    return () => {
-      aiLogger.abortSession(logSessionId);
-      abortController.abort();
-    };
+    return cancel;
   } catch (err: any) {
+    cleanup();
     if (err.name !== 'AbortError') {
       aiLogger.errorSession(logSessionId, err.message);
       payload.onError(err);

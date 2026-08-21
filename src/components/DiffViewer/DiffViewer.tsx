@@ -197,28 +197,38 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   // Toggle Pseudocode for an individual Hunk (guaranteed 2-way on/off toggle + AI trigger)
   const toggleHunkPseudocode = (hunkId: string, hunk?: DiffHunk) => {
-    setHunkPseudocodeSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(hunkId)) {
+    const isCurrentlyOn = hunkPseudocodeSet.has(hunkId);
+
+    if (isCurrentlyOn) {
+      // Turn off
+      setHunkPseudocodeSet((prev) => {
+        const next = new Set(prev);
         next.delete(hunkId);
-        // Abort in-flight request if user turns off
-        if (activeAbortsRef.current.has(hunkId)) {
-          activeAbortsRef.current.get(hunkId)?.();
-          activeAbortsRef.current.delete(hunkId);
-        }
         return next;
-      } else {
-        next.add(hunkId);
-        if (hunk && aiConfig.apiKey) {
-          const isAlreadyLoaded = (hunkAiLineMap[hunkId]?.dels?.length || 0) > 0 || (hunkAiLineMap[hunkId]?.adds?.length || 0) > 0;
-          const isLoading = hunkAiLineMap[hunkId]?.loading;
-          if (!isAlreadyLoaded && !isLoading) {
-            fetchAiPseudocode(hunkId, hunk);
-          }
-        }
-        return next;
+      });
+      // Abort in-flight request if user turns off
+      if (activeAbortsRef.current.has(hunkId)) {
+        activeAbortsRef.current.get(hunkId)?.();
+        activeAbortsRef.current.delete(hunkId);
       }
-    });
+    } else {
+      // Turn on
+      setHunkPseudocodeSet((prev) => {
+        const next = new Set(prev);
+        next.add(hunkId);
+        return next;
+      });
+
+      if (hunk && (aiConfig.apiKey || aiConfig.provider === 'ollama')) {
+        const isAlreadyLoaded =
+          (hunkAiLineMap[hunkId]?.dels?.length || 0) > 0 ||
+          (hunkAiLineMap[hunkId]?.adds?.length || 0) > 0;
+        const isLoading = hunkAiLineMap[hunkId]?.loading;
+        if (!isAlreadyLoaded && !isLoading) {
+          fetchAiPseudocode(hunkId, hunk);
+        }
+      }
+    }
   };
 
   // Global Toggle Pseudocode for all Hunks
@@ -231,9 +241,11 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     } else {
       const newSet = new Set(hunks.map((h) => h.id));
       setHunkPseudocodeSet(newSet); // Turn all on
-      if (aiConfig.apiKey) {
+      if (aiConfig.apiKey || aiConfig.provider === 'ollama') {
         hunks.forEach((h) => {
-          const isAlreadyLoaded = (hunkAiLineMap[h.id]?.dels?.length || 0) > 0 || (hunkAiLineMap[h.id]?.adds?.length || 0) > 0;
+          const isAlreadyLoaded =
+            (hunkAiLineMap[h.id]?.dels?.length || 0) > 0 ||
+            (hunkAiLineMap[h.id]?.adds?.length || 0) > 0;
           const isLoading = hunkAiLineMap[h.id]?.loading;
           if (!isAlreadyLoaded && !isLoading) {
             fetchAiPseudocode(h.id, h);
@@ -249,56 +261,62 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   // Toggle Inline Natural Language for a specific Hunk (ONLY ON CLICK)
   const toggleHunkNaturalLanguage = (hunkId: string, hunk: DiffHunk) => {
-    setExpandedNaturalHunkIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(hunkId)) {
+    const isCurrentlyExpanded = expandedNaturalHunkIds.has(hunkId);
+
+    if (isCurrentlyExpanded) {
+      setExpandedNaturalHunkIds((prev) => {
+        const next = new Set(prev);
         next.delete(hunkId);
         return next;
-      } else {
+      });
+    } else {
+      setExpandedNaturalHunkIds((prev) => {
+        const next = new Set(prev);
         next.add(hunkId);
-
-        // Fetch AI translation if not yet loaded
-        if (!hunkNaturalContent[hunkId]?.text && !hunkNaturalContent[hunkId]?.loading) {
-          setHunkNaturalContent((c) => ({
-            ...c,
-            [hunkId]: { text: '', loading: true },
-          }));
-
-          const hunkDiffText = getHunkDiffText(hunk);
-          const prompt = aiConfig.naturalLanguagePrompt?.trim() || DEFAULT_PROMPTS.naturalLanguagePrompt;
-
-          streamExplainDiff({
-            scopeType: 'chunk',
-            filePath: file.newPath,
-            diff: hunkDiffText,
-            userPrompt: prompt,
-            config: aiConfig,
-            onChunk: (chunk: string) => {
-              setHunkNaturalContent((c) => ({
-                ...c,
-                [hunkId]: { text: (c[hunkId]?.text || '') + chunk, loading: true },
-              }));
-            },
-            onComplete: () => {
-              setHunkNaturalContent((c) => ({
-                ...c,
-                [hunkId]: { text: c[hunkId]?.text || '', loading: false },
-              }));
-            },
-            onError: (err: Error) => {
-              setHunkNaturalContent((c) => ({
-                ...c,
-                [hunkId]: {
-                  text: (c[hunkId]?.text || '') + `\n\n*(转译异常: ${err.message})*`,
-                  loading: false,
-                },
-              }));
-            },
-          });
-        }
         return next;
+      });
+
+      // Fetch AI translation if not yet loaded
+      if (!hunkNaturalContent[hunkId]?.text && !hunkNaturalContent[hunkId]?.loading) {
+        setHunkNaturalContent((c) => ({
+          ...c,
+          [hunkId]: { text: '', loading: true },
+        }));
+
+        const hunkDiffText = getHunkDiffText(hunk);
+        const prompt =
+          aiConfig.naturalLanguagePrompt?.trim() || DEFAULT_PROMPTS.naturalLanguagePrompt;
+
+        streamExplainDiff({
+          scopeType: 'chunk',
+          filePath: file.newPath,
+          diff: hunkDiffText,
+          userPrompt: prompt,
+          config: aiConfig,
+          onChunk: (chunk: string) => {
+            setHunkNaturalContent((c) => ({
+              ...c,
+              [hunkId]: { text: (c[hunkId]?.text || '') + chunk, loading: true },
+            }));
+          },
+          onComplete: () => {
+            setHunkNaturalContent((c) => ({
+              ...c,
+              [hunkId]: { text: c[hunkId]?.text || '', loading: false },
+            }));
+          },
+          onError: (err: Error) => {
+            setHunkNaturalContent((c) => ({
+              ...c,
+              [hunkId]: {
+                text: (c[hunkId]?.text || '') + `\n\n*(转译异常: ${err.message})*`,
+                loading: false,
+              },
+            }));
+          },
+        });
       }
-    });
+    }
   };
 
   const renderHunkUnifiedLines = (hunk: DiffHunk, isHunkPseudocode: boolean) => {

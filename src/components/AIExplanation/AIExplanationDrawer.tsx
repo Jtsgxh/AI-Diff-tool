@@ -78,6 +78,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const abortStreamRef = useRef<(() => void) | null>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<any>(null);
+  const lastRequestedKeyRef = useRef<string>('');
 
   // Timer for execution elapsed time
   useEffect(() => {
@@ -96,18 +97,23 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     };
   }, [isStreaming]);
 
-  // Sync initialMode when scope opens
-  useEffect(() => {
-    if (scope?.initialMode) {
-      setEngineMode(scope.initialMode);
-    }
-  }, [scope]);
-
-  // Trigger initial explanation when scope changes or mode changes
+  // Trigger initial explanation strictly once when scope or mode changes
   useEffect(() => {
     if (isOpen && scope) {
-      handleStartExplanation();
+      const targetMode = scope.initialMode || engineMode;
+      if (scope.initialMode && scope.initialMode !== engineMode) {
+        setEngineMode(scope.initialMode);
+      }
+
+      const requestKey = `${scope.type}::${scope.filePath}::${scope.diff?.length || 0}::${targetMode}`;
+      if (lastRequestedKeyRef.current === requestKey) {
+        return; // Deduplicate
+      }
+      lastRequestedKeyRef.current = requestKey;
+
+      handleStartExplanation(undefined, targetMode);
     } else {
+      lastRequestedKeyRef.current = '';
       if (abortStreamRef.current) {
         abortStreamRef.current();
       }
@@ -119,8 +125,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [streamContent, currentToolEvents, agentStatus, chatHistory]);
 
-  const handleStartExplanation = async (customPrompt?: string) => {
+  const handleStartExplanation = async (
+    customPrompt?: string,
+    modeOverride?: 'agent' | 'fast'
+  ) => {
     if (!scope) return;
+    const modeToUse = modeOverride || engineMode;
 
     if (abortStreamRef.current) {
       abortStreamRef.current();
@@ -132,8 +142,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     setAgentStatus({
       type: 'status',
       phase: 'initializing',
-      message: engineMode === 'agent' ? 'Codex 智能体已连接，准备探索代码库...' : 'AI 正在解析 Diff...',
+      message:
+        modeToUse === 'agent'
+          ? 'Codex 智能体已连接，准备探索代码库...'
+          : 'AI 正在解析 Diff...',
     });
+    setElapsedSeconds(0);
 
     if (!customPrompt) {
       setStreamContent('');
@@ -155,7 +169,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
       let cancel: () => void;
 
-      if (engineMode === 'agent') {
+      if (modeToUse === 'agent') {
         // Agentic Autonomous Multi-File Exploration Mode
         cancel = await streamAgentExplainDiff({
           repoPath,
