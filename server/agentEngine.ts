@@ -167,20 +167,23 @@ export class CodexAgentEngine {
 
 【探查阶段与目标】：
 1. 你的核心使命是全面、透彻地审查给定的 Git Diff。
-2. 你可以使用工具主动查阅相关源文件或搜索下游引用（建议聚焦于核心类继承、关键接口与直接调用方，避免探查无关构建脚本）。
-3. 探查通常在 3~6 次关键工具调用后即可获得充足证据。当你获得足够信息后，请停止调用工具。
+2. 你可以使用工具主动查阅相关源文件或搜索下游引用（聚焦于核心类继承、关键接口与直接调用方，避免探查无关构建脚本）。
+3. 探查通常在 3~5 次关键工具调用后即可获得充足证据。收集完核心证据后，立即输出审查报告。
 
 【可用工具】：
 - \`read_file\`: 阅读仓库中指定文件的关键代码。
 - \`search_code\`: 全局搜索某个核心符号/类名的下游引用。
 - \`find_files\`: 模糊搜索文件名。
 
-【最终审查报告结构】：
+【最终审查报告严格结构 (Markdown)】：
+### 📝 核心代码改动剖析与逐行解释 (Code Logic Breakdown)
+【最重要部分 / 必须置于第一部分】：直击要害，逐行/逐点深入解析当前修改的代码逻辑。详细拆解添加（+）、删除（-）或重构的核心语句、函数逻辑、变量含义、参数调整以及为何这样改动。
+
 ### 🌐 全局架构与改动意图 (Cross-Module Context & Intent)
-结合探查到的外部代码库结构，说明本次改动的宏观目的。
+结合探查到的外部代码库结构与文件关系，说明本次改动的宏观架构目的与业务背景。
 
 ### 🔍 跨文件影响与关键依赖分析 (Impact & Callers Analysis)
-分析本次修改对外部类、下游调用方及命名空间的影响，指出是否存在破坏性变更。
+分析本次修改对外部类、下游调用方及命名空间的影响，指出是否存在破坏性变更或引用缺失。
 
 ### ⚠️ 深度风险雷达与边界隐患 (Risk Radar)
 检查并发安全性（竞态/死锁）、内存/资源管理、空异常、异常逃逸等。
@@ -197,14 +200,14 @@ export class CodexAgentEngine {
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
         5000
-      )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查。`;
+      )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查（报告首先必须详细剖析该行代码与核心逻辑改动）。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
       }\n\`\`\`diff\n${diff.slice(
         0,
         8000
-      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请结合代码库进行跨文件关联审查。`;
+      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请结合代码库进行跨文件关联审查。报告的第一部分必须是【📝 核心代码改动剖析与逐行解释】。`;
     }
 
     const messages: any[] = [
@@ -379,12 +382,11 @@ export class CodexAgentEngine {
       );
 
       if (!finalReportText) {
-        // If report wasn't generated yet (e.g. exploration budget ended or model outputted intermediate thoughts),
-        // explicitly prompt for the complete structured report!
+        // Explicitly prompt for the complete structured report, emphasizing the code explanation first
         messages.push({
           role: 'user',
           content:
-            '【探查阶段结束】请根据上述探查到的全部代码上下文与修改差异，立即输出一份完整、严谨、深度的 Markdown 代码审查报告。必须包含【全局架构与改动意图】、【跨文件影响与关键依赖分析】、【深度风险雷达】与【架构重构与测试建议】。',
+            '【探查阶段结束】请根据上述探查到的全部代码上下文与修改差异，立即输出一份完整、严谨、深度的 Markdown 代码审查报告。第一部分必须是【📝 核心代码改动剖析与逐行解释】（深入解析每处增删的具体代码逻辑与语句含义），随后包含【全局架构与改动意图】、【跨文件影响与关键依赖分析】、【深度风险雷达】与【架构重构与测试建议】。',
         });
 
         const synthesisRes = await fetchWithRetry(
