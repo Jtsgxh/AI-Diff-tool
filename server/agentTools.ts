@@ -124,15 +124,15 @@ export class AgentTools {
       return `路径不是文件: ${filePath}`;
     }
 
-    if (stat.size > 2 * 1024 * 1024) {
-      return `文件过大 (${Math.round(stat.size / 1024)}KB)，只允许读取小型源文件`;
+    if (stat.size > 5 * 1024 * 1024) {
+      return `文件过大 (${Math.round(stat.size / 1024)}KB)，只允许读取源文件`;
     }
 
     const content = fs.readFileSync(fullPath, 'utf-8');
     const lines = content.split('\n');
 
     const start = Math.max(1, startLine || 1);
-    const end = Math.min(lines.length, endLine || (startLine ? start + 120 : 150));
+    const end = Math.min(lines.length, endLine || (startLine ? start + 250 : Math.min(lines.length, 300)));
 
     const selectedLines = lines.slice(start - 1, end);
     const numberedContent = selectedLines
@@ -148,7 +148,7 @@ export class AgentTools {
     }
 
     const results: { file: string; line: number; text: string }[] = [];
-    const maxResults = 25;
+    const maxResults = 30;
     const lowerQuery = query.toLowerCase();
 
     const walkDir = (dir: string) => {
@@ -168,7 +168,6 @@ export class AgentTools {
         const relPath = path.relative(this.repoRoot, fullPath);
 
         if (entry.isDirectory()) {
-          // Ignore typical build/hidden folders
           if (
             entry.name.startsWith('.') ||
             ['node_modules', 'bin', 'obj', 'dist', 'build', '.git', 'target', 'vendor'].includes(
@@ -183,10 +182,9 @@ export class AgentTools {
             continue;
           }
 
-          // Ignore large/binary files
           try {
             const stat = fs.statSync(fullPath);
-            if (stat.size > 500 * 1024) continue;
+            if (stat.size > 1024 * 1024) continue;
 
             const content = fs.readFileSync(fullPath, 'utf-8');
             if (content.includes('\0')) continue; // skip binary
@@ -197,7 +195,7 @@ export class AgentTools {
                 results.push({
                   file: relPath.replace(/\\/g, '/'),
                   line: i + 1,
-                  text: lines[i].trim().slice(0, 150),
+                  text: lines[i].trim().slice(0, 180),
                 });
                 if (results.length >= maxResults) break;
               }

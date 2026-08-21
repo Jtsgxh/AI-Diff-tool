@@ -48,11 +48,11 @@ function extractAndStripDSML(content: string): {
   return { cleanText, toolCalls };
 }
 
-// Robust fetch with configurable timeout (30s) and automatic retry (2 attempts)
+// Robust fetch with 45s timeout per turn and automatic 2-attempt retry on network drop
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  timeoutMs: number = 30000,
+  timeoutMs: number = 45000,
   maxRetries: number = 2,
   onRetry?: (attempt: number, errorMsg: string) => void
 ): Promise<globalThis.Response> {
@@ -89,7 +89,7 @@ async function fetchWithRetry(
         onRetry?.(attempt, errorMsg);
         await new Promise((r) => setTimeout(r, attempt * 1500));
       } else {
-        throw new Error(`模型请求失败 (${errorMsg})，已重试 ${maxRetries} 次`);
+        throw new Error(`模型请求异常 (${errorMsg})，已重试 ${maxRetries} 次`);
       }
     }
   }
@@ -166,14 +166,14 @@ export class CodexAgentEngine {
 
     const systemPrompt = `你是由 OpenAI Codex 与智能体架构驱动的资深软件架构师。你拥有对当前完整代码库的文件系统访问与符号检索工具。
 
-【自主探索与决策原则】：
-1. 仔细分析给定的 Git 差异。若发现不确定的类继承、接口声明、函数调用、跨文件依赖或命名空间变更，自主调用工具检索最核心的文件或符号。
-2. 优先针对核心修改符号检索，避免搜索如 "Enabled"、"Get" 这类过于宽泛的泛词。
-3. 当你已查阅 2-4 个关键关联上下文后，应自主结束工具调用，直接输出一份结构完整、论据扎实、跨模块的全景 Markdown 审查报告。
+【完全自主决策原则】：
+1. 仔细阅读给定的 Git 差异。若发现不确定的类继承、接口声明、函数调用、跨文件依赖或命名空间变更，请根据实际需要自主决定调用工具探查代码库。
+2. 你拥有完全的自主权，根据代码复杂度自行决定调用哪些工具（查阅文件、全局搜索引用、定位测试等）以及探查多少轮次。
+3. 当你判断已收集到充分的上下文信息后，自主结束工具调用，直接输出一份结构完整、论据扎实、跨模块的全景 Markdown 审查报告。
 
 【可用工具】：
-- \`read_file\`: 阅读仓库中指定文件的关键代码段或完整实现。
-- \`search_code\`: 全局搜索某个核心符号、类名、接口或关键调用（用于评估下游影响）。
+- \`read_file\`: 阅读仓库中指定文件的源代码（可指定 start_line 与 end_line）。
+- \`search_code\`: 全局搜索某个符号、类名、接口或函数调用的所有使用位置（用于评估下游影响）。
 - \`find_files\`: 模糊搜索文件名，定位同名测试、接口契约或配置文件。
 
 【最终审查报告结构 (Markdown)】：
@@ -197,14 +197,14 @@ export class CodexAgentEngine {
         targetLine.content
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
-        5000
+        6000
       )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查。如需跨文件信息请自主决定调用工具，收集完毕后输出报告。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
       }\n\`\`\`diff\n${diff.slice(
         0,
-        7000
+        9000
       )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请自主分析并决定是否探查关联代码文件或搜索引用，收集充分后输出深度审查报告。`;
     }
 
@@ -217,16 +217,14 @@ export class CodexAgentEngine {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    let totalToolsExecuted = 0;
-    const maxIterations = 5; // 5 rounds maximum
+    const maxIterations = 12; // Generous ceiling for complete autonomous exploration
     let iteration = 0;
 
     try {
       while (iteration < maxIterations) {
         iteration++;
 
-        // If executed >= 6 tools or reached max iterations, force final report synthesis
-        const isForceSynthesis = iteration >= maxIterations || totalToolsExecuted >= 6;
+        const isLastIteration = iteration >= maxIterations;
 
         // Emit thinking status
         res.write(
@@ -236,14 +234,12 @@ export class CodexAgentEngine {
             message:
               iteration === 1
                 ? '第 1 轮决策：正在分析 Diff 语义特征与外部引用...'
-                : isForceSynthesis
-                ? '已收集充分上下文，正在合成全景审查报告...'
-                : `第 ${iteration} 轮决策：已获取关联代码，正在综合推理...`,
+                : `第 ${iteration} 轮决策：已获取关联代码，Codex 正在自主推理...`,
             step: iteration,
           })}\n\n`
         );
 
-        // Call LLM with 30s timeout & automatic 2-attempt retry
+        // Call LLM with 45s timeout per turn & automatic 2-attempt retry on network drops
         const response = await fetchWithRetry(
           url,
           {
@@ -252,19 +248,19 @@ export class CodexAgentEngine {
             body: JSON.stringify({
               model: model || 'deepseek-chat',
               messages,
-              tools: isForceSynthesis ? undefined : AGENT_TOOLS_DEFINITIONS,
-              tool_choice: isForceSynthesis ? 'none' : 'auto',
+              tools: isLastIteration ? undefined : AGENT_TOOLS_DEFINITIONS,
+              tool_choice: isLastIteration ? 'none' : 'auto',
               stream: false,
             }),
           },
-          30000, // 30s timeout
+          45000, // 45s timeout per turn
           2, // 2 retries
           (attempt, errorMsg) => {
             res.write(
               `data: ${JSON.stringify({
                 type: 'status',
                 phase: 'thinking',
-                message: `⚠️ 模型请求较慢 (${errorMsg})，正在进行第 ${attempt}/2 次自动重试...`,
+                message: `⚠️ 网络/模型响应较慢 (${errorMsg})，正在进行第 ${attempt}/2 次自动重试...`,
                 step: iteration,
               })}\n\n`
             );
@@ -304,10 +300,8 @@ export class CodexAgentEngine {
           );
         }
 
-        if (activeToolCalls.length > 0 && !isForceSynthesis) {
-          // Limit to max 3 tools per batch to prevent explosion
-          const batchCalls = activeToolCalls.slice(0, 3);
-          const toolNames = batchCalls.map((t) => t.function.name).join(', ');
+        if (activeToolCalls.length > 0 && !isLastIteration) {
+          const toolNames = activeToolCalls.map((t) => t.function.name).join(', ');
 
           res.write(
             `data: ${JSON.stringify({
@@ -321,12 +315,11 @@ export class CodexAgentEngine {
           messages.push({
             role: 'assistant',
             content: cleanText || null,
-            tool_calls: batchCalls,
+            tool_calls: activeToolCalls,
           });
 
           // Execute all tools requested by the Agent
-          for (const toolCall of batchCalls) {
-            totalToolsExecuted++;
+          for (const toolCall of activeToolCalls) {
             const funcName = toolCall.function.name;
             let args: any = {};
             try {
@@ -354,23 +347,15 @@ export class CodexAgentEngine {
                 id: toolCallId,
                 name: funcName,
                 summary: `${funcName}(${Object.values(args).join(', ')})`,
-                output: toolResult.slice(0, 400) + (toolResult.length > 400 ? '...' : ''),
+                output: toolResult.slice(0, 500) + (toolResult.length > 500 ? '...' : ''),
               })}\n\n`
             );
 
-            // Trim tool result in context to max 1500 chars to avoid memory/token bloat
+            // Inject full tool result into context for Codex (up to 8000 chars)
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: toolResult.slice(0, 1500),
-            });
-          }
-
-          // If reached 5+ tools, instruct model to wrap up
-          if (totalToolsExecuted >= 5 || iteration >= maxIterations - 1) {
-            messages.push({
-              role: 'user',
-              content: '【已收集到充分的关键代码上下文，请立即输出最终完整的 Markdown 审查报告，无需再调用工具】',
+              content: toolResult.slice(0, 8000),
             });
           }
         } else {
