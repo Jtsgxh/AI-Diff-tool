@@ -5,7 +5,7 @@
   "repository": "https://github.com/Jtsgxh/AI-Diff-tool.git",
   "main": "index.js",
   "scripts": {
-    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"tsx watch server/index.ts\" \"vite\"",
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"node --import tsx --watch --watch-path=./server --watch-path=./shared --watch-preserve-output server/index.ts\" \"vite\"",
     "build": "tsc && vite build",
     "server": "tsx server/index.ts",
     "client": "vite"
