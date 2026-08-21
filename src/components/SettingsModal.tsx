@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { AIProviderConfig } from '../types';
 import {
   Settings,
@@ -107,8 +107,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [form, setForm] = useState<AIProviderConfig>({
     ...config,
     customSystemPrompt: config.customSystemPrompt || PROMPT_PRESETS[0].prompt,
-    maxExplorationTurns: config.maxExplorationTurns || 5,
-    timeoutSeconds: config.timeoutSeconds || 35,
+    maxExplorationTurns:
+      config.maxExplorationTurns !== undefined ? config.maxExplorationTurns : 0,
+    timeoutSeconds: config.timeoutSeconds || 45,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
     maxReadFileLines: config.maxReadFileLines || 300,
     maxSearchResults: config.maxSearchResults || 30,
@@ -148,8 +149,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleResetAgentDefaults = () => {
     setForm((prev) => ({
       ...prev,
-      maxExplorationTurns: 5,
-      timeoutSeconds: 35,
+      maxExplorationTurns: 0,
+      timeoutSeconds: 45,
       maxRetries: 2,
       maxReadFileLines: 300,
       maxSearchResults: 30,
@@ -429,45 +430,89 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
-              {/* 1. Max Exploration Turns */}
-              <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-2">
+              {/* 1. Autonomous Planning vs Fixed Turns */}
+              <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-slate-200 flex items-center gap-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-purple-400" />
-                    <span>最大探查决策轮数 (Max Exploration Turns)</span>
+                    <Brain className="w-3.5 h-3.5 text-purple-400" />
+                    <span>探查模式与规划上限 (Autonomous Planning)</span>
                   </label>
-                  <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    {form.maxExplorationTurns || 5} 轮
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={1}
-                  max={12}
-                  step={1}
-                  value={form.maxExplorationTurns || 5}
-                  onChange={(e) =>
-                    setForm({ ...form, maxExplorationTurns: parseInt(e.target.value, 10) })
-                  }
-                  className="w-full accent-purple-500 cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                  <span className={form.maxExplorationTurns! <= 3 ? 'text-amber-400 font-bold' : ''}>
-                    1~3 轮 (⚡ 极速 ~15s)
-                  </span>
                   <span
-                    className={
-                      form.maxExplorationTurns! >= 4 && form.maxExplorationTurns! <= 6
-                        ? 'text-emerald-400 font-bold'
-                        : ''
-                    }
+                    className={`font-mono font-bold text-xs px-2 py-0.5 rounded border ${
+                      !form.maxExplorationTurns || form.maxExplorationTurns === 0
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                    }`}
                   >
-                    4~6 轮 (🧠 深度均衡 ~35s)
-                  </span>
-                  <span className={form.maxExplorationTurns! >= 7 ? 'text-purple-400 font-bold' : ''}>
-                    7~12 轮 (🔬 穷尽全库 ~60s+)
+                    {!form.maxExplorationTurns || form.maxExplorationTurns === 0
+                      ? '✨ 完全自主规划 (无上限)'
+                      : `${form.maxExplorationTurns} 轮限制`}
                   </span>
                 </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, maxExplorationTurns: 0 })}
+                    className={`p-2.5 rounded-lg border text-left transition ${
+                      !form.maxExplorationTurns || form.maxExplorationTurns === 0
+                        ? 'bg-purple-600/20 border-purple-500 text-white shadow-sm'
+                        : 'bg-[#181924] border-white/5 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-semibold text-xs">
+                      <span>🤖 完全自主规划 (推荐)</span>
+                      {(!form.maxExplorationTurns || form.maxExplorationTurns === 0) && (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      无任何人为步数限制，由 Codex 自主决定何时收集充足并产出报告。
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, maxExplorationTurns: form.maxExplorationTurns || 5 })}
+                    className={`p-2.5 rounded-lg border text-left transition ${
+                      form.maxExplorationTurns && form.maxExplorationTurns > 0
+                        ? 'bg-purple-600/20 border-purple-500 text-white shadow-sm'
+                        : 'bg-[#181924] border-white/5 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between font-semibold text-xs">
+                      <span>⚙️ 手动设定步数上限</span>
+                      {form.maxExplorationTurns && form.maxExplorationTurns > 0 ? (
+                        <Check className="w-3.5 h-3.5 text-purple-400" />
+                      ) : null}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      设定明确的探查轮数阈值，适合严苛控制 API 消耗。
+                    </p>
+                  </button>
+                </div>
+
+                {form.maxExplorationTurns && form.maxExplorationTurns > 0 ? (
+                  <div className="space-y-1.5 pt-2 border-t border-white/5">
+                    <div className="flex justify-between text-[11px] text-slate-300">
+                      <span>手动步数上限滑块：</span>
+                      <span className="font-mono font-bold text-purple-300">
+                        {form.maxExplorationTurns} 轮
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={20}
+                      step={1}
+                      value={form.maxExplorationTurns}
+                      onChange={(e) =>
+                        setForm({ ...form, maxExplorationTurns: parseInt(e.target.value, 10) })
+                      }
+                      className="w-full accent-purple-500 cursor-pointer"
+                    />
+                  </div>
+                ) : null}
               </div>
 
               {/* 2. Timeout & Retries */}

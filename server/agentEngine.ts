@@ -80,7 +80,7 @@ export class CodexAgentEngine {
       `data: ${JSON.stringify({
         type: 'status',
         phase: 'initializing',
-        message: 'OpenAI Agents 官方智能体引擎已启动，已挂载 Git 索引沙箱...',
+        message: 'OpenAI Agents 官方智能体引擎已启动，已挂载 Git 索引沙箱 (Codex 完全自主规划模式)...',
       })}\n\n`
     );
 
@@ -151,19 +151,19 @@ export class CodexAgentEngine {
       },
     });
 
-    // 2. Primary system instructions driven by user configuration
-    const basePrompt =
-      config?.customSystemPrompt && config.customSystemPrompt.trim()
-        ? config.customSystemPrompt.trim()
-        : `你是一位顶级资深架构师与代码审查专家。请对给定的 Git Diff 进行深度、精确的代码级技术剖析。
+    // 2. Autonomous Codex Planning Prompts
+    const userDefinedPrompt = config?.customSystemPrompt && config.customSystemPrompt.trim();
+    const systemPrompt = `你是由 OpenAI Codex 驱动的高级自主代码审查智能体（Autonomous Codex Agent）。
+【核心自主规划原则】：
+1. 具备全权自主规划与探查能力：根据给定的 Diff，你可以完全自主决定调用 \`read_file\`、\`search_code\`、\`find_files\` 工具探查外部类、接口契约与下游调用链；
+2. 自主动态收敛：当你判断已经收集到足够理解本次改动全貌与影响的上下文后，请自主停止调用工具，直接输出完整的 Markdown 深度代码审查报告。
 
-【审查原则与要求】：
-1. 直击核心代码细节：严禁空洞套话，严禁简单复述语法。必须精确指出涉及的类名、方法名、参数类型、数据结构与关键算法。
-2. 改动前后行为对比 (Before vs After)：清晰对比改动前的旧逻辑与改动后的新逻辑，说明代码执行路径、状态流转或计算方式的具体差异。
-3. 深入解释实现机制与原因：透彻解析“为什么这样改”（底层机制、内存/并发模型、解耦或调用约定）。
-4. 跨模块调用与依赖影响：若涉及接口变更、公共方法签名或命名空间，明确指出对下游调用方的影响。
+${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt}` : `【审查原则与排版参考】：
+- 严禁空洞套话，严禁简单复述语法。精确指出涉及的类名、方法名、参数类型、数据结构与关键算法；
+- 清晰对比改动前后的行为差异 (Before vs After)；
+- 深入拆解实现机制与底层原因；
+- 明确指出对下游调用方与工程依赖的影响。
 
-【推荐输出排版】：
 ### 🔄 核心改动前后对比 (Before vs After)
 - **改动前旧逻辑**：说明先前代码的行为与局限
 - **改动后新逻辑**：说明本次改动后的实现与改变
@@ -172,7 +172,7 @@ export class CodexAgentEngine {
 深入剖析核心修改语句、状态迁移、数据流转与参数语义。
 
 ### 🌐 跨模块影响与下游调用 (Callers & Impact)
-明确说明修改对外部依赖、调用方或工程配置的实际影响。`;
+明确说明修改对外部依赖、调用方或工程配置的实际影响。`}`;
 
     let initialUserMsg = '';
     if (scopeType === 'line' && targetLine) {
@@ -183,14 +183,14 @@ export class CodexAgentEngine {
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
         5000
-      )}\n\`\`\`\n\n${userPrompt ? `【附加要求】: ${userPrompt}\n\n` : ''}请对该行改动与关联上下文进行深度代码审查。`;
+      )}\n\`\`\`\n\n${userPrompt ? `【附加要求】: ${userPrompt}\n\n` : ''}请自主规划探查并进行深度代码审查。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
       }\n\`\`\`diff\n${diff.slice(
         0,
         8000
-      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请结合代码库进行关联审查并输出报告。`;
+      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请自主规划代码库探查路径并输出审查报告。`;
     }
 
     try {
@@ -203,8 +203,10 @@ export class CodexAgentEngine {
             const parsedBody = JSON.parse(init.body);
             if (Array.isArray(parsedBody.messages)) {
               parsedBody.messages.forEach((msg: any) => {
-                if (msg.role === 'assistant' && msg.reasoning_content === undefined) {
-                  msg.reasoning_content = accumulatedReasoningContent || '';
+                if (msg.role === 'assistant') {
+                  if (msg.reasoning_content === undefined) {
+                    msg.reasoning_content = accumulatedReasoningContent || '';
+                  }
                 }
               });
               init.body = JSON.stringify(parsedBody);
@@ -217,7 +219,7 @@ export class CodexAgentEngine {
       const openaiClient = new OpenAI({
         apiKey: apiKey || 'dummy-key-for-ollama',
         baseURL: baseUrl,
-        timeout: Math.max(10000, Math.min(120000, (config?.timeoutSeconds || 35) * 1000)),
+        timeout: Math.max(10000, Math.min(120000, (config?.timeoutSeconds || 45) * 1000)),
         maxRetries: config?.maxRetries !== undefined ? Math.max(0, Math.min(5, config.maxRetries)) : 2,
         fetch: customFetch,
       });
@@ -226,13 +228,19 @@ export class CodexAgentEngine {
 
       // 4. Instantiate Official Agent
       const agent = new Agent({
-        name: 'CodexDiffReviewer',
-        instructions: basePrompt,
+        name: 'AutonomousCodexReviewer',
+        instructions: systemPrompt,
         model,
         tools: [readFileTool, searchCodeTool, findFilesTool],
       });
 
-      const maxTurns = Math.max(1, Math.min(15, config?.maxExplorationTurns || 5));
+      // If user sets 0 or leaves unset, grant full autonomy without ceilings (undefined maxTurns)
+      const configuredTurns = config?.maxExplorationTurns;
+      const maxTurns =
+        configuredTurns === 0 || configuredTurns === undefined
+          ? undefined // Full autonomy without limits
+          : configuredTurns;
+
       const runner = new Runner({
         tracingDisabled: true,
       });
@@ -241,7 +249,7 @@ export class CodexAgentEngine {
         `data: ${JSON.stringify({
           type: 'status',
           phase: 'thinking',
-          message: '智能体正在分析 Diff 语义并自主决定探查路径...',
+          message: 'Codex 智能体已接管：正在自主规划代码探查与分析路径...',
           step: 1,
         })}\n\n`
       );
@@ -253,7 +261,7 @@ export class CodexAgentEngine {
       try {
         const streamedResult = await runner.run(agent, initialUserMsg, {
           stream: true,
-          maxTurns,
+          maxTurns: maxTurns ?? undefined,
         });
 
         for await (const event of streamedResult) {
@@ -281,7 +289,7 @@ export class CodexAgentEngine {
                 `data: ${JSON.stringify({
                   type: 'status',
                   phase: 'executing_tools',
-                  message: `智能体调用工具: ${toolName} 探查代码库...`,
+                  message: `Codex 自主探查 [${actionCount}]: 调用 ${toolName} 查阅代码库...`,
                   step: actionCount,
                 })}\n\n`
               );
@@ -318,7 +326,7 @@ export class CodexAgentEngine {
                   `data: ${JSON.stringify({
                     type: 'status',
                     phase: 'thinking',
-                    message: `🧠 思考中: ${accumulatedReasoningContent.slice(-80).replace(/\n/g, ' ')}...`,
+                    message: `🧠 深度规划思考中: ${accumulatedReasoningContent.slice(-80).replace(/\n/g, ' ')}...`,
                   })}\n\n`
                 );
               }
@@ -330,7 +338,6 @@ export class CodexAgentEngine {
           }
         }
       } catch (runErr: any) {
-        // If max turns exceeded, do NOT fail! Seamlessly transition to Synthesis Phase!
         const isMaxTurns =
           runErr instanceof MaxTurnsExceededError ||
           runErr.name === 'MaxTurnsExceededError' ||
@@ -347,12 +354,12 @@ export class CodexAgentEngine {
           `data: ${JSON.stringify({
             type: 'status',
             phase: 'reporting',
-            message: `代码探查就绪 (共获取 ${explorationLog.length} 处关键上下文)，正在实时生成最终审查报告...`,
+            message: `Codex 探查收敛完成 (共获取 ${explorationLog.length} 处关键上下文)，正在实时流式输出深度审查报告...`,
           })}\n\n`
         );
 
         const synthesisMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-          { role: 'system', content: basePrompt },
+          { role: 'system', content: systemPrompt },
           { role: 'user', content: initialUserMsg },
         ];
 
