@@ -15,6 +15,7 @@ import {
   Brain,
   BookOpen,
   Sparkles,
+  RotateCcw,
 } from 'lucide-react';
 import { marked } from 'marked';
 
@@ -43,8 +44,13 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   // Multi-selected hunk IDs
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
 
-  // Hunks with Pseudocode / Natural Language Code enabled
+  // Hunks with Pseudocode enabled
   const [hunkPseudocodeSet, setHunkPseudocodeSet] = useState<Set<string>>(new Set());
+
+  // AI-Driven Pseudocode Content per Hunk
+  const [hunkAiPseudocode, setHunkAiPseudocode] = useState<
+    Record<string, { text: string; loading: boolean }>
+  >({});
 
   // Inline Natural Language State per Hunk
   const [expandedNaturalHunkIds, setExpandedNaturalHunkIds] = useState<Set<string>>(new Set());
@@ -63,7 +69,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         <FileCode className="w-12 h-12 mb-3 text-slate-600 stroke-1" />
         <p className="text-sm font-medium text-slate-400">请选择左侧文件以查看代码差异对比</p>
         <p className="text-xs text-slate-600 mt-1">
-          支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🔤 概括性伪代码对照」
+          支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🤖 AI 概括性伪代码对照」
         </p>
       </div>
     );
@@ -92,33 +98,6 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     setSelectedHunkIds(new Set());
   };
 
-  // Toggle Pseudocode for an individual Hunk (guaranteed 2-way on/off toggle)
-  const toggleHunkPseudocode = (hunkId: string) => {
-    setHunkPseudocodeSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(hunkId)) {
-        next.delete(hunkId);
-      } else {
-        next.add(hunkId);
-      }
-      return next;
-    });
-  };
-
-  // Global Toggle Pseudocode for all Hunks
-  const isAllPseudocode = hunks.length > 0 && hunkPseudocodeSet.size === hunks.length;
-  const toggleGlobalPseudocode = () => {
-    if (hunkPseudocodeSet.size > 0) {
-      setHunkPseudocodeSet(new Set()); // Turn all off
-    } else {
-      setHunkPseudocodeSet(new Set(hunks.map((h) => h.id))); // Turn all on
-    }
-  };
-
-  const selectedHunkObjects = hunks.filter((h) => selectedHunkIds.has(h.id));
-  const totalSelectedAdds = selectedHunkObjects.reduce((sum, h) => sum + h.additions, 0);
-  const totalSelectedDels = selectedHunkObjects.reduce((sum, h) => sum + h.deletions, 0);
-
   const getHunkDiffText = (hunk: DiffHunk) => {
     return hunk.lines
       .map((l) =>
@@ -126,6 +105,96 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       )
       .join('\n');
   };
+
+  // Fetch AI-Driven Pseudocode for a specific Hunk
+  const fetchAiPseudocode = (hunkId: string, hunk: DiffHunk) => {
+    setHunkAiPseudocode((prev) => ({
+      ...prev,
+      [hunkId]: { text: '', loading: true },
+    }));
+
+    const hunkDiffText = getHunkDiffText(hunk);
+    const prompt = `你是一位顶级系统架构师与代码语义提炼专家。请将以下代码 Diff 改动块精准提炼为「高度概括性、通俗易懂的中文自然语言伪代码」。
+
+【严格格式排版】：
+### 🔴 变更前旧逻辑概括
+• (用 1~3 条精炼有力的自然语言伪代码，概括原代码的行为与数据结构；若无删除行则写"无删除内容 (纯新增逻辑)")
+
+### 🟢 变更后新逻辑概括
+• (用 1~3 条精炼有力的自然语言伪代码，概括新代码的对象构造、参数赋值、核心流程与业务意图；若无新增行则写"无新增内容 (纯删除逻辑)")
+
+【提炼原则】：
+- 严禁机械复述代码标点符号与逐行赋值；
+- 提炼高层业务与代码意图（例如：创建并初始化 ServerHealDefinition 实例，配置 11 项技能属性与标签引用）；
+- 保持语言通俗简明，让团队成员一眼看懂。`;
+
+    streamExplainDiff({
+      scopeType: 'chunk',
+      filePath: file.newPath,
+      diff: hunkDiffText,
+      userPrompt: prompt,
+      config: aiConfig,
+      onChunk: (chunk: string) => {
+        setHunkAiPseudocode((c) => ({
+          ...c,
+          [hunkId]: { text: (c[hunkId]?.text || '') + chunk, loading: true },
+        }));
+      },
+      onComplete: () => {
+        setHunkAiPseudocode((c) => ({
+          ...c,
+          [hunkId]: { text: c[hunkId]?.text || '', loading: false },
+        }));
+      },
+      onError: (err: Error) => {
+        setHunkAiPseudocode((c) => ({
+          ...c,
+          [hunkId]: {
+            text: (c[hunkId]?.text || '') + `\n\n*(AI 提炼异常: ${err.message})*`,
+            loading: false,
+          },
+        }));
+      },
+    });
+  };
+
+  // Toggle Pseudocode for an individual Hunk (guaranteed 2-way on/off toggle + AI trigger)
+  const toggleHunkPseudocode = (hunkId: string, hunk?: DiffHunk) => {
+    setHunkPseudocodeSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(hunkId)) {
+        next.delete(hunkId);
+        return next;
+      } else {
+        next.add(hunkId);
+        if (hunk && !hunkAiPseudocode[hunkId]?.text && !hunkAiPseudocode[hunkId]?.loading && aiConfig.apiKey) {
+          fetchAiPseudocode(hunkId, hunk);
+        }
+        return next;
+      }
+    });
+  };
+
+  // Global Toggle Pseudocode for all Hunks
+  const toggleGlobalPseudocode = () => {
+    if (hunkPseudocodeSet.size > 0) {
+      setHunkPseudocodeSet(new Set()); // Turn all off
+    } else {
+      const newSet = new Set(hunks.map((h) => h.id));
+      setHunkPseudocodeSet(newSet); // Turn all on
+      if (aiConfig.apiKey) {
+        hunks.forEach((h) => {
+          if (!hunkAiPseudocode[h.id]?.text && !hunkAiPseudocode[h.id]?.loading) {
+            fetchAiPseudocode(h.id, h);
+          }
+        });
+      }
+    }
+  };
+
+  const selectedHunkObjects = hunks.filter((h) => selectedHunkIds.has(h.id));
+  const totalSelectedAdds = selectedHunkObjects.reduce((sum, h) => sum + h.additions, 0);
+  const totalSelectedDels = selectedHunkObjects.reduce((sum, h) => sum + h.deletions, 0);
 
   // Toggle Inline Natural Language for a specific Hunk (ONLY ON CLICK)
   const toggleHunkNaturalLanguage = (hunkId: string, hunk: DiffHunk) => {
@@ -565,61 +634,88 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 </div>
               )}
 
-              {/* Main Hunk Content: Conceptual Pseudocode Summary VS Raw Diff Lines */}
-              {isHunkPseudocode && conceptual ? (
-                <div className="p-4 bg-[#14151E] border-b border-white/5 space-y-3 font-sans">
+              {/* Main Hunk Content: 100% AI-Driven Conceptual Pseudocode Summary VS Raw Diff Lines */}
+              {isHunkPseudocode ? (
+                <div className="p-4 bg-[#14151E] border-b border-purple-500/20 space-y-3 font-sans">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2 text-xs font-bold text-purple-300">
-                      <Sparkles className="w-4 h-4 text-purple-400" />
-                      <span>改动块 #{hunk.index} 概括性伪代码对照 (Conceptual Pseudocode)</span>
-                    </div>
-                    <button
-                      onClick={() => toggleHunkPseudocode(hunk.id)}
-                      className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition border border-white/5"
-                    >
-                      ✕ 恢复原始代码
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    {/* Old Logic Conceptual Summary */}
-                    <div className="bg-rose-950/20 border border-rose-500/20 rounded-xl p-3.5 space-y-2">
-                      <div className="flex items-center justify-between text-[11px] font-bold text-rose-400 pb-1.5 border-b border-rose-500/10">
-                        <span>🔴 变更前旧逻辑概括 ({hunk.deletions} 行)</span>
-                      </div>
-                      {conceptual.oldPseudocode.length > 0 ? (
-                        <ul className="space-y-1.5 text-rose-200">
-                          {conceptual.oldPseudocode.map((step, sIdx) => (
-                            <li key={`old-s-${sIdx}`} className="flex items-start space-x-2 leading-relaxed">
-                              <span className="text-rose-400 shrink-0 font-bold">•</span>
-                              <span>{step}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="text-slate-500 text-xs italic">无删除行 (纯新增逻辑)</span>
+                      <Sparkles className={`w-4 h-4 text-purple-400 ${hunkAiPseudocode[hunk.id]?.loading ? 'animate-spin' : ''}`} />
+                      <span>改动块 #{hunk.index} · 🤖 AI 概括伪代码 (AI Conceptual Pseudocode)</span>
+                      {hunkAiPseudocode[hunk.id]?.loading && (
+                        <span className="text-[10px] text-purple-400 animate-pulse font-mono font-normal">
+                          (大模型实时提炼中...)
+                        </span>
                       )}
                     </div>
-
-                    {/* New Logic Conceptual Summary */}
-                    <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3.5 space-y-2">
-                      <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 pb-1.5 border-b border-emerald-500/10">
-                        <span>🟢 变更后新逻辑概括 (+{hunk.additions} 行)</span>
-                      </div>
-                      {conceptual.newPseudocode.length > 0 ? (
-                        <ul className="space-y-1.5 text-emerald-200">
-                          {conceptual.newPseudocode.map((step, sIdx) => (
-                            <li key={`new-s-${sIdx}`} className="flex items-start space-x-2 leading-relaxed">
-                              <span className="text-emerald-400 shrink-0 font-bold">•</span>
-                              <span>{step}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="text-slate-500 text-xs italic">无新增行 (纯删除逻辑)</span>
-                      )}
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => fetchAiPseudocode(hunk.id, hunk)}
+                        disabled={hunkAiPseudocode[hunk.id]?.loading}
+                        className="text-[11px] text-purple-300 hover:text-white px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 transition border border-purple-500/30 flex items-center gap-1"
+                        title="重新调用 AI 提炼概括性伪代码"
+                      >
+                        <RotateCcw className={`w-3 h-3 ${hunkAiPseudocode[hunk.id]?.loading ? 'animate-spin' : ''}`} />
+                        <span>重新提炼</span>
+                      </button>
+                      <button
+                        onClick={() => toggleHunkPseudocode(hunk.id)}
+                        className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition border border-white/5"
+                      >
+                        ✕ 恢复原始代码
+                      </button>
                     </div>
                   </div>
+
+                  {/* Render AI-Generated Result if available, or fallback to instant rule baseline */}
+                  {hunkAiPseudocode[hunk.id]?.text ? (
+                    <div
+                      className="prose prose-invert prose-sm max-w-none text-slate-200 text-xs leading-relaxed bg-[#171824] border border-white/5 rounded-xl p-4 shadow-sm"
+                      dangerouslySetInnerHTML={{
+                        __html: marked.parse(hunkAiPseudocode[hunk.id].text) as string,
+                      }}
+                    />
+                  ) : (
+                    /* Instant Heuristic Fallback / Loading State */
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      {/* Old Logic Conceptual Summary */}
+                      <div className="bg-rose-950/20 border border-rose-500/20 rounded-xl p-3.5 space-y-2">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-rose-400 pb-1.5 border-b border-rose-500/10">
+                          <span>🔴 变更前旧逻辑概括 ({hunk.deletions} 行)</span>
+                        </div>
+                        {conceptual?.oldPseudocode && conceptual.oldPseudocode.length > 0 ? (
+                          <ul className="space-y-1.5 text-rose-200">
+                            {conceptual.oldPseudocode.map((step, sIdx) => (
+                              <li key={`old-s-${sIdx}`} className="flex items-start space-x-2 leading-relaxed">
+                                <span className="text-rose-400 shrink-0 font-bold">•</span>
+                                <span>{step}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="text-slate-500 text-xs italic">无删除行 (纯新增逻辑)</span>
+                        )}
+                      </div>
+
+                      {/* New Logic Conceptual Summary */}
+                      <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3.5 space-y-2">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 pb-1.5 border-b border-emerald-500/10">
+                          <span>🟢 变更后新逻辑概括 (+{hunk.additions} 行)</span>
+                        </div>
+                        {conceptual?.newPseudocode && conceptual.newPseudocode.length > 0 ? (
+                          <ul className="space-y-1.5 text-emerald-200">
+                            {conceptual.newPseudocode.map((step, sIdx) => (
+                              <li key={`new-s-${sIdx}`} className="flex items-start space-x-2 leading-relaxed">
+                                <span className="text-emerald-400 shrink-0 font-bold">•</span>
+                                <span>{step}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="text-slate-500 text-xs italic">无新增行 (纯删除逻辑)</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 /* Raw Diff Lines Rendering (Split / Unified) */
