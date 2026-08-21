@@ -40,7 +40,7 @@ export interface RepoInfo {
   branches: string[];
 }
 
-export type DiffViewMode = 'split' | 'unified';
+export type DiffViewMode = 'split' | 'unified' | 'natural';
 
 export interface AIProviderConfig {
   provider: 'deepseek' | 'gemini' | 'openai' | 'ollama' | 'custom';

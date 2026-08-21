@@ -1,10 +1,9 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
 import {
   Columns,
   AlignJustify,
-  Sparkles,
   FileCode,
   Check,
   Layers,
@@ -12,7 +11,9 @@ import {
   Square,
   Zap,
   Brain,
+  BookOpen,
 } from 'lucide-react';
+import { NaturalLanguageDiffView } from './NaturalLanguageDiffView';
 
 interface DiffViewerProps {
   file: DiffFile | null;
@@ -31,6 +32,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onExplainHunk,
   onExplainMultipleHunks,
   onExplainFile,
+  aiConfig,
 }) => {
   // Global default explanation mode in this viewer: 'agent' (default) or 'fast'
   const [defaultMode, setDefaultMode] = useState<'agent' | 'fast'>('agent');
@@ -49,7 +51,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         <FileCode className="w-12 h-12 mb-3 text-slate-600 stroke-1" />
         <p className="text-sm font-medium text-slate-400">请选择左侧文件以查看代码差异对比</p>
         <p className="text-xs text-slate-600 mt-1">
-          支持「⚡ 直接 Diff 解释」与「🧠 文件关联解释 (Codex Agent)」两种审查方式
+          支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex Agent)」与「📖 自然语言直读」模式
         </p>
       </div>
     );
@@ -206,7 +208,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         {/* Right Action buttons */}
         <div className="flex items-center space-x-2.5">
           {/* Quick select all blocks button if file has multiple hunks */}
-          {hunks.length > 1 && (
+          {hunks.length > 1 && viewMode !== 'natural' && (
             <button
               onClick={selectedHunkIds.size === hunks.length ? clearHunkSelection : selectAllHunks}
               className="text-xs text-slate-400 hover:text-purple-300 transition flex items-center gap-1 mr-1"
@@ -270,8 +272,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             </span>
           </button>
 
-          {/* Mode Switcher: Split vs Unified */}
-          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded p-0.5">
+          {/* Mode Switcher: Split vs Unified vs Natural */}
+          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded p-0.5 space-x-0.5">
             <button
               onClick={() => onToggleViewMode('split')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded text-xs transition ${
@@ -279,7 +281,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   ? 'bg-purple-600 text-white font-medium shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
-              title="双栏对比 (Side-by-Side)"
+              title="双栏代码对比 (Side-by-Side Split Diff)"
             >
               <Columns className="w-3 h-3" />
               <span>Split</span>
@@ -291,105 +293,126 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   ? 'bg-purple-600 text-white font-medium shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
-              title="单栏内联 (Inline)"
+              title="单栏内联代码对比 (Inline Unified Diff)"
             >
               <AlignJustify className="w-3 h-3" />
               <span>Unified</span>
+            </button>
+            <button
+              onClick={() => onToggleViewMode('natural')}
+              className={`flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs transition ${
+                viewMode === 'natural'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold shadow-sm'
+                  : 'text-slate-400 hover:text-purple-300'
+              }`}
+              title="将 Diff 转译为自然语言叙述视图 (Natural Language Prose Diff)"
+            >
+              <BookOpen className="w-3 h-3 text-purple-300" />
+              <span>自然语言</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Code Diff Display Container */}
-      <div className="flex-1 overflow-auto bg-[#13141A] pb-16">
-        {hunks.map((hunk, hunkIdx) => {
-          const isSelected = selectedHunkIds.has(hunk.id);
-          const hunkText = getHunkDiffText(hunk);
+      {/* Main Content Area: Natural Language vs Code Diff */}
+      {viewMode === 'natural' ? (
+        <NaturalLanguageDiffView
+          file={file}
+          hunks={hunks}
+          aiConfig={aiConfig}
+          onSwitchMode={onToggleViewMode}
+        />
+      ) : (
+        /* Code Diff Display Container */
+        <div className="flex-1 overflow-auto bg-[#13141A] pb-16">
+          {hunks.map((hunk, hunkIdx) => {
+            const isSelected = selectedHunkIds.has(hunk.id);
+            const hunkText = getHunkDiffText(hunk);
 
-          return (
-            <div
-              key={`hunk-block-${hunkIdx}`}
-              className={`relative group transition-all duration-150 border-b border-white/5 ${
-                isSelected
-                  ? 'bg-purple-950/15 border-l-4 border-l-purple-500 shadow-sm'
-                  : 'hover:bg-white/[0.015]'
-              }`}
-            >
-              {/* Floating Hunk Hover Toolbar with Clear Distinction Buttons */}
+            return (
               <div
-                className={`absolute right-4 top-2 z-20 flex items-center space-x-1.5 transition-opacity duration-150 ${
+                key={`hunk-block-${hunkIdx}`}
+                className={`relative group transition-all duration-150 border-b border-white/5 ${
                   isSelected
-                    ? 'opacity-100'
-                    : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto'
+                    ? 'bg-purple-950/15 border-l-4 border-l-purple-500 shadow-sm'
+                    : 'hover:bg-white/[0.015]'
                 }`}
               >
-                {/* Multi-select Checkbox */}
-                <button
-                  type="button"
-                  onClick={(e) => toggleHunkSelection(hunk.id, e)}
-                  className={`px-2 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border backdrop-blur-md shadow-md transition ${
+                {/* Floating Hunk Hover Toolbar with Clear Distinction Buttons */}
+                <div
+                  className={`absolute right-4 top-2 z-20 flex items-center space-x-1.5 transition-opacity duration-150 ${
                     isSelected
-                      ? 'bg-purple-600 border-purple-400 text-white'
-                      : 'bg-[#181924]/90 hover:bg-purple-600/30 border-white/10 text-slate-300 hover:text-white'
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto'
                   }`}
-                  title="勾选此块以进行多块联合分析"
                 >
-                  <div
-                    className={`w-3 h-3 rounded flex items-center justify-center border ${
+                  {/* Multi-select Checkbox */}
+                  <button
+                    type="button"
+                    onClick={(e) => toggleHunkSelection(hunk.id, e)}
+                    className={`px-2 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border backdrop-blur-md shadow-md transition ${
                       isSelected
-                        ? 'bg-white border-white text-purple-600'
-                        : 'border-slate-400'
+                        ? 'bg-purple-600 text-white border-purple-400'
+                        : 'bg-[#1D1F2A]/90 text-slate-300 border-white/10 hover:border-purple-500/50 hover:text-white'
                     }`}
                   >
-                    {isSelected && <Check className="w-2.5 h-2.5 stroke-[4]" />}
-                  </div>
-                  <span>{isSelected ? `块 #${hunk.index} 已选` : `选择块 #${hunk.index}`}</span>
-                </button>
+                    <div
+                      className={`w-3 h-3 rounded flex items-center justify-center border ${
+                        isSelected
+                          ? 'bg-white border-white text-purple-600'
+                          : 'border-slate-400'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-2.5 h-2.5 stroke-[4]" />}
+                    </div>
+                    <span>{isSelected ? `块 #${hunk.index} 已选` : `选择块 #${hunk.index}`}</span>
+                  </button>
 
-                {/* Option 1: Fast Direct Diff Explain Button */}
-                <button
-                  type="button"
-                  onClick={() => onExplainHunk(hunk.header, hunkText, hunk.index, 'fast')}
-                  className="px-2 py-1 rounded-md bg-amber-600/30 hover:bg-amber-600/60 text-amber-200 border border-amber-500/40 text-[11px] font-sans font-medium flex items-center space-x-1 backdrop-blur-md shadow transition hover:scale-105"
-                  title="【直接 Diff 解释】仅针对当前增删代码直接解释，不查阅外部文件"
-                >
-                  <Zap className="w-3 h-3 text-amber-400" />
-                  <span>直接解释</span>
-                </button>
+                  {/* Option 1: Fast Direct Diff Explain Button */}
+                  <button
+                    type="button"
+                    onClick={() => onExplainHunk(hunk.header, hunkText, hunk.index, 'fast')}
+                    className="px-2 py-1 rounded-md bg-amber-600/30 hover:bg-amber-600/60 text-amber-200 border border-amber-500/40 text-[11px] font-sans font-medium flex items-center space-x-1 backdrop-blur-md shadow transition hover:scale-105"
+                    title="【直接 Diff 解释】仅针对当前增删代码直接解释，不查阅外部文件"
+                  >
+                    <Zap className="w-3 h-3 text-amber-400" />
+                    <span>直接解释</span>
+                  </button>
 
-                {/* Option 2: Codex Agent Context-Aware Explain Button */}
-                <button
-                  type="button"
-                  onClick={() => onExplainHunk(hunk.header, hunkText, hunk.index, 'agent')}
-                  className="px-2.5 py-1 rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-lg shadow-purple-600/30 border border-purple-400/30 transition hover:scale-105 active:scale-95"
-                  title="【文件关联解释】Codex 智能体将自主检索全库关联文件与下游调用"
-                >
-                  <Brain className="w-3.5 h-3.5" />
-                  <span>关联解释 (Codex)</span>
-                </button>
-              </div>
-
-              {/* Hunk Header for Split Mode */}
-              {viewMode === 'split' && (
-                <div className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none flex items-center justify-between">
-                  <span>{hunk.header}</span>
-                  <span className="text-[11px] text-slate-500 font-sans">块 #{hunk.index}</span>
+                  {/* Option 2: Codex Agent Context-Aware Explain Button */}
+                  <button
+                    type="button"
+                    onClick={() => onExplainHunk(hunk.header, hunkText, hunk.index, 'agent')}
+                    className="px-2.5 py-1 rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-lg shadow-purple-600/30 border border-purple-400/30 transition hover:scale-105 active:scale-95"
+                    title="【文件关联解释】Codex 智能体将自主检索全库关联文件与下游调用"
+                  >
+                    <Brain className="w-3.5 h-3.5" />
+                    <span>关联解释 (Codex)</span>
+                  </button>
                 </div>
-              )}
 
-              {/* Diff Lines Rendering */}
-              {viewMode === 'unified' ? (
-                <div>{hunk.lines.map((line, lineIdx) => renderUnifiedLine(line, lineIdx))}</div>
-              ) : (
-                <div>{hunk.splitRows.map((row, rowIdx) => renderSplitRow(row, rowIdx))}</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                {/* Hunk Header for Split Mode */}
+                {viewMode === 'split' && (
+                  <div className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none flex items-center justify-between">
+                    <span>{hunk.header}</span>
+                    <span className="text-[11px] text-slate-500 font-sans">块 #{hunk.index}</span>
+                  </div>
+                )}
+
+                {/* Diff Lines Rendering */}
+                {viewMode === 'unified' ? (
+                  <div>{hunk.lines.map((line, lineIdx) => renderUnifiedLine(line, lineIdx))}</div>
+                ) : (
+                  <div>{hunk.splitRows.map((row, rowIdx) => renderSplitRow(row, rowIdx))}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Floating Multi-Selection Action Bar (with Dual Mode Buttons) */}
-      {selectedHunkIds.size > 0 && (
+      {selectedHunkIds.size > 0 && viewMode !== 'natural' && (
         <div className="absolute bottom-3 left-6 right-6 bg-[#161722]/95 border border-purple-500/50 rounded-xl px-4 py-2.5 shadow-2xl backdrop-blur-md flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
             <div className="flex items-center space-x-1.5 text-purple-300 font-semibold font-mono">
