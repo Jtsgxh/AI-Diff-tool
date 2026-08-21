@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
 import { convertCodeLineToPseudocode, parseAiPseudocodeLines } from '../../utils/pseudocodeConverter';
@@ -58,6 +58,13 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const [hunkNaturalContent, setHunkNaturalContent] = useState<
     Record<string, { text: string; loading: boolean }>
   >({});
+
+  // Reset per-file UI states immediately when switching to a different file
+  useEffect(() => {
+    setSelectedHunkIds(new Set());
+    setHunkPseudocodeSet(new Set());
+    setExpandedNaturalHunkIds(new Set());
+  }, [file?.newPath]);
 
   const parsedDiff = useMemo(() => {
     if (!file || !file.diff) return null;
