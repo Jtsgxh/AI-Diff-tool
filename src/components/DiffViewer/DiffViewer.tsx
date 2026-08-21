@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
-import { convertCodeLineToPseudocode } from '../../utils/pseudocodeConverter';
+import { convertCodeLineToPseudocode, parseAiPseudocodeLines } from '../../utils/pseudocodeConverter';
 import { streamExplainDiff } from '../../services/api';
 import { DEFAULT_PROMPTS } from '../../constants/defaultPrompts';
 import {
@@ -48,9 +48,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   // Hunks with Pseudocode enabled
   const [hunkPseudocodeSet, setHunkPseudocodeSet] = useState<Set<string>>(new Set());
 
-  // AI-Driven Pseudocode Content per Hunk
-  const [hunkAiPseudocode, setHunkAiPseudocode] = useState<
-    Record<string, { text: string; loading: boolean }>
+  // AI-Driven In-Place Pseudocode Line Map per Hunk
+  const [hunkAiLineMap, setHunkAiLineMap] = useState<
+    Record<string, { dels: string[]; adds: string[]; loading: boolean }>
   >({});
 
   // Inline Natural Language State per Hunk
@@ -70,7 +70,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         <FileCode className="w-12 h-12 mb-3 text-slate-600 stroke-1" />
         <p className="text-sm font-medium text-slate-400">请选择左侧文件以查看代码差异对比</p>
         <p className="text-xs text-slate-600 mt-1">
-          支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🤖 AI 概括性伪代码对照」
+          支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🤖 AI 伪代码对照」
         </p>
       </div>
     );
@@ -107,15 +107,16 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       .join('\n');
   };
 
-  // Fetch AI-Driven Pseudocode for a specific Hunk
+  // Fetch AI-Driven Pseudocode for a specific Hunk and map lines in-place
   const fetchAiPseudocode = (hunkId: string, hunk: DiffHunk) => {
-    setHunkAiPseudocode((prev) => ({
+    setHunkAiLineMap((prev) => ({
       ...prev,
-      [hunkId]: { text: '', loading: true },
+      [hunkId]: { dels: prev[hunkId]?.dels || [], adds: prev[hunkId]?.adds || [], loading: true },
     }));
 
     const hunkDiffText = getHunkDiffText(hunk);
     const prompt = aiConfig.pseudocodePrompt?.trim() || DEFAULT_PROMPTS.pseudocodePrompt;
+    let accumulatedText = '';
 
     streamExplainDiff({
       scopeType: 'chunk',
@@ -124,24 +125,24 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       userPrompt: prompt,
       config: aiConfig,
       onChunk: (chunk: string) => {
-        setHunkAiPseudocode((c) => ({
-          ...c,
-          [hunkId]: { text: (c[hunkId]?.text || '') + chunk, loading: true },
+        accumulatedText += chunk;
+        const parsed = parseAiPseudocodeLines(accumulatedText);
+        setHunkAiLineMap((prev) => ({
+          ...prev,
+          [hunkId]: { dels: parsed.dels, adds: parsed.adds, loading: true },
         }));
       },
       onComplete: () => {
-        setHunkAiPseudocode((c) => ({
-          ...c,
-          [hunkId]: { text: c[hunkId]?.text || '', loading: false },
+        const parsed = parseAiPseudocodeLines(accumulatedText);
+        setHunkAiLineMap((prev) => ({
+          ...prev,
+          [hunkId]: { dels: parsed.dels, adds: parsed.adds, loading: false },
         }));
       },
-      onError: (err: Error) => {
-        setHunkAiPseudocode((c) => ({
-          ...c,
-          [hunkId]: {
-            text: (c[hunkId]?.text || '') + `\n\n*(AI 提炼异常: ${err.message})*`,
-            loading: false,
-          },
+      onError: () => {
+        setHunkAiLineMap((prev) => ({
+          ...prev,
+          [hunkId]: { dels: prev[hunkId]?.dels || [], adds: prev[hunkId]?.adds || [], loading: false },
         }));
       },
     });
@@ -156,7 +157,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         return next;
       } else {
         next.add(hunkId);
-        if (hunk && !hunkAiPseudocode[hunkId]?.text && !hunkAiPseudocode[hunkId]?.loading && aiConfig.apiKey) {
+        if (hunk && !hunkAiLineMap[hunkId]?.loading && (!hunkAiLineMap[hunkId]?.dels.length && !hunkAiLineMap[hunkId]?.adds.length) && aiConfig.apiKey) {
           fetchAiPseudocode(hunkId, hunk);
         }
         return next;
@@ -173,7 +174,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       setHunkPseudocodeSet(newSet); // Turn all on
       if (aiConfig.apiKey) {
         hunks.forEach((h) => {
-          if (!hunkAiPseudocode[h.id]?.text && !hunkAiPseudocode[h.id]?.loading) {
+          if (!hunkAiLineMap[h.id]?.loading && (!hunkAiLineMap[h.id]?.dels.length && !hunkAiLineMap[h.id]?.adds.length)) {
             fetchAiPseudocode(h.id, h);
           }
         });
@@ -239,124 +240,153 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     });
   };
 
-  const renderUnifiedLine = (line: DiffLine, index: number, isHunkPseudocode: boolean) => {
-    if (line.type === 'hunk-header') {
+  const renderHunkUnifiedLines = (hunk: DiffHunk, isHunkPseudocode: boolean) => {
+    const aiMap = hunkAiLineMap[hunk.id];
+    let delCounter = 0;
+    let addCounter = 0;
+
+    return hunk.lines.map((line, lineIdx) => {
+      if (line.type === 'hunk-header') {
+        return (
+          <div
+            key={`hunk-hdr-${lineIdx}`}
+            className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none flex items-center justify-between"
+          >
+            <span>{line.content}</span>
+            {isHunkPseudocode && (
+              <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30 font-sans flex items-center gap-1">
+                <Sparkles className="w-2.5 h-2.5" />
+                <span>AI 伪代码转换</span>
+                {aiMap?.loading && <span className="animate-pulse">(大模型生成中...)</span>}
+              </span>
+            )}
+          </div>
+        );
+      }
+
+      const isAdd = line.type === 'add';
+      const isDelete = line.type === 'delete';
+
+      const currentDelIdx = isDelete ? delCounter++ : -1;
+      const currentAddIdx = isAdd ? addCounter++ : -1;
+
+      const displayContent =
+        isHunkPseudocode && (isAdd || isDelete)
+          ? (isDelete
+              ? (aiMap?.dels && currentDelIdx < aiMap.dels.length && aiMap.dels[currentDelIdx]
+                  ? aiMap.dels[currentDelIdx]
+                  : convertCodeLineToPseudocode(line.content))
+              : (aiMap?.adds && currentAddIdx < aiMap.adds.length && aiMap.adds[currentAddIdx]
+                  ? aiMap.adds[currentAddIdx]
+                  : convertCodeLineToPseudocode(line.content)))
+          : line.content;
+
       return (
         <div
-          key={`hunk-hdr-${index}`}
-          className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none flex items-center justify-between"
+          key={`line-${lineIdx}`}
+          className={`flex items-stretch font-mono text-xs leading-5 hover:bg-white/[0.04] transition-colors ${
+            isAdd
+              ? 'bg-emerald-950/25 text-emerald-200'
+              : isDelete
+              ? 'bg-rose-950/25 text-rose-200'
+              : 'text-slate-300'
+          }`}
         >
-          <span>{line.content}</span>
-          {isHunkPseudocode && (
-            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30 font-sans">
-              ✨ 伪代码转换中
-            </span>
-          )}
+          {/* Old Line # */}
+          <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+            {line.oldLineNumber || ''}
+          </div>
+
+          {/* New Line # */}
+          <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+            {line.newLineNumber || ''}
+          </div>
+
+          {/* Marker (+ / -) */}
+          <div
+            className={`w-6 shrink-0 text-center font-bold select-none ${
+              isAdd ? 'text-emerald-400' : isDelete ? 'text-rose-400' : 'text-slate-600'
+            }`}
+          >
+            {isAdd ? '+' : isDelete ? '-' : ' '}
+          </div>
+
+          {/* Code Content (In-place translated when pseudocode is on) */}
+          <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0">
+            {displayContent}
+          </div>
         </div>
       );
-    }
-
-    const isAdd = line.type === 'add';
-    const isDelete = line.type === 'delete';
-
-    // In-place pseudocode translation ONLY on changed diff lines!
-    const displayContent =
-      isHunkPseudocode && (isAdd || isDelete)
-        ? convertCodeLineToPseudocode(line.content)
-        : line.content;
-
-    return (
-      <div
-        key={`line-${index}`}
-        className={`flex items-stretch font-mono text-xs leading-5 hover:bg-white/[0.04] transition-colors ${
-          isAdd
-            ? 'bg-emerald-950/25 text-emerald-200'
-            : isDelete
-            ? 'bg-rose-950/25 text-rose-200'
-            : 'text-slate-300'
-        }`}
-      >
-        {/* Old Line # */}
-        <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
-          {line.oldLineNumber || ''}
-        </div>
-
-        {/* New Line # */}
-        <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
-          {line.newLineNumber || ''}
-        </div>
-
-        {/* Marker (+ / -) */}
-        <div
-          className={`w-6 shrink-0 text-center font-bold select-none ${
-            isAdd ? 'text-emerald-400' : isDelete ? 'text-rose-400' : 'text-slate-600'
-          }`}
-        >
-          {isAdd ? '+' : isDelete ? '-' : ' '}
-        </div>
-
-        {/* Code Content (In-place translated when pseudocode is on) */}
-        <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0">
-          {displayContent}
-        </div>
-      </div>
-    );
+    });
   };
 
-  const renderSplitRow = (row: SplitDiffRow, index: number, isHunkPseudocode: boolean) => {
-    const leftIsDelete = row.left?.type === 'delete';
-    const rightIsAdd = row.right?.type === 'add';
+  const renderHunkSplitRows = (hunk: DiffHunk, isHunkPseudocode: boolean) => {
+    const aiMap = hunkAiLineMap[hunk.id];
+    let delCounter = 0;
+    let addCounter = 0;
 
-    const leftContent =
-      isHunkPseudocode && leftIsDelete && row.left?.content
-        ? convertCodeLineToPseudocode(row.left.content)
-        : row.left?.content || '';
+    return hunk.splitRows.map((row, rowIdx) => {
+      const leftIsDelete = row.left?.type === 'delete';
+      const rightIsAdd = row.right?.type === 'add';
 
-    const rightContent =
-      isHunkPseudocode && rightIsAdd && row.right?.content
-        ? convertCodeLineToPseudocode(row.right.content)
-        : row.right?.content || '';
+      const currentDelIdx = leftIsDelete ? delCounter++ : -1;
+      const currentAddIdx = rightIsAdd ? addCounter++ : -1;
 
-    return (
-      <div
-        key={`split-row-${index}`}
-        className="flex items-stretch font-mono text-xs leading-5 border-b border-white/[0.02] hover:bg-white/[0.04] transition-colors"
-      >
-        {/* Left (Old Version) */}
+      const leftContent =
+        isHunkPseudocode && leftIsDelete && row.left?.content
+          ? (aiMap?.dels && currentDelIdx < aiMap.dels.length && aiMap.dels[currentDelIdx]
+              ? aiMap.dels[currentDelIdx]
+              : convertCodeLineToPseudocode(row.left.content))
+          : row.left?.content || '';
+
+      const rightContent =
+        isHunkPseudocode && rightIsAdd && row.right?.content
+          ? (aiMap?.adds && currentAddIdx < aiMap.adds.length && aiMap.adds[currentAddIdx]
+              ? aiMap.adds[currentAddIdx]
+              : convertCodeLineToPseudocode(row.right.content))
+          : row.right?.content || '';
+
+      return (
         <div
-          className={`flex-1 flex min-w-0 border-r border-white/10 ${
-            leftIsDelete ? 'bg-rose-950/25 text-rose-200' : 'text-slate-300'
-          }`}
+          key={`split-row-${rowIdx}`}
+          className="flex items-stretch font-mono text-xs leading-5 border-b border-white/[0.02] hover:bg-white/[0.04] transition-colors"
         >
-          <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
-            {row.left?.lineNumber || ''}
+          {/* Left (Old Version) */}
+          <div
+            className={`flex-1 flex min-w-0 border-r border-white/10 ${
+              leftIsDelete ? 'bg-rose-950/25 text-rose-200' : 'text-slate-300'
+            }`}
+          >
+            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+              {row.left?.lineNumber || ''}
+            </div>
+            <div className="w-5 shrink-0 text-center font-bold select-none text-rose-400">
+              {leftIsDelete ? '-' : ''}
+            </div>
+            <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
+              {leftContent}
+            </div>
           </div>
-          <div className="w-5 shrink-0 text-center font-bold select-none text-rose-400">
-            {leftIsDelete ? '-' : ''}
-          </div>
-          <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
-            {leftContent}
+
+          {/* Right (New Version) */}
+          <div
+            className={`flex-1 flex min-w-0 ${
+              rightIsAdd ? 'bg-emerald-950/25 text-emerald-200' : 'text-slate-300'
+            }`}
+          >
+            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+              {row.right?.lineNumber || ''}
+            </div>
+            <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-400">
+              {rightIsAdd ? '+' : ''}
+            </div>
+            <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
+              {rightContent}
+            </div>
           </div>
         </div>
-
-        {/* Right (New Version) */}
-        <div
-          className={`flex-1 flex min-w-0 ${
-            rightIsAdd ? 'bg-emerald-950/25 text-emerald-200' : 'text-slate-300'
-          }`}
-        >
-          <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
-            {row.right?.lineNumber || ''}
-          </div>
-          <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-400">
-            {rightIsAdd ? '+' : ''}
-          </div>
-          <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
-            {rightContent}
-          </div>
-        </div>
-      </div>
-    );
+      );
+    });
   };
 
   return (
@@ -533,19 +563,25 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   <span>{isSelected ? `块 #${hunk.index} 已选` : `选择块 #${hunk.index}`}</span>
                 </button>
 
-                {/* Per-Hunk Conceptual Pseudocode Toggle (guaranteed 2-way on/off toggle) */}
+                {/* Per-Hunk In-Place AI Pseudocode Toggle */}
                 <button
                   type="button"
-                  onClick={() => toggleHunkPseudocode(hunk.id)}
+                  onClick={() => toggleHunkPseudocode(hunk.id, hunk)}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border backdrop-blur-md shadow-md transition hover:scale-105 active:scale-95 ${
                     isHunkPseudocode
-                      ? 'bg-purple-600 text-white border-purple-400 shadow-purple-600/30'
+                      ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-purple-600/30'
                       : 'bg-[#1D1F2A]/90 hover:bg-purple-600/30 text-purple-300 hover:text-white border-purple-500/30'
                   }`}
-                  title={isHunkPseudocode ? "点击关闭伪代码，恢复显示原始代码" : "点击将本块代码替换为概括性伪代码"}
+                  title={isHunkPseudocode ? "点击关闭伪代码，恢复显示原始代码" : "点击通过 AI 将本块 Diff 改动行原位转译为伪代码"}
                 >
-                  <Sparkles className="w-3 h-3" />
-                  <span>{isHunkPseudocode ? '概括伪代码 [开]' : '显示为伪代码'}</span>
+                  <Sparkles className={`w-3 h-3 ${hunkAiLineMap[hunk.id]?.loading ? 'animate-spin text-purple-300' : ''}`} />
+                  <span>
+                    {isHunkPseudocode
+                      ? hunkAiLineMap[hunk.id]?.loading
+                        ? 'AI 伪代码 (生成中...)'
+                        : 'AI 伪代码 [开]'
+                      : '🤖 AI 伪代码'}
+                  </span>
                 </button>
 
                 {/* Inline Natural Language Summary Toggle Button on this Hunk */}
@@ -646,17 +682,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
               {/* Standard Diff Rows Rendering with In-Place Pseudocode Replacement on Changed Lines */}
               {viewMode === 'unified' ? (
-                <div>
-                  {hunk.lines.map((line, lineIdx) =>
-                    renderUnifiedLine(line, lineIdx, isHunkPseudocode)
-                  )}
-                </div>
+                <div>{renderHunkUnifiedLines(hunk, isHunkPseudocode)}</div>
               ) : (
-                <div>
-                  {hunk.splitRows.map((row, rowIdx) =>
-                    renderSplitRow(row, rowIdx, isHunkPseudocode)
-                  )}
-                </div>
+                <div>{renderHunkSplitRows(hunk, isHunkPseudocode)}</div>
               )}
             </div>
           );

@@ -154,3 +154,27 @@ export function convertCodeLineToPseudocode(code: string): string {
   // Default fallback: Add descriptive pseudocode indicator
   return `${indent}// 📝 执行：${trimmed.replace(/;$/, '')}`;
 }
+
+/**
+ * Parses AI-streamed diff pseudocode text and maps them to array of deleted & added pseudocode lines
+ */
+export function parseAiPseudocodeLines(aiText: string): { dels: string[]; adds: string[] } {
+  const lines = aiText.split('\n');
+  const dels: string[] = [];
+  const adds: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('```')) continue;
+
+    if (trimmed.startsWith('-')) {
+      const clean = trimmed.replace(/^-[\s]*/, '').replace(/^\/\/\s*/, '').trim();
+      if (clean) dels.push(`// ${clean}`);
+    } else if (trimmed.startsWith('+')) {
+      const clean = trimmed.replace(/^\+[\s]*/, '').replace(/^\/\/\s*/, '').trim();
+      if (clean) adds.push(`// ${clean}`);
+    }
+  }
+
+  return { dels, adds };
+}
