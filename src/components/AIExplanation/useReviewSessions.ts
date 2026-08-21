@@ -11,7 +11,7 @@ import type { ChatMessage, ExplanationScope, ReviewSession } from './types';
  * bounds both re-renders and markdown re-parses to ~12/second regardless of
  * how fast the provider streams.
  */
-const STREAM_FLUSH_MS = 80;
+const STREAM_FLUSH_MS = 35;
 /** Session persistence is debounced and skipped entirely while streaming. */
 const PERSIST_DEBOUNCE_MS = 1000;
 const ELAPSED_TICK_MS = 500;
@@ -213,7 +213,15 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         );
       };
 
-      const scheduleCommit = () => {
+      const scheduleCommit = (immediate = false) => {
+        if (immediate) {
+          if (acc.flushHandle !== null) {
+            clearTimeout(acc.flushHandle);
+            acc.flushHandle = null;
+          }
+          commit();
+          return;
+        }
         if (acc.flushHandle !== null) return;
         acc.flushHandle = setTimeout(commit, STREAM_FLUSH_MS);
       };
@@ -228,12 +236,12 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
               { ...acc.toolEvents[idx], ...event },
               ...acc.toolEvents.slice(idx + 1),
             ];
-            scheduleCommit();
+            scheduleCommit(true);
             return;
           }
         }
         acc.toolEvents = [...acc.toolEvents, event];
-        scheduleCommit();
+        scheduleCommit(true);
       };
 
       const finalize = () => {
@@ -306,12 +314,14 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         userPrompt: followUpPrompt,
         config,
         onReasoning: (chunk: string) => {
+          const isFirst = !acc.reasoning;
           acc.reasoning += chunk;
-          scheduleCommit();
+          scheduleCommit(isFirst);
         },
         onChunk: (chunk: string) => {
+          const isFirst = !acc.text;
           acc.text += chunk;
-          scheduleCommit();
+          scheduleCommit(isFirst);
         },
         onComplete: handleComplete,
         onError: handleError,
