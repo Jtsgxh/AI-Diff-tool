@@ -14,6 +14,7 @@ import {
   fetchCommitDiff,
   fetchCompareDiff,
   fetchWorkingTreeDiff,
+  fetchBatchCommitsDiff,
 } from './services/api';
 import { Header } from './components/Header';
 import { CommitGraph } from './components/CommitGraph/CommitGraph';
@@ -182,6 +183,12 @@ export const App: React.FC = () => {
           res = await fetchCompareDiff(repoPath, selection.baseHash, selection.targetHash);
         } else if (selection.type === 'working-tree') {
           res = await fetchWorkingTreeDiff(repoPath);
+        } else if (
+          selection.type === 'batch' &&
+          selection.commitHashes &&
+          selection.commitHashes.length > 0
+        ) {
+          res = await fetchBatchCommitsDiff(repoPath, selection.commitHashes);
         }
 
         setDiffResult(res);
@@ -197,7 +204,12 @@ export const App: React.FC = () => {
       }
     };
 
-    if (selection.commitHash || (selection.baseHash && selection.targetHash) || selection.type === 'working-tree') {
+    if (
+      selection.commitHash ||
+      (selection.baseHash && selection.targetHash) ||
+      selection.type === 'working-tree' ||
+      (selection.type === 'batch' && selection.commitHashes && selection.commitHashes.length > 0)
+    ) {
       loadDiff();
     }
   }, [selection, repoPath]);
@@ -215,6 +227,35 @@ export const App: React.FC = () => {
   // Handler: Select working tree
   const handleSelectWorkingTree = () => {
     setSelection({ type: 'working-tree' });
+  };
+
+  // Handler: Select batch commits (consolidated net diff)
+  const handleSelectBatchCommits = (hashes: string[]) => {
+    setSelection({
+      type: 'batch',
+      commitHashes: hashes,
+      batchTitle: `批量合并 [${hashes.length} 个提交]`,
+    });
+  };
+
+  // Handler: Explain batch commits overall outcome with AI
+  const handleExplainBatchCommits = (hashes: string[], batchTitle: string) => {
+    fetchBatchCommitsDiff(repoPath, hashes)
+      .then((res: DiffResult) => {
+        const allDiff = res.files.map((f: DiffFile) => f.diff).join('\n\n');
+        const commitHistorySummary = res.batchInfo?.messages?.join('\n') || '';
+        setExplanationScope({
+          type: 'chunks',
+          title: `📦 批量合并审查: ${res.title}`,
+          diff: `【整批提交演进历史】\n${commitHistorySummary}\n\n【合并最终生效的净代码变动 (Consolidated Net Diff)】\n${allDiff}`,
+          commitMessage: res.title,
+          initialMode: 'agent',
+        });
+        setIsExplanationOpen(true);
+      })
+      .catch((err: any) => {
+        console.error(err);
+      });
   };
 
   // Handlers: AI Explanations
@@ -358,6 +399,8 @@ export const App: React.FC = () => {
               onSelectCommit={handleSelectCommit}
               onCompareCommits={handleCompareCommits}
               onExplainCommit={handleExplainCommit}
+              onSelectBatchCommits={handleSelectBatchCommits}
+              onExplainBatchCommits={handleExplainBatchCommits}
               onCollapse={handleToggleSidebar}
             />
           </div>

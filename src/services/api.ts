@@ -92,6 +92,27 @@ export async function fetchWorkingTreeDiff(path: string): Promise<DiffResult> {
   return res.json();
 }
 
+export async function fetchBatchCommitsDiff(
+  repoPath: string,
+  commitHashes: string[]
+): Promise<DiffResult> {
+  const res = await fetch(`${API_BASE}/repo/diff/batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      repoPath,
+      commitHashes,
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to fetch batch commits diff');
+  }
+  return res.json();
+}
+
 import { aiLogger } from './aiLogger';
 
 export interface StreamExplainPayload {

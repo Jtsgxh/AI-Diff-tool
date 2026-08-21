@@ -153,6 +153,14 @@ export const Header: React.FC<HeaderProps> = ({
                 <CheckCircle2 className="w-3 h-3 text-emerald-400" />
               )}
             </button>
+
+            {/* Batch Selection Active Pill */}
+            {selection.type === 'batch' && (
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm">
+                <Layers className="w-3.5 h-3.5 text-purple-400" />
+                <span>批量合并 ({selection.commitHashes?.length || 0} 个提交)</span>
+              </div>
+            )}
           </div>
         )}
       </div>

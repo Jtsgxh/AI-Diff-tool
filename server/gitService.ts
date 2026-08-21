@@ -138,6 +138,73 @@ export class GitService {
     return this.parseDiffOutput(`Compare ${base.slice(0, 7)}...${target.slice(0, 7)}`, diffRaw, numstat);
   }
 
+  async getBatchCommitsDiff(
+    repoPath: string,
+    hashes: string[]
+  ): Promise<DiffResult & { batchInfo: { count: number; messages: string[] } }> {
+    const git = this.getGit(repoPath);
+    if (!hashes || hashes.length === 0) {
+      return {
+        title: '未选择提交',
+        summary: { filesChanged: 0, insertions: 0, deletions: 0 },
+        files: [],
+        batchInfo: { count: 0, messages: [] },
+      };
+    }
+
+    // 1. Get topological log to sort the selected hashes in chronological DAG order
+    const allCommits = await this.getCommits(repoPath, 1000);
+    const selectedCommits = allCommits.filter((c: CommitNode) => hashes.includes(c.hash));
+
+    if (selectedCommits.length === 0) {
+      return {
+        title: '未找到选中的提交',
+        summary: { filesChanged: 0, insertions: 0, deletions: 0 },
+        files: [],
+        batchInfo: { count: 0, messages: [] },
+      };
+    }
+
+    if (selectedCommits.length === 1) {
+      const single = await this.getCommitDiff(repoPath, selectedCommits[0].hash);
+      return {
+        ...single,
+        batchInfo: {
+          count: 1,
+          messages: [
+            `• [${selectedCommits[0].shortHash}] ${selectedCommits[0].message} (${selectedCommits[0].author})`,
+          ],
+        },
+      };
+    }
+
+    // DAG order: index 0 is newest, last index is oldest
+    const newestCommit = selectedCommits[0];
+    const oldestCommit = selectedCommits[selectedCommits.length - 1];
+
+    const oldestParent =
+      oldestCommit.parents && oldestCommit.parents.length > 0
+        ? oldestCommit.parents[0]
+        : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+    // Compute consolidated net diff between oldestParent and newestCommit
+    const diffRaw = await git.raw(['diff', `${oldestParent}..${newestCommit.hash}`]);
+    const numstat = await git.raw(['diff', '--numstat', `${oldestParent}..${newestCommit.hash}`]);
+
+    const title = `批量合并改动 [${selectedCommits.length} 个提交: ${oldestCommit.shortHash} ➔ ${newestCommit.shortHash}]`;
+    const parsed = this.parseDiffOutput(title, diffRaw, numstat);
+
+    return {
+      ...parsed,
+      batchInfo: {
+        count: selectedCommits.length,
+        messages: selectedCommits.map(
+          (c: CommitNode) => `• [${c.shortHash}] ${c.message} (${c.author} · ${c.date})`
+        ),
+      },
+    };
+  }
+
   async getWorkingTreeDiff(repoPath: string): Promise<DiffResult> {
     const git = this.getGit(repoPath);
 

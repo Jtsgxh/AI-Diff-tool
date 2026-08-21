@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo, useRef } from 'react';
 import { CommitNode, SelectionState } from '../../types';
 import { computeGraphLayout, BRANCH_COLORS } from '../../utils/graphLayout';
 import {
@@ -12,6 +12,12 @@ import {
   Hash,
   Sparkles,
   PanelLeftClose,
+  CheckSquare,
+  Square,
+  Layers,
+  Eye,
+  Brain,
+  X,
 } from 'lucide-react';
 
 interface CommitGraphProps {
@@ -20,6 +26,8 @@ interface CommitGraphProps {
   onSelectCommit: (hash: string) => void;
   onCompareCommits: (baseHash: string, targetHash: string) => void;
   onExplainCommit: (hash: string, message: string) => void;
+  onSelectBatchCommits: (hashes: string[]) => void;
+  onExplainBatchCommits: (hashes: string[], title: string) => void;
   onCollapse?: () => void;
 }
 
@@ -33,10 +41,14 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
   onSelectCommit,
   onCompareCommits,
   onExplainCommit,
+  onSelectBatchCommits,
+  onExplainBatchCommits,
   onCollapse,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHashA, setSelectedHashA] = useState<string | null>(null);
+  const [selectedBatchSet, setSelectedBatchSet] = useState<Set<string>>(new Set());
+  const lastClickedIndexRef = useRef<number | null>(null);
 
   // Filter commits
   const filteredCommits = useMemo(() => {
@@ -65,25 +77,95 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
     return map;
   }, [nodes]);
 
-  const handleRowClick = (hash: string, e: React.MouseEvent) => {
-    if (e.ctrlKey || e.metaKey || e.shiftKey) {
-      // Comparison multi-selection mode
-      if (!selectedHashA || selectedHashA === hash) {
-        setSelectedHashA(hash);
-      } else {
-        onCompareCommits(selectedHashA, hash);
-        setSelectedHashA(null);
+  const handleRowClick = (hash: string, index: number, e: React.MouseEvent) => {
+    if (e.shiftKey && lastClickedIndexRef.current !== null) {
+      // Shift range multi-selection
+      const start = Math.min(lastClickedIndexRef.current, index);
+      const end = Math.max(lastClickedIndexRef.current, index);
+      const rangeHashes = nodes.slice(start, end + 1).map((n) => n.hash);
+
+      const nextSet = new Set(selectedBatchSet);
+      rangeHashes.forEach((h) => nextSet.add(h));
+      setSelectedBatchSet(nextSet);
+      lastClickedIndexRef.current = index;
+
+      if (nextSet.size >= 2) {
+        onSelectBatchCommits(Array.from(nextSet));
       }
+      return;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      // Toggle in batch
+      const nextSet = new Set(selectedBatchSet);
+      if (nextSet.has(hash)) {
+        nextSet.delete(hash);
+      } else {
+        nextSet.add(hash);
+      }
+      setSelectedBatchSet(nextSet);
+      lastClickedIndexRef.current = index;
+
+      if (nextSet.size >= 2) {
+        onSelectBatchCommits(Array.from(nextSet));
+      } else if (nextSet.size === 1) {
+        onSelectCommit(Array.from(nextSet)[0]);
+      }
+      return;
+    }
+
+    // Normal Single Click
+    setSelectedHashA(null);
+    setSelectedBatchSet(new Set([hash]));
+    lastClickedIndexRef.current = index;
+    onSelectCommit(hash);
+  };
+
+  const handleToggleCheckbox = (hash: string, index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextSet = new Set(selectedBatchSet);
+    if (nextSet.has(hash)) {
+      nextSet.delete(hash);
     } else {
-      setSelectedHashA(null);
-      onSelectCommit(hash);
+      nextSet.add(hash);
+    }
+    setSelectedBatchSet(nextSet);
+    lastClickedIndexRef.current = index;
+
+    if (nextSet.size >= 2) {
+      onSelectBatchCommits(Array.from(nextSet));
+    } else if (nextSet.size === 1) {
+      onSelectCommit(Array.from(nextSet)[0]);
+    }
+  };
+
+  const handleClearBatch = () => {
+    setSelectedBatchSet(new Set());
+    if (nodes.length > 0) {
+      onSelectCommit(nodes[0].hash);
+    }
+  };
+
+  const handleApplyBatchView = () => {
+    if (selectedBatchSet.size >= 2) {
+      onSelectBatchCommits(Array.from(selectedBatchSet));
+    }
+  };
+
+  const handleApplyBatchExplain = () => {
+    if (selectedBatchSet.size >= 2) {
+      const hashes = Array.from(selectedBatchSet);
+      const title = `批量合并审查 (${hashes.length} 个提交)`;
+      onExplainBatchCommits(hashes, title);
     }
   };
 
   const isSelected = (hash: string) => {
+    if (selectedBatchSet.has(hash)) return true;
     if (selection.type === 'commit' && selection.commitHash === hash) return true;
     if (selection.type === 'compare' && (selection.baseHash === hash || selection.targetHash === hash))
       return true;
+    if (selection.type === 'batch' && selection.commitHashes?.includes(hash)) return true;
     if (selectedHashA === hash) return true;
     return false;
   };
@@ -97,19 +179,19 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 text-xs font-semibold text-slate-300">
             <GitCommit className="w-4 h-4 text-purple-400" />
-            <span>提交历史图谱 (Commit DAG)</span>
-            <span className="text-[11px] bg-white/5 text-slate-400 px-1.5 py-0.2 rounded">
+            <span>提交历史图谱</span>
+            <span className="text-[11px] bg-white/5 text-slate-400 px-1.5 py-0.2 rounded font-mono">
               {filteredCommits.length}
             </span>
           </div>
 
           <div className="flex items-center space-x-2">
-            <span className="text-[11px] text-slate-500 hidden xl:inline">按住 Ctrl/Cmd 对比</span>
+            <span className="text-[11px] text-slate-500 hidden xl:inline">Shift连续多选 / Ctrl点选</span>
             {onCollapse && (
               <button
                 onClick={onCollapse}
                 className="p-1 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition flex items-center gap-1 text-[11px]"
-                title="收起 Git 提交历史面板 (释放更多代码对比空间)"
+                title="收起 Git 提交历史面板"
               >
                 <PanelLeftClose className="w-3.5 h-3.5" />
                 <span className="text-[11px]">收起</span>
@@ -126,16 +208,55 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="搜索提交信息、作者、SHA、分支..."
-            className="w-full bg-[#1C1D24] text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded-md border border-white/5 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500"
+            className="w-full bg-[#1C1D24] text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded-lg border border-white/5 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500"
           />
         </div>
 
+        {/* Batch Selection Action Banner (Prominent Top Banner) */}
+        {selectedBatchSet.size >= 2 && (
+          <div className="flex flex-col space-y-2 bg-gradient-to-r from-purple-950/70 to-indigo-950/70 border border-purple-500/40 rounded-xl p-2.5 shadow-lg shadow-purple-950/30">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1.5 text-xs font-semibold text-purple-200">
+                <Layers className="w-4 h-4 text-purple-400 animate-pulse" />
+                <span>已合并选择 {selectedBatchSet.size} 个提交</span>
+              </div>
+              <button
+                onClick={handleClearBatch}
+                className="text-slate-400 hover:text-white p-0.5 rounded transition"
+                title="取消多选"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={handleApplyBatchView}
+                className="flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white text-xs font-medium transition border border-white/10 shadow-sm"
+                title="合并计算并浏览这一批提交的最终净生效代码差异"
+              >
+                <Eye className="w-3.5 h-3.5 text-sky-400" />
+                <span>浏览合并净代码</span>
+              </button>
+
+              <button
+                onClick={handleApplyBatchExplain}
+                className="flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold transition shadow-md shadow-purple-600/30"
+                title="使用 AI 对这一批提交的合并最终结果进行深度审查"
+              >
+                <Brain className="w-3.5 h-3.5 text-purple-200" />
+                <span>AI 整体深度审查</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Active Comparison Banner */}
         {selection.type === 'compare' && (
-          <div className="flex items-center justify-between bg-purple-500/10 border border-purple-500/30 rounded px-2.5 py-1 text-xs text-purple-300">
+          <div className="flex items-center justify-between bg-purple-500/10 border border-purple-500/30 rounded-lg px-2.5 py-1.5 text-xs text-purple-300">
             <div className="flex items-center space-x-1.5 font-mono text-[11px]">
               <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400" />
-              <span>对比模式:</span>
+              <span>对比:</span>
               <span className="font-semibold text-purple-200">{selection.baseHash?.slice(0, 7)}</span>
               <span>↔</span>
               <span className="font-semibold text-purple-200">{selection.targetHash?.slice(0, 7)}</span>
@@ -148,18 +269,6 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
             </button>
           </div>
         )}
-
-        {selectedHashA && selection.type !== 'compare' && (
-          <div className="bg-indigo-500/15 border border-indigo-500/30 rounded px-2 py-1 text-xs text-indigo-300 flex items-center justify-between animate-pulse">
-            <span>已选基准 [{selectedHashA.slice(0, 7)}]，请点击另一个提交以进行对比</span>
-            <button
-              onClick={() => setSelectedHashA(null)}
-              className="text-[10px] text-indigo-400 hover:text-white underline ml-2"
-            >
-              取消
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Commits List & SVG Graph */}
@@ -168,10 +277,10 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           {/* SVG Overlay for drawing branch lanes and bezier curves */}
           <svg
             className="absolute left-0 top-0 pointer-events-none z-10"
-            style={{ width: svgWidth, height: nodes.length * ROW_HEIGHT }}
+            style={{ width: svgWidth + 24, height: nodes.length * ROW_HEIGHT }}
           >
             {nodes.map((node, i) => {
-              const currentX = (node.column + 0.8) * LANE_WIDTH;
+              const currentX = (node.column + 0.8) * LANE_WIDTH + 24;
               const currentY = i * ROW_HEIGHT + ROW_HEIGHT / 2;
 
               // Draw curves to parents
@@ -179,7 +288,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
                 const parentEntry = hashToNodeMap.get(parentHash);
                 if (!parentEntry) return null;
 
-                const parentX = (parentEntry.node.column + 0.8) * LANE_WIDTH;
+                const parentX = (parentEntry.node.column + 0.8) * LANE_WIDTH + 24;
                 const parentY = parentEntry.index * ROW_HEIGHT + ROW_HEIGHT / 2;
 
                 if (node.column === parentEntry.node.column) {
@@ -219,7 +328,7 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
 
             {/* Draw commit dot markers */}
             {nodes.map((node, i) => {
-              const x = (node.column + 0.8) * LANE_WIDTH;
+              const x = (node.column + 0.8) * LANE_WIDTH + 24;
               const y = i * ROW_HEIGHT + ROW_HEIGHT / 2;
               const isCurrSelected = isSelected(node.hash);
 
@@ -250,22 +359,37 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
           {/* Rows */}
           {nodes.map((node, i) => {
             const isCurrSelected = isSelected(node.hash);
+            const isBatchChecked = selectedBatchSet.has(node.hash);
 
             return (
               <div
                 key={node.hash}
-                onClick={(e) => handleRowClick(node.hash, e)}
+                onClick={(e) => handleRowClick(node.hash, i, e)}
                 style={{
                   top: i * ROW_HEIGHT,
                   height: ROW_HEIGHT,
-                  paddingLeft: svgWidth + 8,
+                  paddingLeft: svgWidth + 30,
                 }}
                 className={`absolute left-0 right-0 flex items-center pr-3 cursor-pointer select-none transition border-b border-white/[0.04] group ${
                   isCurrSelected
-                    ? 'bg-purple-600/15 border-purple-500/30'
+                    ? 'bg-purple-600/20 border-purple-500/30'
                     : 'hover:bg-white/[0.04]'
                 }`}
               >
+                {/* Left Checkbox for Direct Multi-Select */}
+                <div
+                  onClick={(e) => handleToggleCheckbox(node.hash, i, e)}
+                  style={{ left: 8 }}
+                  className="absolute z-20 p-1 text-slate-500 hover:text-purple-300 transition"
+                  title="勾选加入批量多选"
+                >
+                  {isBatchChecked ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-purple-400" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100 hover:text-purple-300 transition" />
+                  )}
+                </div>
+
                 {/* Commit Content */}
                 <div className="flex-1 flex items-center justify-between min-w-0 pr-2 gap-2 overflow-hidden">
                   <div className="flex-1 flex items-center space-x-1.5 min-w-0 overflow-hidden">

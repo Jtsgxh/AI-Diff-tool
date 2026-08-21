@@ -221,6 +221,23 @@ app.get('/api/repo/diff/working-tree', async (req, res) => {
   }
 });
 
+// 5.5 Batch Multi-Commit Net Diff (Consolidated merge of multiple commits)
+app.post('/api/repo/diff/batch', async (req, res) => {
+  const { repoPath, commitHashes } = req.body;
+
+  if (!commitHashes || !Array.isArray(commitHashes) || commitHashes.length === 0) {
+    return res.status(400).json({ error: 'commitHashes array is required' });
+  }
+
+  try {
+    const targetPath = resolvePath(repoPath);
+    const diff = await gitService.getBatchCommitsDiff(targetPath, commitHashes);
+    res.json(diff);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // 6. Fast AI Semantic Explanation Streaming Endpoint
 app.post('/api/ai/explain/stream', async (req, res) => {
   try {

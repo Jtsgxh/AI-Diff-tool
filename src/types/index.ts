@@ -26,6 +26,10 @@ export interface DiffResult {
     deletions: number;
   };
   files: DiffFile[];
+  batchInfo?: {
+    count: number;
+    messages: string[];
+  };
 }
 
 export interface RepoInfo {
@@ -69,10 +73,12 @@ export interface AIProviderConfig extends AIPromptsConfig {
 }
 
 export interface SelectionState {
-  type: 'commit' | 'compare' | 'working-tree';
+  type: 'commit' | 'compare' | 'working-tree' | 'batch';
   commitHash?: string;
   baseHash?: string;
   targetHash?: string;
+  commitHashes?: string[];
+  batchTitle?: string;
 }
 
 export interface GraphNode extends CommitNode {
