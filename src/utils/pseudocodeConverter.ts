@@ -1,18 +1,15 @@
 /**
  * Maps a streamed model response onto deleted (-) and added (+) diff lines.
  *
- * Models rarely follow the prompt perfectly: they wrap a ```diff fence, number
- * the lines, or label 删除/新增 instead of using +/- prefixes. Empty output
- * used to look like "the feature is broken" because the viewer fell back to
- * the original code with no error.
+ * The viewer replaces each changed line in order. If we keep only the first
+ * fenced block, or drop blank `-`/`+` rows, later hunk lines stay as original
+ * code and it looks like "only a sliver of the block was translated".
  */
 
 const DEL_PREFIX = /^(?:[-−－]|\[-\]|🔴|\[删除\])\s*/;
 const ADD_PREFIX = /^(?:[+＋]|\[\+\]|🟢|\[新增\])\s*/;
 const NUMBERING = /^\d+[\.\)、]\s+/;
-const FENCE = /```(?:diff|patch)?\s*\n([\s\S]*?)```/i;
-const LABELED_DEL = /^(?:删除|旧逻辑|改动前|before)\s*[:：]\s*(.+)$/i;
-const LABELED_ADD = /^(?:新增|新逻辑|改动后|after)\s*[:：]\s*(.+)$/i;
+const FENCE_LANG = /^(?:diff|patch)$/i;
 
 export interface ParsedPseudocode {
   dels: string[];
@@ -23,49 +20,69 @@ export function isParsedPseudocodeUseful(parsed: ParsedPseudocode): boolean {
   return parsed.dels.length > 0 || parsed.adds.length > 0;
 }
 
+/** True when every changed line in the hunk has a corresponding AI line. */
+export function coversHunk(
+  parsed: ParsedPseudocode,
+  deletions: number,
+  additions: number
+): boolean {
+  const delsOk = deletions === 0 || parsed.dels.length >= deletions;
+  const addsOk = additions === 0 || parsed.adds.length >= additions;
+  return delsOk && addsOk;
+}
+
 export function parseAiPseudocodeLines(aiText: string): ParsedPseudocode {
-  const body = extractDiffBody(aiText);
+  const whole = parsePrefixedLines(aiText);
+  // If the model wrapped several fences, also score each one and keep the
+  // richest parse — first-fence-only used to throw away the rest of the hunk.
+  let best = whole;
+  for (const body of extractAllFences(aiText)) {
+    const candidate = parsePrefixedLines(body);
+    if (countLines(candidate) > countLines(best)) best = candidate;
+  }
+  return best;
+}
+
+function countLines(parsed: ParsedPseudocode): number {
+  return parsed.dels.length + parsed.adds.length;
+}
+
+function parsePrefixedLines(text: string): ParsedPseudocode {
   const dels: string[] = [];
   const adds: string[] = [];
 
-  for (const raw of body.split('\n')) {
+  for (const raw of text.split('\n')) {
     let line = raw.trim();
-    if (!line || line.startsWith('```') || line === '---' || line === '+++') continue;
+    if (!line || line.startsWith('```') || line === '---' || line === '+++' || FENCE_LANG.test(line)) {
+      continue;
+    }
 
-    // "1. - foo" / "- - foo" after a markdown list wrapper.
     line = line.replace(NUMBERING, '');
 
     if (DEL_PREFIX.test(line)) {
-      const clean = stripCommentMarks(line.replace(DEL_PREFIX, ''));
-      if (clean) dels.push(`// ${clean}`);
+      dels.push(toPseudoComment(line.replace(DEL_PREFIX, '')));
       continue;
     }
     if (ADD_PREFIX.test(line)) {
-      const clean = stripCommentMarks(line.replace(ADD_PREFIX, ''));
-      if (clean) adds.push(`// ${clean}`);
-      continue;
-    }
-
-    const labeledDel = line.match(LABELED_DEL);
-    if (labeledDel?.[1]) {
-      dels.push(`// ${stripCommentMarks(labeledDel[1])}`);
-      continue;
-    }
-    const labeledAdd = line.match(LABELED_ADD);
-    if (labeledAdd?.[1]) {
-      adds.push(`// ${stripCommentMarks(labeledAdd[1])}`);
+      adds.push(toPseudoComment(line.replace(ADD_PREFIX, '')));
     }
   }
 
   return { dels, adds };
 }
 
-/** Prefer the first fenced diff block when the model wraps its answer. */
-function extractDiffBody(text: string): string {
-  const fence = text.match(FENCE);
-  return fence?.[1] ?? text;
+function extractAllFences(text: string): string[] {
+  const bodies: string[] = [];
+  const re = /```(?:diff|patch)?\s*\n([\s\S]*?)```/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (match[1]) bodies.push(match[1]);
+  }
+  return bodies;
 }
 
-function stripCommentMarks(text: string): string {
-  return text.replace(/^\/\/\s*/, '').replace(/^#\s*/, '').trim();
+function toPseudoComment(rest: string): string {
+  const clean = rest.replace(/^\d+[\.\)、:：]\s*/, '').replace(/^\/\/\s*/, '').replace(/^#\s*/, '').trim();
+  // Keep an empty slot so a blank `-`/`+` row does not shift later lines.
+  return clean ? `// ${clean}` : '// …';
 }

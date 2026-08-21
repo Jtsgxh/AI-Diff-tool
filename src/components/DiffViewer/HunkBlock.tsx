@@ -96,8 +96,8 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             }`}
             title={
               showPseudocode
-                ? pseudocode?.error
-                  ? '生成失败，点击重试'
+                ? pseudocode?.error || pseudocode?.warning
+                  ? '生成不完整或失败，点击重试'
                   : '点击关闭伪代码，恢复显示原始代码'
                 : '点击通过 AI 将本块 Diff 改动行原位转译为伪代码'
             }
@@ -109,7 +109,9 @@ export const HunkBlock = React.memo<HunkBlockProps>(
                   ? 'AI 伪代码 (生成中...)'
                   : pseudocode?.error
                     ? 'AI 伪代码 [失败·点击重试]'
-                    : 'AI 伪代码 [开]'
+                    : pseudocode?.warning
+                      ? 'AI 伪代码 [部分·点击重试]'
+                      : 'AI 伪代码 [开]'
                 : '🤖 AI 伪代码'}
             </span>
           </button>
@@ -164,15 +166,23 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           </div>
         )}
 
-        {showPseudocode && pseudocode?.error && (
-          <div className="bg-rose-950/40 border-y border-rose-500/30 px-5 py-2.5 text-xs text-rose-100 flex items-start space-x-2">
+        {showPseudocode && (pseudocode?.error || pseudocode?.warning) && (
+          <div
+            className={`border-y px-5 py-2.5 text-xs flex items-start space-x-2 ${
+              pseudocode.error
+                ? 'bg-rose-950/40 border-rose-500/30 text-rose-100'
+                : 'bg-amber-950/40 border-amber-500/30 text-amber-100'
+            }`}
+          >
             <span className="shrink-0 mt-0.5">⚠️</span>
             <div className="flex-1 min-w-0">
-              <p className="leading-relaxed">{pseudocode.error}</p>
+              <p className="leading-relaxed">{pseudocode.error || pseudocode.warning}</p>
               <button
                 type="button"
                 onClick={() => onTogglePseudocode(hunk)}
-                className="mt-1.5 text-[11px] text-rose-200 hover:text-white underline underline-offset-2"
+                className={`mt-1.5 text-[11px] hover:text-white underline underline-offset-2 ${
+                  pseudocode.error ? 'text-rose-200' : 'text-amber-200'
+                }`}
               >
                 点击重试
               </button>

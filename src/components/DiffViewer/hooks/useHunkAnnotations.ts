@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AIProviderConfig, DiffFile } from '../../../types';
-import type { DiffHunk } from '../../../utils/diffParser';
+import { serializeChangedLines, type DiffHunk } from '../../../utils/diffParser';
 import {
+  coversHunk,
   isParsedPseudocodeUseful,
   parseAiPseudocodeLines,
 } from '../../../utils/pseudocodeConverter';
@@ -14,6 +15,7 @@ export interface PseudocodeLines {
   adds: string[];
   loading: boolean;
   error?: string;
+  warning?: string;
 }
 
 export interface NaturalLanguageEntry {
@@ -69,16 +71,17 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
 
       const config = configRef.current;
       const hunkId = hunk.id;
-      const memoKey = `${filePath}::${hunkId}::${hunk.text.length}`;
+      const changedDiff = serializeChangedLines(hunk);
+      const memoKey = `${filePath}::${hunkId}::${changedDiff.length}`;
       const persistentKey = aiCache.generateKey({
-        type: 'pseudocode',
+        type: 'pseudocode_v2',
         filePath,
-        diff: hunk.text,
+        diff: changedDiff,
         model: config.model,
       });
 
       const memoHit = translationCacheRef.current.get(memoKey);
-      if (memoHit && isParsedPseudocodeUseful(memoHit)) {
+      if (memoHit && coversHunk(memoHit, hunk.deletions, hunk.additions)) {
         setPseudocodeLines((prev) => ({ ...prev, [hunkId]: { ...memoHit, loading: false } }));
         return;
       }
@@ -86,12 +89,12 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       const persisted = aiCache.get(persistentKey);
       if (persisted?.report) {
         const parsed = parseAiPseudocodeLines(persisted.report);
-        if (isParsedPseudocodeUseful(parsed)) {
+        if (coversHunk(parsed, hunk.deletions, hunk.additions)) {
           translationCacheRef.current.set(memoKey, parsed);
           setPseudocodeLines((prev) => ({ ...prev, [hunkId]: { ...parsed, loading: false } }));
           return;
         }
-        // Ignore cached error text / unparseable replies so a retry can succeed.
+        // Ignore cached summaries that only covered a sliver of the hunk.
       }
 
       abortsRef.current.get(hunkId)?.();
@@ -110,7 +113,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
         scopeType: 'chunk',
         task: 'pseudocode',
         filePath,
-        diff: hunk.text,
+        diff: changedDiff,
         userPrompt: config.pseudocodePrompt?.trim() || DEFAULT_PROMPTS.pseudocodePrompt,
         config,
         onChunk: (chunk) => {
@@ -130,26 +133,36 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
         onComplete: () => {
           abortsRef.current.delete(hunkId);
           const parsed = parseAiPseudocodeLines(accumulated);
-          if (isParsedPseudocodeUseful(parsed)) {
+          if (!isParsedPseudocodeUseful(parsed)) {
+            setPseudocodeLines((prev) => ({
+              ...prev,
+              [hunkId]: {
+                dels: prev[hunkId]?.dels || [],
+                adds: prev[hunkId]?.adds || [],
+                loading: false,
+                error: describePseudocodeFailure(accumulated),
+              },
+            }));
+            return;
+          }
+
+          const complete = coversHunk(parsed, hunk.deletions, hunk.additions);
+          if (complete) {
             translationCacheRef.current.set(memoKey, parsed);
             aiCache.set(persistentKey, {
               report: accumulated,
               model: config.model,
               provider: config.provider,
             });
-            setPseudocodeLines((prev) => ({
-              ...prev,
-              [hunkId]: { ...parsed, loading: false },
-            }));
-            return;
           }
           setPseudocodeLines((prev) => ({
             ...prev,
             [hunkId]: {
-              dels: prev[hunkId]?.dels || [],
-              adds: prev[hunkId]?.adds || [],
+              ...parsed,
               loading: false,
-              error: describePseudocodeFailure(accumulated),
+              warning: complete
+                ? undefined
+                : `只转译了 ${parsed.dels.length}/${hunk.deletions} 行删除、${parsed.adds.length}/${hunk.additions} 行新增，其余仍是原文。点击可重试。`,
             },
           }));
         },
@@ -188,8 +201,8 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
         return;
       }
       const existing = pseudocodeLines[hunk.id];
-      const alreadyLoaded = isParsedPseudocodeUseful(existing || { dels: [], adds: [] });
-      if (alreadyLoaded || existing?.loading) return;
+      if (existing?.loading) return;
+      if (existing && coversHunk(existing, hunk.deletions, hunk.additions)) return;
       fetchPseudocode(hunk);
     },
     [fetchPseudocode, isAiEnabled, pseudocodeLines]
@@ -200,7 +213,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       const hunkId = hunk.id;
       const isOn = pseudocodeHunkIds.has(hunkId);
 
-      if (isOn && pseudocodeLines[hunkId]?.error) {
+      if (isOn && (pseudocodeLines[hunkId]?.error || pseudocodeLines[hunkId]?.warning)) {
         fetchPseudocode(hunk);
         return;
       }
