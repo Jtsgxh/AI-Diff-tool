@@ -19,11 +19,15 @@ export interface SplitDiffRow {
 }
 
 export interface DiffHunk {
+  id: string;
+  index: number;
   header: string;
   lines: DiffLine[];
   splitRows: SplitDiffRow[];
   oldStart: number;
   newStart: number;
+  additions: number;
+  deletions: number;
 }
 
 export interface ParsedFileDiff {
@@ -39,17 +43,30 @@ export function parseRawDiff(rawDiff: string): ParsedFileDiff {
 
   let oldLine = 0;
   let newLine = 0;
+  let hunkCount = 0;
+
+  const finalizeHunk = (hunk: DiffHunk) => {
+    hunk.splitRows = computeSplitRows(hunk.lines);
+    let adds = 0;
+    let dels = 0;
+    for (const l of hunk.lines) {
+      if (l.type === 'add') adds++;
+      if (l.type === 'delete') dels++;
+    }
+    hunk.additions = adds;
+    hunk.deletions = dels;
+    hunks.push(hunk);
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     if (line.startsWith('@@')) {
       if (currentHunk) {
-        currentHunk.splitRows = computeSplitRows(currentHunk.lines);
-        hunks.push(currentHunk);
+        finalizeHunk(currentHunk);
       }
 
-      // Parse @@ -oldStart,oldCount +newStart,newCount @@
+      hunkCount++;
       const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       let oldStart = 1;
       let newStart = 1;
@@ -62,11 +79,15 @@ export function parseRawDiff(rawDiff: string): ParsedFileDiff {
       newLine = newStart;
 
       currentHunk = {
+        id: `hunk-${hunkCount}-${oldStart}-${newStart}`,
+        index: hunkCount,
         header: line,
         lines: [{ type: 'hunk-header', content: line }],
         splitRows: [],
         oldStart,
         newStart,
+        additions: 0,
+        deletions: 0,
       };
       continue;
     }
@@ -99,8 +120,7 @@ export function parseRawDiff(rawDiff: string): ParsedFileDiff {
   }
 
   if (currentHunk) {
-    currentHunk.splitRows = computeSplitRows(currentHunk.lines);
-    hunks.push(currentHunk);
+    finalizeHunk(currentHunk);
   }
 
   return {

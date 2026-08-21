@@ -216,12 +216,36 @@ export const App: React.FC = () => {
     setIsExplanationOpen(true);
   };
 
-  const handleExplainHunk = (hunkHeader: string, hunkDiff: string) => {
+  const handleExplainHunk = (hunkHeader: string, hunkDiff: string, hunkIndex?: number) => {
     setExplanationScope({
       type: 'hunk',
-      title: `代码块: ${hunkHeader}`,
+      title: `改动块${hunkIndex ? ` #${hunkIndex}` : ''}: ${hunkHeader}`,
       filePath: selectedFilePath || undefined,
       diff: hunkDiff,
+      commitMessage: diffResult?.title,
+    });
+    setIsExplanationOpen(true);
+  };
+
+  const handleExplainMultipleHunks = (selectedHunks: any[], file: DiffFile) => {
+    const hunkIndices = selectedHunks.map((h) => `#${h.index}`).join(', ');
+    const combinedDiff = selectedHunks
+      .map(
+        (h) =>
+          `// ==========================================\n// 改动块 #${h.index} (${h.header}) (+${h.additions} -${h.deletions})\n// ==========================================\n` +
+          h.lines
+            .map((l: any) =>
+              l.type === 'add' ? `+${l.content}` : l.type === 'delete' ? `-${l.content}` : ` ${l.content}`
+            )
+            .join('\n')
+      )
+      .join('\n\n');
+
+    setExplanationScope({
+      type: 'chunks',
+      title: `联合解释选中的 ${selectedHunks.length} 个改动块 (${file.newPath}: 块 ${hunkIndices})`,
+      filePath: file.newPath,
+      diff: combinedDiff,
       commitMessage: diffResult?.title,
     });
     setIsExplanationOpen(true);
@@ -307,6 +331,7 @@ export const App: React.FC = () => {
             viewMode={viewMode}
             onToggleViewMode={setViewMode}
             onExplainHunk={handleExplainHunk}
+            onExplainMultipleHunks={handleExplainMultipleHunks}
             onExplainFile={handleExplainFile}
             aiConfig={aiConfig}
           />

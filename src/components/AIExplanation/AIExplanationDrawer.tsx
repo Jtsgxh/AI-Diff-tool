@@ -20,7 +20,7 @@ import { AIProviderConfig } from '../../types';
 import { streamExplainDiff } from '../../services/api';
 
 export interface ExplanationScope {
-  type: 'commit' | 'file' | 'hunk' | 'compare';
+  type: 'commit' | 'file' | 'hunk' | 'chunks' | 'compare' | 'line';
   title: string;
   diff: string;
   filePath?: string;
@@ -90,7 +90,17 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     }
 
     try {
+      const scopeType =
+        scope.type === 'hunk' || scope.type === 'chunks'
+          ? 'chunk'
+          : scope.type === 'file'
+          ? 'file'
+          : scope.type === 'line'
+          ? 'line'
+          : 'commit';
+
       const cancel = await streamExplainDiff({
+        scopeType,
         diff: scope.diff,
         filePath: scope.filePath,
         commitMessage: scope.commitMessage,
