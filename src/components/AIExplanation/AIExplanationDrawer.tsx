@@ -68,7 +68,8 @@ export interface ReviewSession {
   scope: ExplanationScope;
   engineMode: 'agent' | 'fast';
   isStreaming: boolean;
-  streamContent: string;
+  initialReport: string;
+  currentFollowUpStream: string;
   reasoningContent?: string;
   currentToolEvents: AgentToolEvent[];
   agentStatus: AgentStatusEvent | null;
@@ -139,7 +140,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [
-    activeSession?.streamContent,
+    activeSession?.initialReport,
+    activeSession?.currentFollowUpStream,
+    activeSession?.reasoningContent,
     activeSession?.currentToolEvents,
     activeSession?.agentStatus,
     activeSession?.chatHistory,
@@ -187,7 +190,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           scope: targetScope,
           engineMode: mode,
           isStreaming: false,
-          streamContent: cached.report,
+          initialReport: cached.report,
+          currentFollowUpStream: '',
           reasoningContent: cached.reasoning || '',
           currentToolEvents: cached.toolEvents || [],
           agentStatus: {
@@ -227,7 +231,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       scope: targetScope,
       engineMode: mode,
       isStreaming: true,
-      streamContent: '',
+      initialReport: '',
+      currentFollowUpStream: '',
       reasoningContent: '',
       currentToolEvents: [],
       agentStatus: {
@@ -288,15 +293,20 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       activeAbortsRef.current.delete(sessionId);
 
       // Save into persistent cache
-      if (!customPrompt && accumulatedStream.trim().length > 0) {
-        aiCache.set(cacheKey, {
-          report: accumulatedStream,
-          toolEvents: accumulatedToolEvents,
-          reasoning: accumulatedReasoning,
-          model: aiConfig.model,
-          provider: aiConfig.provider,
-        });
-      }
+      setSessions((currentSessions) => {
+        const sess = currentSessions.find((s) => s.id === sessionId);
+        if (sess && sess.initialReport.trim().length > 0) {
+          aiCache.set(cacheKey, {
+            report: sess.initialReport,
+            toolEvents: sess.currentToolEvents,
+            chatHistory: sess.chatHistory,
+            reasoning: sess.reasoningContent,
+            model: aiConfig.model,
+            provider: aiConfig.provider,
+          });
+        }
+        return currentSessions;
+      });
     };
 
     try {
@@ -343,7 +353,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             accumulatedStream += chunk;
             updateSession(sessionId, (s) => ({
               ...s,
-              streamContent: s.streamContent + chunk,
+              initialReport: customPrompt ? s.initialReport : s.initialReport + chunk,
+              currentFollowUpStream: customPrompt ? s.currentFollowUpStream + chunk : '',
             }));
           },
           onComplete: () => {
@@ -353,19 +364,19 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               agentStatus: {
                 type: 'status',
                 phase: 'completed',
-                message: 'Codex 深度审查完成',
+                message: customPrompt ? '追问解答完成' : 'Codex 深度审查完成',
               },
               chatHistory: customPrompt
                 ? [
                     ...s.chatHistory,
                     {
                       role: 'assistant',
-                      content: s.streamContent,
+                      content: accumulatedStream,
                       toolEvents: s.currentToolEvents,
                     },
                   ]
                 : s.chatHistory,
-              streamContent: customPrompt ? '' : s.streamContent,
+              currentFollowUpStream: '',
             }));
             onCompleteCleanup();
           },
@@ -398,7 +409,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             accumulatedStream += chunk;
             updateSession(sessionId, (s) => ({
               ...s,
-              streamContent: s.streamContent + chunk,
+              initialReport: customPrompt ? s.initialReport : s.initialReport + chunk,
+              currentFollowUpStream: customPrompt ? s.currentFollowUpStream + chunk : '',
             }));
           },
           onComplete: () => {
@@ -408,15 +420,15 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               agentStatus: {
                 type: 'status',
                 phase: 'completed',
-                message: '直接 Diff 解析完成',
+                message: customPrompt ? '追问解答完成' : '直接 Diff 解析完成',
               },
               chatHistory: customPrompt
                 ? [
                     ...s.chatHistory,
-                    { role: 'assistant', content: s.streamContent },
+                    { role: 'assistant', content: accumulatedStream },
                   ]
                 : s.chatHistory,
-              streamContent: customPrompt ? '' : s.streamContent,
+              currentFollowUpStream: '',
             }));
             onCompleteCleanup();
           },
@@ -492,7 +504,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     updateSession(activeSession.id, (s) => ({
       ...s,
       chatHistory: [...s.chatHistory, { role: 'user', content: q }],
-      streamContent: '',
+      currentFollowUpStream: '',
       isStreaming: true,
       error: null,
     }));
@@ -501,7 +513,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       type: activeSession.scope.type,
       filePath: activeSession.scope.filePath,
       diff: activeSession.scope.diff,
-      userPrompt: q,
+      targetLine: activeSession.scope.targetLine?.lineNumber,
       engineMode: activeSession.engineMode,
       model: aiConfig.model,
     });
@@ -511,9 +523,18 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
   const handleCopy = () => {
     if (!activeSession) return;
-    const textToCopy =
-      activeSession.streamContent ||
-      activeSession.chatHistory.map((m) => `${m.role.toUpperCase()}:\n${m.content}`).join('\n\n');
+    const parts = [];
+    if (activeSession.initialReport) {
+      parts.push(`【审查报告】\n${activeSession.initialReport}`);
+    }
+    if (activeSession.chatHistory.length > 0) {
+      parts.push(
+        activeSession.chatHistory
+          .map((m) => `【${m.role === 'user' ? '用户追问' : 'AI 回复'}】\n${m.content}`)
+          .join('\n\n')
+      );
+    }
+    const textToCopy = parts.join('\n\n---\n\n') || '';
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -760,7 +781,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                   <div className="flex items-center space-x-2 text-xs font-semibold text-purple-200">
                     <Brain
                       className={`w-4 h-4 text-amber-300 ${
-                        activeSession.isStreaming && !activeSession.streamContent
+                        activeSession.isStreaming &&
+                        !activeSession.initialReport &&
+                        !activeSession.currentFollowUpStream
                           ? 'animate-pulse'
                           : ''
                       }`}
@@ -873,16 +896,21 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             )}
 
             {/* Primary Markdown Report Output */}
-            {activeSession.streamContent && (
+            {activeSession.initialReport && (
               <div
                 className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed overflow-x-auto"
-                dangerouslySetInnerHTML={{ __html: marked.parse(activeSession.streamContent) }}
+                dangerouslySetInnerHTML={{ __html: marked.parse(activeSession.initialReport) }}
               />
             )}
 
-            {/* Chat Follow-Up History */}
-            {activeSession.chatHistory.length > 0 && (
-              <div className="space-y-3 pt-4 border-t border-white/10">
+            {/* Chat Follow-Up History & Active Streaming */}
+            {(activeSession.chatHistory.length > 0 || activeSession.currentFollowUpStream) && (
+              <div className="space-y-3.5 pt-4 border-t border-white/10">
+                <div className="flex items-center space-x-2 text-xs font-semibold text-purple-300">
+                  <Bot className="w-4 h-4 text-purple-400" />
+                  <span>💬 追问与延伸讨论记录</span>
+                </div>
+
                 {activeSession.chatHistory.map((msg, i) => (
                   <div
                     key={i}
@@ -916,6 +944,23 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                     )}
                   </div>
                 ))}
+
+                {/* Active Streaming Follow-Up Bubble */}
+                {activeSession.isStreaming && activeSession.currentFollowUpStream && (
+                  <div className="flex items-start space-x-2.5 justify-start">
+                    <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
+                      <Bot className="w-3.5 h-3.5 text-purple-300" />
+                    </div>
+                    <div className="p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed bg-[#181924] border border-purple-500/30 text-slate-200 shadow-md">
+                      <div
+                        className="prose prose-invert prose-xs max-w-none"
+                        dangerouslySetInnerHTML={{
+                          __html: marked.parse(activeSession.currentFollowUpStream),
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

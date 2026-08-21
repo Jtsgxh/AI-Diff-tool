@@ -82,11 +82,26 @@ export class AIService {
       let userContent = '';
 
       if (userPrompt && userPrompt.trim()) {
-        // Dedicated task-specific instruction (e.g. pseudocode conversion or natural language translation)
-        systemPrompt = userPrompt.trim();
-        userContent = `【待处理 Git Diff 差异】\n文件: ${filePath || '当前文件'}\n提交信息: ${
-          commitMessage || '无'
-        }\n\`\`\`diff\n${diff}\n\`\`\``;
+        const isPseudocodeOrNatural =
+          userPrompt.includes('伪代码') ||
+          userPrompt.includes('自然语言') ||
+          userPrompt.includes('单行') ||
+          userPrompt.includes('简短');
+
+        if (isPseudocodeOrNatural) {
+          systemPrompt = userPrompt.trim();
+          userContent = `【待处理 Git Diff 差异】\n文件: ${filePath || '当前文件'}\n提交信息: ${
+            commitMessage || '无'
+          }\n\`\`\`diff\n${diff}\n\`\`\``;
+        } else {
+          systemPrompt = `你是一位资深架构师和代码审查专家。请结合代码改动上下文，专业、透彻地解答用户的追问。请使用排版清晰的 Markdown 输出。`;
+          userContent = `【代码改动上下文 Diff】\n文件: ${filePath || '当前文件'}\n提交信息: ${
+            commitMessage || '无'
+          }\n\`\`\`diff\n${diff.slice(
+            0,
+            9000
+          )}\n\`\`\`\n\n【用户追问】:\n${userPrompt.trim()}\n\n请针对用户的具体追问给出专业解答。`;
+        }
       } else {
         const baseCustomPrompt =
           config?.fastDiffPrompt?.trim() ||
