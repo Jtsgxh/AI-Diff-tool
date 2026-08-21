@@ -115,6 +115,8 @@ app.get('/api/system/browse', (req, res) => {
     const parentPath = path.dirname(currentPath);
 
     res.json({
+      current: currentPath,
+      parent: parentPath !== currentPath ? parentPath : null,
       currentPath,
       parentPath: parentPath !== currentPath ? parentPath : null,
       isCurrentGitRepo,

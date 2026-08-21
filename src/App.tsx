@@ -289,21 +289,29 @@ export const App: React.FC = () => {
   };
 
   const handleExplainCommit = (hash: string, message: string) => {
-    fetchCommitDiff(repoPath, hash).then((res) => {
-      const allDiff = res.files.map((f) => f.diff).join('\n\n');
-      setExplanationScope({
-        type: 'commit',
-        title: `提交 [${hash.slice(0, 7)}]: ${message}`,
-        diff: allDiff,
-        commitMessage: message,
+    fetchCommitDiff(repoPath, hash)
+      .then((res) => {
+        const allDiff = res.files.map((f) => f.diff).join('\n\n');
+        setExplanationScope({
+          type: 'commit',
+          title: `提交 [${hash.slice(0, 7)}]: ${message}`,
+          diff: allDiff,
+          commitMessage: message,
+        });
+        setIsExplanationOpen(true);
+      })
+      .catch((err) => {
+        console.error(err);
       });
-      setIsExplanationOpen(true);
-    });
   };
 
-  const selectedFile = diffResult?.files.find(
-    (f) => f.newPath === selectedFilePath || f.oldPath === selectedFilePath
-  ) || null;
+  const selectedFile = diffResult?.files.find((f) => {
+    if (!selectedFilePath) return false;
+    const cleanSel = selectedFilePath.replace(/\\/g, '/');
+    const cleanNew = (f.newPath || '').replace(/\\/g, '/');
+    const cleanOld = (f.oldPath || '').replace(/\\/g, '/');
+    return cleanNew === cleanSel || cleanOld === cleanSel;
+  }) || null;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#181920] text-slate-100 overflow-hidden select-none font-sans">
