@@ -48,11 +48,11 @@ function extractAndStripDSML(content: string): {
   return { cleanText, toolCalls };
 }
 
-// Robust fetch with 45s timeout per turn and automatic 2-attempt retry on network drop
+// Robust fetch with configurable timeout and automatic retry
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  timeoutMs: number = 45000,
+  timeoutMs: number = 40000,
   maxRetries: number = 2,
   onRetry?: (attempt: number, errorMsg: string) => void
 ): Promise<globalThis.Response> {
@@ -73,7 +73,7 @@ async function fetchWithRetry(
       if ((res.status >= 500 || res.status === 429) && attempt <= maxRetries) {
         const errorText = await res.text().catch(() => '');
         onRetry?.(attempt, `HTTP ${res.status}: ${errorText.slice(0, 100)}`);
-        await new Promise((r) => setTimeout(r, attempt * 1500));
+        await new Promise((r) => setTimeout(r, attempt * 1200));
         continue;
       }
 
@@ -87,7 +87,7 @@ async function fetchWithRetry(
 
       if (attempt <= maxRetries) {
         onRetry?.(attempt, errorMsg);
-        await new Promise((r) => setTimeout(r, attempt * 1500));
+        await new Promise((r) => setTimeout(r, attempt * 1200));
       } else {
         throw new Error(`模型请求异常 (${errorMsg})，已重试 ${maxRetries} 次`);
       }
@@ -113,12 +113,12 @@ export class CodexAgentEngine {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
 
-    // Send keep-alive ping every 10s
+    // Send keep-alive ping every 8s
     const keepAliveTimer = setInterval(() => {
       if (!res.writableEnded) {
         res.write(': keepalive\n\n');
       }
-    }, 10000);
+    }, 8000);
 
     const cleanup = () => {
       clearInterval(keepAliveTimer);
@@ -153,7 +153,6 @@ export class CodexAgentEngine {
       }
     }
 
-    // 1. Emit Initial Immediate Status to UI
     res.write(
       `data: ${JSON.stringify({
         type: 'status',
@@ -164,30 +163,30 @@ export class CodexAgentEngine {
 
     const tools = new AgentTools(repoPath);
 
-    const systemPrompt = `你是由 OpenAI Codex 与智能体架构驱动的资深软件架构师。你拥有对当前完整代码库的文件系统访问与符号检索工具。
+    const systemPrompt = `你是由 OpenAI Codex 驱动的高级代码审查智能体与架构师。你拥有对当前代码库的只读探查工具。
 
-【完全自主决策原则】：
-1. 仔细阅读给定的 Git 差异。若发现不确定的类继承、接口声明、函数调用、跨文件依赖或命名空间变更，请根据实际需要自主决定调用工具探查代码库。
-2. 你拥有完全的自主权，根据代码复杂度自行决定调用哪些工具（查阅文件、全局搜索引用、定位测试等）以及探查多少轮次。
-3. 当你判断已收集到充分的上下文信息后，自主结束工具调用，直接输出一份结构完整、论据扎实、跨模块的全景 Markdown 审查报告。
+【探查阶段与目标】：
+1. 你的核心使命是全面、透彻地审查给定的 Git Diff。
+2. 你可以使用工具主动查阅相关源文件或搜索下游引用（建议聚焦于核心类继承、关键接口与直接调用方，避免探查无关构建脚本）。
+3. 探查通常在 3~6 次关键工具调用后即可获得充足证据。当你获得足够信息后，请停止调用工具。
 
 【可用工具】：
-- \`read_file\`: 阅读仓库中指定文件的源代码（可指定 start_line 与 end_line）。
-- \`search_code\`: 全局搜索某个符号、类名、接口或函数调用的所有使用位置（用于评估下游影响）。
-- \`find_files\`: 模糊搜索文件名，定位同名测试、接口契约或配置文件。
+- \`read_file\`: 阅读仓库中指定文件的关键代码。
+- \`search_code\`: 全局搜索某个核心符号/类名的下游引用。
+- \`find_files\`: 模糊搜索文件名。
 
-【最终审查报告结构 (Markdown)】：
+【最终审查报告结构】：
 ### 🌐 全局架构与改动意图 (Cross-Module Context & Intent)
-结合探查到的外部源文件与工程结构，说明本次改动的宏观目的。
+结合探查到的外部代码库结构，说明本次改动的宏观目的。
 
 ### 🔍 跨文件影响与关键依赖分析 (Impact & Callers Analysis)
-结合检索到的关联文件与下游调用方，说明修改是否破坏外部调用、是否存在命名空间缺失或类型不兼容。
+分析本次修改对外部类、下游调用方及命名空间的影响，指出是否存在破坏性变更。
 
 ### ⚠️ 深度风险雷达与边界隐患 (Risk Radar)
-检查并发安全性（竞态/死锁）、内存管理、空异常、异常逃逸、兼容性 Breaking Changes 等。
+检查并发安全性（竞态/死锁）、内存/资源管理、空异常、异常逃逸等。
 
 ### 💡 架构重构与测试建议 (Actionable Suggestions)
-提出针对代码健壮性、可读性或测试用例编写的建议。`;
+提出针对代码健壮性、可读性或单元测试的建议。`;
 
     let initialUserMsg = '';
     if (scopeType === 'line' && targetLine) {
@@ -197,15 +196,15 @@ export class CodexAgentEngine {
         targetLine.content
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
-        6000
-      )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查。如需跨文件信息请自主决定调用工具，收集完毕后输出报告。`;
+        5000
+      )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
       }\n\`\`\`diff\n${diff.slice(
         0,
-        9000
-      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请自主分析并决定是否探查关联代码文件或搜索引用，收集充分后输出深度审查报告。`;
+        8000
+      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请结合代码库进行跨文件关联审查。`;
     }
 
     const messages: any[] = [
@@ -217,14 +216,14 @@ export class CodexAgentEngine {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    const maxIterations = 12; // Generous ceiling for complete autonomous exploration
-    let iteration = 0;
+    // Phase 1: Exploration Phase (up to 6 exploration turns)
+    const maxExplorationTurns = 6;
+    let explorationTurn = 0;
+    let finalReportText = '';
 
     try {
-      while (iteration < maxIterations) {
-        iteration++;
-
-        const isLastIteration = iteration >= maxIterations;
+      while (explorationTurn < maxExplorationTurns) {
+        explorationTurn++;
 
         // Emit thinking status
         res.write(
@@ -232,14 +231,14 @@ export class CodexAgentEngine {
             type: 'status',
             phase: 'thinking',
             message:
-              iteration === 1
-                ? '第 1 轮决策：正在分析 Diff 语义特征与外部引用...'
-                : `第 ${iteration} 轮决策：已获取关联代码，Codex 正在自主推理...`,
-            step: iteration,
+              explorationTurn === 1
+                ? '第 1 轮探查：正在分析 Diff 语义特征与外部引用...'
+                : `第 ${explorationTurn} 轮探查：已获取关联代码，Codex 正在推理...`,
+            step: explorationTurn,
           })}\n\n`
         );
 
-        // Call LLM with 45s timeout per turn & automatic 2-attempt retry on network drops
+        // Call LLM
         const response = await fetchWithRetry(
           url,
           {
@@ -248,20 +247,20 @@ export class CodexAgentEngine {
             body: JSON.stringify({
               model: model || 'deepseek-chat',
               messages,
-              tools: isLastIteration ? undefined : AGENT_TOOLS_DEFINITIONS,
-              tool_choice: isLastIteration ? 'none' : 'auto',
+              tools: AGENT_TOOLS_DEFINITIONS,
+              tool_choice: 'auto',
               stream: false,
             }),
           },
-          45000, // 45s timeout per turn
-          2, // 2 retries
+          35000,
+          2,
           (attempt, errorMsg) => {
             res.write(
               `data: ${JSON.stringify({
                 type: 'status',
                 phase: 'thinking',
                 message: `⚠️ 网络/模型响应较慢 (${errorMsg})，正在进行第 ${attempt}/2 次自动重试...`,
-                step: iteration,
+                step: explorationTurn,
               })}\n\n`
             );
           }
@@ -300,15 +299,15 @@ export class CodexAgentEngine {
           );
         }
 
-        if (activeToolCalls.length > 0 && !isLastIteration) {
+        if (activeToolCalls.length > 0) {
           const toolNames = activeToolCalls.map((t) => t.function.name).join(', ');
 
           res.write(
             `data: ${JSON.stringify({
               type: 'status',
               phase: 'executing_tools',
-              message: `智能体决定调用工具: ${toolNames} 探查代码库...`,
-              step: iteration,
+              message: `智能体调用工具: ${toolNames} 探查代码库...`,
+              step: explorationTurn,
             })}\n\n`
           );
 
@@ -338,7 +337,7 @@ export class CodexAgentEngine {
               })}\n\n`
             );
 
-            // Execute tool safely on the local repository
+            // Execute tool safely on local repo
             const toolResult = await tools.executeTool(funcName, args);
 
             res.write(
@@ -347,45 +346,89 @@ export class CodexAgentEngine {
                 id: toolCallId,
                 name: funcName,
                 summary: `${funcName}(${Object.values(args).join(', ')})`,
-                output: toolResult.slice(0, 500) + (toolResult.length > 500 ? '...' : ''),
+                output: toolResult.slice(0, 450) + (toolResult.length > 450 ? '...' : ''),
               })}\n\n`
             );
 
-            // Inject full tool result into context for Codex (up to 8000 chars)
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: toolResult.slice(0, 8000),
+              content: toolResult.slice(0, 3500),
             });
           }
         } else {
-          // Agent autonomously finished calling tools -> outputs final comprehensive report
-          res.write(
-            `data: ${JSON.stringify({
-              type: 'status',
-              phase: 'reporting',
-              message: '证据收集充分，正在流式输出全景审查报告...',
-            })}\n\n`
-          );
-
-          const finalReport = cleanText || rawContent;
-          if (finalReport) {
-            const chunkSize = 35;
-            for (let i = 0; i < finalReport.length; i += chunkSize) {
-              const chunk = finalReport.slice(i, i + chunkSize);
-              res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`);
-              await new Promise((r) => setTimeout(r, 12));
-            }
+          // Model did not call tools: check if it already produced a structured report
+          const text = cleanText || rawContent;
+          if (text.includes('###') || text.length > 300) {
+            finalReportText = text;
           }
-          break;
+          break; // Stop exploration phase
         }
+      }
+
+      // Phase 2: Guaranteed Synthesis Phase (生成最终结构化报告)
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'status',
+          phase: 'reporting',
+          message: '代码库探查就绪，正在生成跨模块深度审查报告...',
+        })}\n\n`
+      );
+
+      if (!finalReportText) {
+        // If report wasn't generated yet (e.g. exploration budget ended or model outputted intermediate thoughts),
+        // explicitly prompt for the complete structured report!
+        messages.push({
+          role: 'user',
+          content:
+            '【探查阶段结束】请根据上述探查到的全部代码上下文与修改差异，立即输出一份完整、严谨、深度的 Markdown 代码审查报告。必须包含【全局架构与改动意图】、【跨文件影响与关键依赖分析】、【深度风险雷达】与【架构重构与测试建议】。',
+        });
+
+        const synthesisRes = await fetchWithRetry(
+          url,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model: model || 'deepseek-chat',
+              messages,
+              stream: false,
+            }),
+          },
+          40000,
+          2
+        );
+
+        if (synthesisRes.ok) {
+          const synthData: any = await synthesisRes.json();
+          const synthMsg = synthData.choices?.[0]?.message?.content || '';
+          const { cleanText } = extractAndStripDSML(synthMsg);
+          finalReportText = cleanText || synthMsg;
+        }
+      }
+
+      // Stream the guaranteed final report to the user
+      if (finalReportText) {
+        const chunkSize = 35;
+        for (let i = 0; i < finalReportText.length; i += chunkSize) {
+          const chunk = finalReportText.slice(i, i + chunkSize);
+          res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`);
+          await new Promise((r) => setTimeout(r, 12));
+        }
+      } else {
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'chunk',
+            text: `### ⚠️ 未能生成完整报告\n未能从大模型获取到最终总结，请点击右上角重试。`,
+          })}\n\n`
+        );
       }
 
       res.write(
         `data: ${JSON.stringify({
           type: 'status',
           phase: 'completed',
-          message: 'Codex 审查完成',
+          message: 'Codex 审查已完成',
         })}\n\n`
       );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
