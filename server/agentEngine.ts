@@ -1,6 +1,6 @@
 ﻿import { Response } from 'express';
 import OpenAI from 'openai';
-import { Agent, Runner, tool, RunItemStreamEvent } from '@openai/agents';
+import { Agent, Runner, tool, RunItemStreamEvent, MaxTurnsExceededError } from '@openai/agents';
 import {
   OpenAIChatCompletionsModel,
   isOpenAIChatCompletionsRawModelStreamEvent,
@@ -85,8 +85,9 @@ export class CodexAgentEngine {
     );
 
     const toolsInstance = new AgentTools(repoPath);
+    const explorationLog: { name: string; args: any; output: string }[] = [];
 
-    // 1. Define Official @openai/agents Tools
+    // 1. Define Official @openai/agents Tools with exact names and parameters
     const readFileTool = tool({
       name: 'read_file',
       description: '读取当前代码库中指定文件的源代码内容。在分析 Diff 中涉及的外部类、接口或调用逻辑时使用。',
@@ -96,11 +97,17 @@ export class CodexAgentEngine {
         end_line: z.number().optional().describe('结束行号 (可选)'),
       }),
       execute: async ({ file_path, start_line, end_line }) => {
-        return await toolsInstance.executeTool('read_file', {
+        const result = await toolsInstance.executeTool('read_file', {
           file_path,
           start_line,
           end_line,
         });
+        explorationLog.push({
+          name: 'read_file',
+          args: { file_path, start_line, end_line },
+          output: result.slice(0, 3000),
+        });
+        return result;
       },
     });
 
@@ -112,10 +119,16 @@ export class CodexAgentEngine {
         file_extension: z.string().optional().describe('限制文件扩展名过滤 (可选，例如: "*.cs" 或 "*.ts")'),
       }),
       execute: async ({ query, file_extension }) => {
-        return await toolsInstance.executeTool('search_code', {
+        const result = await toolsInstance.executeTool('search_code', {
           query,
           file_extension,
         });
+        explorationLog.push({
+          name: 'search_code',
+          args: { query, file_extension },
+          output: result.slice(0, 3000),
+        });
+        return result;
       },
     });
 
@@ -126,9 +139,15 @@ export class CodexAgentEngine {
         pattern: z.string().describe('匹配模式 (例如: "*AttributeSet*" 或 "*Test*.cs")'),
       }),
       execute: async ({ pattern }) => {
-        return await toolsInstance.executeTool('find_files', {
+        const result = await toolsInstance.executeTool('find_files', {
           pattern,
         });
+        explorationLog.push({
+          name: 'find_files',
+          args: { pattern },
+          output: result.slice(0, 3000),
+        });
+        return result;
       },
     });
 
@@ -183,12 +202,9 @@ export class CodexAgentEngine {
           try {
             const parsedBody = JSON.parse(init.body);
             if (Array.isArray(parsedBody.messages)) {
-              // Ensure all assistant messages have reasoning_content attached to satisfy DeepSeek Reasoner requirements
               parsedBody.messages.forEach((msg: any) => {
-                if (msg.role === 'assistant') {
-                  if (msg.reasoning_content === undefined) {
-                    msg.reasoning_content = accumulatedReasoningContent || '';
-                  }
+                if (msg.role === 'assistant' && msg.reasoning_content === undefined) {
+                  msg.reasoning_content = accumulatedReasoningContent || '';
                 }
               });
               init.body = JSON.stringify(parsedBody);
@@ -230,76 +246,146 @@ export class CodexAgentEngine {
         })}\n\n`
       );
 
-      // 5. Execute Official Streamed Runner Loop
-      const streamedResult = await runner.run(agent, initialUserMsg, {
-        stream: true,
-        maxTurns,
-      });
+      let producedReport = false;
       let actionCount = 0;
 
-      for await (const event of streamedResult) {
-        if (event.type === 'run_item_stream_event') {
-          const itemEvent = event as RunItemStreamEvent;
-          const item: any = itemEvent.item;
+      // 5. Execute Official Streamed Runner Loop
+      try {
+        const streamedResult = await runner.run(agent, initialUserMsg, {
+          stream: true,
+          maxTurns,
+        });
 
-          if (itemEvent.name === 'tool_called') {
-            actionCount++;
-            const toolCallId = item.callId || `call_${Date.now()}_${actionCount}`;
-            const toolName = item.name || 'tool';
-            let args: any = {};
-            try {
-              args = typeof item.arguments === 'string' ? JSON.parse(item.arguments) : item.arguments;
-            } catch {
-              args = item.arguments || {};
-            }
+        for await (const event of streamedResult) {
+          if (event.type === 'run_item_stream_event') {
+            const itemEvent = event as RunItemStreamEvent;
+            const item: any = itemEvent.item;
 
-            res.write(
-              `data: ${JSON.stringify({
-                type: 'status',
-                phase: 'executing_tools',
-                message: `智能体调用工具: ${toolName} 探查代码库...`,
-              })}\n\n`
-            );
+            if (itemEvent.name === 'tool_called') {
+              actionCount++;
+              const toolCallId = item.callId || `call_${Date.now()}_${actionCount}`;
+              const toolName = item.toolName || item.name || item.rawItem?.function?.name || 'read_file';
+              let args: any = {};
+              try {
+                args =
+                  typeof item.arguments === 'string'
+                    ? JSON.parse(item.arguments)
+                    : item.rawItem?.function?.arguments
+                    ? JSON.parse(item.rawItem.function.arguments)
+                    : item.arguments || {};
+              } catch {
+                args = item.arguments || {};
+              }
 
-            res.write(
-              `data: ${JSON.stringify({
-                type: 'tool_call',
-                id: toolCallId,
-                name: toolName,
-                args,
-              })}\n\n`
-            );
-          } else if (itemEvent.name === 'tool_output') {
-            const toolCallId = item.callId || `call_${Date.now()}`;
-            const toolName = item.name || 'tool';
-            const outputStr = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
-
-            res.write(
-              `data: ${JSON.stringify({
-                type: 'tool_result',
-                id: toolCallId,
-                name: toolName,
-                summary: `${toolName}(...)`,
-                output: outputStr.slice(0, 450) + (outputStr.length > 450 ? '...' : ''),
-              })}\n\n`
-            );
-          }
-        } else if (event.type === 'raw_model_stream_event') {
-          if (isOpenAIChatCompletionsRawModelStreamEvent(event)) {
-            const delta = event.data.event.choices?.[0]?.delta as any;
-            if (delta?.reasoning_content) {
-              accumulatedReasoningContent += delta.reasoning_content;
               res.write(
                 `data: ${JSON.stringify({
                   type: 'status',
-                  phase: 'thinking',
-                  message: `🧠 思考中: ${accumulatedReasoningContent.slice(-80).replace(/\n/g, ' ')}...`,
+                  phase: 'executing_tools',
+                  message: `智能体调用工具: ${toolName} 探查代码库...`,
+                  step: actionCount,
+                })}\n\n`
+              );
+
+              res.write(
+                `data: ${JSON.stringify({
+                  type: 'tool_call',
+                  id: toolCallId,
+                  name: toolName,
+                  args,
+                })}\n\n`
+              );
+            } else if (itemEvent.name === 'tool_output') {
+              const toolCallId = item.callId || `call_${Date.now()}`;
+              const toolName = item.toolName || item.name || 'tool';
+              const outputStr = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
+
+              res.write(
+                `data: ${JSON.stringify({
+                  type: 'tool_result',
+                  id: toolCallId,
+                  name: toolName,
+                  summary: `${toolName}(...)`,
+                  output: outputStr.slice(0, 450) + (outputStr.length > 450 ? '...' : ''),
                 })}\n\n`
               );
             }
-            if (delta?.content) {
-              res.write(`data: ${JSON.stringify({ type: 'chunk', text: delta.content })}\n\n`);
+          } else if (event.type === 'raw_model_stream_event') {
+            if (isOpenAIChatCompletionsRawModelStreamEvent(event)) {
+              const delta = event.data.event.choices?.[0]?.delta as any;
+              if (delta?.reasoning_content) {
+                accumulatedReasoningContent += delta.reasoning_content;
+                res.write(
+                  `data: ${JSON.stringify({
+                    type: 'status',
+                    phase: 'thinking',
+                    message: `🧠 思考中: ${accumulatedReasoningContent.slice(-80).replace(/\n/g, ' ')}...`,
+                  })}\n\n`
+                );
+              }
+              if (delta?.content) {
+                producedReport = true;
+                res.write(`data: ${JSON.stringify({ type: 'chunk', text: delta.content })}\n\n`);
+              }
             }
+          }
+        }
+      } catch (runErr: any) {
+        // If max turns exceeded, do NOT fail! Seamlessly transition to Synthesis Phase!
+        const isMaxTurns =
+          runErr instanceof MaxTurnsExceededError ||
+          runErr.name === 'MaxTurnsExceededError' ||
+          runErr.message?.includes('Max turns');
+
+        if (!isMaxTurns) {
+          throw runErr;
+        }
+      }
+
+      // 6. Guaranteed Synthesis Phase if report was not produced during the loop
+      if (!producedReport) {
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'status',
+            phase: 'reporting',
+            message: `代码探查就绪 (共获取 ${explorationLog.length} 处关键上下文)，正在实时生成最终审查报告...`,
+          })}\n\n`
+        );
+
+        const synthesisMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+          { role: 'system', content: basePrompt },
+          { role: 'user', content: initialUserMsg },
+        ];
+
+        if (explorationLog.length > 0) {
+          const contextSummary = explorationLog
+            .map(
+              (log, idx) =>
+                `【探查结果 #${idx + 1} (${log.name} 参数: ${JSON.stringify(log.args)})】:\n${log.output}`
+            )
+            .join('\n\n');
+
+          synthesisMessages.push({
+            role: 'user',
+            content: `【探查阶段结束】已在代码库中检索到以下关联上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，按照设定的审查规则，直接输出最终完整的 Markdown 代码审查报告。`,
+          });
+        } else {
+          synthesisMessages.push({
+            role: 'user',
+            content:
+              '【探查阶段结束】请根据上述代码修改差异，按照设定的审查规则，直接输出最终完整的 Markdown 代码审查报告。',
+          });
+        }
+
+        const synthesisStream = await openaiClient.chat.completions.create({
+          model: modelName || 'deepseek-chat',
+          messages: synthesisMessages,
+          stream: true,
+        });
+
+        for await (const chunk of synthesisStream) {
+          const deltaContent = chunk.choices?.[0]?.delta?.content || '';
+          if (deltaContent) {
+            res.write(`data: ${JSON.stringify({ type: 'chunk', text: deltaContent })}\n\n`);
           }
         }
       }
