@@ -24,6 +24,8 @@ import {
   ExplanationScope,
 } from './components/AIExplanation/AIExplanationDrawer';
 import { SettingsModal } from './components/SettingsModal';
+import { OpenRepoModal } from './components/OpenRepoModal';
+import { AlertCircle } from 'lucide-react';
 
 const DEFAULT_AI_CONFIG: AIProviderConfig = {
   provider: 'demo',
@@ -33,8 +35,20 @@ const DEFAULT_AI_CONFIG: AIProviderConfig = {
 };
 
 export const App: React.FC = () => {
-  // State
-  const [repoPath, setRepoPath] = useState<string>('demo');
+  // State: Default to 'current' local repository!
+  const [repoPath, setRepoPath] = useState<string>(() => {
+    return localStorage.getItem('git_last_repo_path') || 'current';
+  });
+  const [recentRepos, setRecentRepos] = useState<string[]>(() => {
+    const saved = localStorage.getItem('git_recent_repos');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
+
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [commits, setCommits] = useState<CommitNode[]>([]);
   const [selection, setSelection] = useState<SelectionState>({
@@ -48,13 +62,15 @@ export const App: React.FC = () => {
 
   const [isLoadingRepo, setIsLoadingRepo] = useState<boolean>(false);
   const [isLoadingDiff, setIsLoadingDiff] = useState<boolean>(false);
+  const [repoError, setRepoError] = useState<string | null>(null);
 
-  // AI Drawer State
-  const [isExplanationOpen, setIsExplanationOpen] = useState(false);
+  // Modals
+  const [isOpenRepoModal, setIsOpenRepoModal] = useState<boolean>(false);
+  const [isExplanationOpen, setIsExplanationOpen] = useState<boolean>(false);
   const [explanationScope, setExplanationScope] = useState<ExplanationScope | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
-  // Settings Modal State
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // AI Config
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(() => {
     const saved = localStorage.getItem('git_ai_config');
     if (saved) {
@@ -70,28 +86,60 @@ export const App: React.FC = () => {
     localStorage.setItem('git_ai_config', JSON.stringify(newConfig));
   };
 
-  // Load Repository & Commits
-  const loadRepo = useCallback(async (path: string) => {
-    setIsLoadingRepo(true);
-    try {
-      const [info, commitData] = await Promise.all([
-        fetchRepoInfo(path),
-        fetchCommits(path),
-      ]);
-      setRepoInfo(info);
-      setCommits(commitData.commits);
-
-      // Default select the first commit
-      if (commitData.commits.length > 0) {
-        const firstHash = commitData.commits[0].hash;
-        setSelection({ type: 'commit', commitHash: firstHash });
-      }
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setIsLoadingRepo(false);
-    }
+  // Add to recent repositories
+  const addRecentRepo = useCallback((pathToAdd: string) => {
+    if (pathToAdd === 'demo' || pathToAdd === 'current') return;
+    setRecentRepos((prev) => {
+      const filtered = prev.filter((p) => p !== pathToAdd);
+      const updated = [pathToAdd, ...filtered].slice(0, 10);
+      localStorage.setItem('git_recent_repos', JSON.stringify(updated));
+      return updated;
+    });
   }, []);
+
+  const handleRemoveRecentRepo = (pathToRemove: string) => {
+    setRecentRepos((prev) => {
+      const updated = prev.filter((p) => p !== pathToRemove);
+      localStorage.setItem('git_recent_repos', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Load Repository & Commits
+  const loadRepo = useCallback(
+    async (path: string) => {
+      setIsLoadingRepo(true);
+      setRepoError(null);
+      try {
+        const [info, commitData] = await Promise.all([
+          fetchRepoInfo(path),
+          fetchCommits(path),
+        ]);
+        setRepoInfo(info);
+        setCommits(commitData.commits);
+
+        // Save last active repo
+        localStorage.setItem('git_last_repo_path', path);
+        if (info.path && info.path !== 'demo') {
+          addRecentRepo(info.path);
+        }
+
+        // Default select the first commit or working tree
+        if (commitData.commits.length > 0) {
+          const firstHash = commitData.commits[0].hash;
+          setSelection({ type: 'commit', commitHash: firstHash });
+        } else {
+          setSelection({ type: 'working-tree' });
+        }
+      } catch (err: any) {
+        console.error(err);
+        setRepoError(err.message || '无法加载该 Git 仓库');
+      } finally {
+        setIsLoadingRepo(false);
+      }
+    },
+    [addRecentRepo]
+  );
 
   useEffect(() => {
     loadRepo(repoPath);
@@ -203,12 +251,29 @@ export const App: React.FC = () => {
         repoInfo={repoInfo}
         repoPath={repoPath}
         onRepoChange={setRepoPath}
+        onOpenRepoModal={() => setIsOpenRepoModal(true)}
         selection={selection}
         onSelectWorkingTree={handleSelectWorkingTree}
         onRefresh={() => loadRepo(repoPath)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         isLoading={isLoadingRepo || isLoadingDiff}
       />
+
+      {/* Repo Load Error Banner if any */}
+      {repoError && (
+        <div className="bg-rose-500/15 border-b border-rose-500/30 px-4 py-2 text-xs text-rose-300 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{repoError}</span>
+          </div>
+          <button
+            onClick={() => setIsOpenRepoModal(true)}
+            className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[11px] font-semibold transition"
+          >
+            切换到有效仓库
+          </button>
+        </div>
+      )}
 
       {/* Main 3-Column Workspace Layout (Fork-Style) */}
       <div className="flex-1 flex overflow-hidden">
@@ -246,6 +311,16 @@ export const App: React.FC = () => {
           />
         </div>
       </div>
+
+      {/* Open Repo Modal */}
+      <OpenRepoModal
+        isOpen={isOpenRepoModal}
+        onClose={() => setIsOpenRepoModal(false)}
+        currentPath={repoInfo?.path || repoPath}
+        onSelectRepo={setRepoPath}
+        recentRepos={recentRepos}
+        onRemoveRecentRepo={handleRemoveRecentRepo}
+      />
 
       {/* AI Explanation Slide-over Panel */}
       <AIExplanationDrawer

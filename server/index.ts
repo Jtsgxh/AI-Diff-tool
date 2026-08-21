@@ -2,9 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import { exec } from 'child_process';
+import util from 'util';
 import { gitService } from './gitService';
 import { aiService } from './aiService';
 import { DEMO_COMMITS, DEMO_DIFFS } from './demoRepoService';
+
+const execPromise = util.promisify(exec);
 
 dotenv.config();
 
@@ -14,13 +18,118 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+import fs from 'fs';
+import os from 'os';
+
 // Helper to normalize path
 function resolvePath(p?: string): string {
-  if (!p || p === 'demo' || p === 'current') {
+  if (!p || p === 'demo') {
+    return 'demo';
+  }
+  if (p === 'current') {
     return process.cwd();
   }
-  return path.resolve(p);
+  const clean = p.trim().replace(/^["']|["']$/g, '');
+  return path.resolve(clean);
 }
+
+// 0. System Quick Paths (Home, Documents, Desktop, Drives)
+app.get('/api/system/quick-paths', (req, res) => {
+  try {
+    const home = os.homedir();
+    const shortcuts = [
+      { name: '用户主目录 (Home)', path: home },
+      { name: '文档 (Documents)', path: path.join(home, 'Documents') },
+      { name: '桌面 (Desktop)', path: path.join(home, 'Desktop') },
+      { name: '下载 (Downloads)', path: path.join(home, 'Downloads') },
+      { name: '当前工程 (Workspace)', path: process.cwd() },
+    ];
+
+    // Find Windows drives if on Windows
+    const drives: { name: string; path: string }[] = [];
+    if (process.platform === 'win32') {
+      const letters = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+      for (const letter of letters) {
+        const drivePath = `${letter}:\\`;
+        if (fs.existsSync(drivePath)) {
+          drives.push({ name: `本地磁盘 (${letter}:)`, path: drivePath });
+        }
+      }
+    }
+
+    res.json({ shortcuts, drives });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 0.1 In-App Visual Directory Browser
+app.get('/api/system/browse', (req, res) => {
+  try {
+    let targetPath = (req.query.path as string) || os.homedir();
+    targetPath = resolvePath(targetPath);
+
+    if (!fs.existsSync(targetPath)) {
+      targetPath = os.homedir();
+    }
+
+    const stat = fs.statSync(targetPath);
+    if (!stat.isDirectory()) {
+      targetPath = path.dirname(targetPath);
+    }
+
+    const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+    const directories: { name: string; path: string; isGitRepo: boolean }[] = [];
+
+    for (const ent of entries) {
+      if (ent.isDirectory() && !ent.name.startsWith('.') && ent.name !== 'node_modules') {
+        const full = path.join(targetPath, ent.name);
+        try {
+          const isGit = fs.existsSync(path.join(full, '.git'));
+          directories.push({ name: ent.name, path: full, isGitRepo: isGit });
+        } catch (e) {
+          // Skip inaccessible folders
+        }
+      }
+    }
+
+    // Sort: Git repos first, then alphabetically
+    directories.sort((a, b) => {
+      if (a.isGitRepo && !b.isGitRepo) return -1;
+      if (!a.isGitRepo && b.isGitRepo) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    const isCurrentGitRepo = fs.existsSync(path.join(targetPath, '.git'));
+    const parent = path.dirname(targetPath) !== targetPath ? path.dirname(targetPath) : null;
+
+    res.json({
+      current: targetPath,
+      parent,
+      isCurrentGitRepo,
+      directories,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 0.2 Native System Folder Picker (with 15s timeout)
+app.post('/api/system/pick-folder', async (req, res) => {
+  try {
+    if (process.platform === 'win32') {
+      const psCommand = `powershell -Sta -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; $f.ShowNewFolderButton = $false; $form = New-Object System.Windows.Forms.Form; $form.TopMost = $true; if ($f.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"`;
+      const { stdout } = await execPromise(psCommand, { timeout: 15000 });
+      const selected = stdout.trim();
+      if (selected) {
+        return res.json({ path: selected });
+      }
+    }
+    return res.json({ path: null });
+  } catch (err: any) {
+    res.json({ path: null, error: err.message });
+  }
+});
 
 // 1. Get Repo Basic Info
 app.get('/api/repo/info', async (req, res) => {

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   GitBranch,
   FolderGit2,
+  FolderOpen,
   Sparkles,
   Settings,
   RefreshCw,
@@ -9,7 +10,7 @@ import {
   ArrowRightLeft,
   CheckCircle2,
   AlertCircle,
-  HelpCircle,
+  ChevronDown,
 } from 'lucide-react';
 import { RepoInfo, SelectionState } from '../types';
 
@@ -17,6 +18,7 @@ interface HeaderProps {
   repoInfo: RepoInfo | null;
   repoPath: string;
   onRepoChange: (path: string) => void;
+  onOpenRepoModal: () => void;
   selection: SelectionState;
   onSelectWorkingTree: () => void;
   onRefresh: () => void;
@@ -28,23 +30,13 @@ export const Header: React.FC<HeaderProps> = ({
   repoInfo,
   repoPath,
   onRepoChange,
+  onOpenRepoModal,
   selection,
   onSelectWorkingTree,
   onRefresh,
   onOpenSettings,
   isLoading,
 }) => {
-  const [inputPath, setInputPath] = useState(repoPath);
-  const [isEditingPath, setIsEditingPath] = useState(false);
-
-  const handlePathSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputPath.trim()) {
-      onRepoChange(inputPath.trim());
-      setIsEditingPath(false);
-    }
-  };
-
   const isDemo = repoPath === 'demo';
 
   return (
@@ -65,59 +57,39 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Repo Switcher / Input */}
+        {/* Prominent Open Local Repo Button & Active Path */}
         <div className="flex items-center space-x-2">
-          {isEditingPath ? (
-            <form onSubmit={handlePathSubmit} className="flex items-center space-x-1">
-              <input
-                type="text"
-                value={inputPath}
-                onChange={(e) => setInputPath(e.target.value)}
-                placeholder="输入本地 Git 仓库绝对路径 (如 C:\Projects\my-app)..."
-                className="w-80 bg-[#1E2029] text-xs text-slate-200 border border-purple-500/50 rounded px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                autoFocus
-              />
-              <button
-                type="submit"
-                className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1.5 rounded transition"
-              >
-                打开
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setInputPath(repoPath);
-                  setIsEditingPath(false);
-                }}
-                className="text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 px-2 py-1.5 rounded"
-              >
-                取消
-              </button>
-            </form>
-          ) : (
-            <div className="flex items-center space-x-1 bg-[#1E2029] border border-white/5 rounded-lg px-2 py-1">
-              <FolderGit2 className="w-3.5 h-3.5 text-slate-400 mr-1" />
-              <button
-                onClick={() => setIsEditingPath(true)}
-                className="text-xs font-medium text-slate-200 hover:text-white truncate max-w-xs transition text-left"
-                title="点击切换本地 Git 仓库路径"
-              >
+          <button
+            onClick={onOpenRepoModal}
+            className="flex items-center space-x-2 bg-[#1E2029] hover:bg-[#252834] border border-white/10 hover:border-purple-500/40 rounded-lg px-3 py-1.5 text-xs text-slate-200 hover:text-white transition group shadow-sm"
+            title="打开本地 Git 仓库 / 切换仓库"
+          >
+            <FolderGit2 className="w-4 h-4 text-purple-400 group-hover:scale-105 transition" />
+            <div className="flex items-center space-x-1.5 max-w-xs md:max-w-md truncate">
+              <span className="font-bold text-white truncate">
                 {repoInfo?.name || (isDemo ? '内置演示仓库 (Demo Repo)' : repoPath)}
-              </button>
-
-              <button
-                onClick={() => onRepoChange(isDemo ? 'current' : 'demo')}
-                className={`ml-2 text-[11px] px-2 py-0.5 rounded font-medium transition ${
-                  isDemo
-                    ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                    : 'bg-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/10'
-                }`}
-                title="在演示仓库与当前工程仓库之间快速切换"
-              >
-                {isDemo ? '🎮 体验模式中' : '🎮 切到演示库'}
-              </button>
+              </span>
+              {!isDemo && repoInfo?.path && (
+                <span className="text-[10px] text-slate-500 truncate hidden xl:inline">
+                  ({repoInfo.path})
+                </span>
+              )}
             </div>
-          )}
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 shrink-0" />
+          </button>
+
+          {/* Quick Demo Toggle */}
+          <button
+            onClick={() => onRepoChange(isDemo ? 'current' : 'demo')}
+            className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition flex items-center gap-1 ${
+              isDemo
+                ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
+                : 'bg-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/10 border border-white/5'
+            }`}
+            title="在演示仓库与本地工程仓库之间快速切换"
+          >
+            {isDemo ? '🎮 体验模式 (点击切本地)' : '🎮 体验演示库'}
+          </button>
         </div>
       </div>
 

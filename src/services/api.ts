@@ -2,6 +2,45 @@ import { RepoInfo, CommitNode, DiffResult, AIProviderConfig } from '../types';
 
 export const API_BASE = '/api';
 
+export interface QuickPathsResponse {
+  shortcuts: { name: string; path: string }[];
+  drives: { name: string; path: string }[];
+}
+
+export interface BrowseDirectoryResponse {
+  current: string;
+  parent: string | null;
+  isCurrentGitRepo: boolean;
+  directories: { name: string; path: string; isGitRepo: boolean }[];
+}
+
+export async function fetchQuickPaths(): Promise<QuickPathsResponse> {
+  const res = await fetch(`${API_BASE}/system/quick-paths`);
+  if (!res.ok) throw new Error('Failed to fetch quick paths');
+  return res.json();
+}
+
+export async function browseDirectory(targetPath?: string): Promise<BrowseDirectoryResponse> {
+  const query = targetPath ? `?path=${encodeURIComponent(targetPath)}` : '';
+  const res = await fetch(`${API_BASE}/system/browse${query}`);
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to browse directory');
+  }
+  return res.json();
+}
+
+export async function pickNativeFolder(): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_BASE}/system/pick-folder`, { method: 'POST' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.path || null;
+  } catch (err) {
+    return null;
+  }
+}
+
 export async function fetchRepoInfo(path: string): Promise<RepoInfo> {
   const res = await fetch(`${API_BASE}/repo/info?path=${encodeURIComponent(path)}`);
   if (!res.ok) {
