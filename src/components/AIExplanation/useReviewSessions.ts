@@ -3,24 +3,25 @@ import type { AgentToolEvent, AIProviderConfig } from '../../types';
 import { streamAgentExplainDiff, streamExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
 import { STORAGE_KEYS, storage } from '../../constants/storage';
+import { cancelStreamFlush, scheduleStreamFlush } from '../../services/streamScheduler';
 import type { ChatMessage, ExplanationScope, ReviewSession } from './types';
 
-/**
- * Tokens arrive far faster than the display can usefully update. Streamed text
- * is accumulated in refs and committed to React state on this cadence, which
- * bounds both re-renders and markdown re-parses to ~12/second regardless of
- * how fast the provider streams.
- */
-const STREAM_FLUSH_MS = 80;
 /** Session persistence is debounced and skipped entirely while streaming. */
 const PERSIST_DEBOUNCE_MS = 1000;
 const ELAPSED_TICK_MS = 500;
 
+/**
+ * Streamed text lands here first and is committed to React state on the shared
+ * flush tick, bounding both re-renders and markdown re-parses no matter how
+ * fast the provider streams — and keeping the workbench in lockstep with the
+ * AI console, which batches on the same tick.
+ */
 interface StreamAccumulator {
   text: string;
   reasoning: string;
   toolEvents: AgentToolEvent[];
-  flushHandle: ReturnType<typeof setTimeout> | null;
+  /** The registered flush, kept so it can be cancelled when the stream ends. */
+  commit: (() => void) | null;
 }
 
 function shortTitleFor(scope: ExplanationScope): string {
@@ -139,7 +140,7 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
       timersRef.current.forEach((timer) => clearInterval(timer));
       timersRef.current.clear();
       accumulatorsRef.current.forEach((acc) => {
-        if (acc.flushHandle) clearTimeout(acc.flushHandle);
+        if (acc.commit) cancelStreamFlush(acc.commit);
       });
       accumulatorsRef.current.clear();
     },
@@ -168,9 +169,9 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
       timersRef.current.delete(sessionId);
     }
     const acc = accumulatorsRef.current.get(sessionId);
-    if (acc?.flushHandle) {
-      clearTimeout(acc.flushHandle);
-      acc.flushHandle = null;
+    if (acc?.commit) {
+      cancelStreamFlush(acc.commit);
+      acc.commit = null;
     }
   }, []);
 
@@ -189,13 +190,12 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         text: '',
         reasoning: '',
         toolEvents: [],
-        flushHandle: null,
+        commit: null,
       };
       accumulatorsRef.current.set(sessionId, acc);
 
       /** Writes whatever has accumulated so far into React state. */
       const commit = () => {
-        acc.flushHandle = null;
         updateSession(sessionId, (s) =>
           isFollowUp
             ? {
@@ -213,10 +213,8 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         );
       };
 
-      const scheduleCommit = () => {
-        if (acc.flushHandle !== null) return;
-        acc.flushHandle = setTimeout(commit, STREAM_FLUSH_MS);
-      };
+      acc.commit = commit;
+      const scheduleCommit = () => scheduleStreamFlush(commit);
 
       /** tool_result frames update the matching tool_call in place. */
       const recordToolEvent = (event: AgentToolEvent) => {

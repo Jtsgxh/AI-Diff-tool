@@ -1,4 +1,5 @@
 import type { AIProviderConfig } from '../types';
+import { cancelStreamFlush, flushStreamsNow, scheduleStreamFlush } from './streamScheduler';
 
 export interface AIToolExecution {
   name: string;
@@ -37,23 +38,21 @@ export interface AILoggerSummary {
 type Listener = (sessions: AICallSession[]) => void;
 type SummaryListener = (summary: AILoggerSummary) => void;
 
-/**
- * Token appends arrive faster than the screen refreshes. Coalescing them into
- * one notification per frame keeps a streaming response from re-rendering every
- * subscriber hundreds of times per second.
- */
-const FLUSH_INTERVAL_MS = 100;
-
 class AILoggerService {
   private sessions: AICallSession[] = [];
   private readonly listeners = new Set<Listener>();
   private readonly summaryListeners = new Set<SummaryListener>();
   private readonly maxSessions = 50;
 
-  private flushHandle: ReturnType<typeof setTimeout> | null = null;
   private lastSummary: AILoggerSummary = { total: 0, running: 0 };
+  /**
+   * Stable identity so the shared scheduler can coalesce and cancel this
+   * logger's flush. Notifications are batched there together with the review
+   * workbench's, so the AI console and the workbench update in the same render.
+   */
+  private readonly boundEmit = () => this.emit();
 
-  /** Full session stream. Batched: expect ~10 updates/second while streaming. */
+  /** Full session stream. Batched on the shared flush tick while streaming. */
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     listener([...this.sessions]);
@@ -160,6 +159,7 @@ class AILoggerService {
   }
 
   clearLogs(): void {
+    cancelStreamFlush(this.boundEmit);
     this.sessions = [];
     this.notifyNow();
   }
@@ -180,22 +180,19 @@ class AILoggerService {
     this.notifyNow();
   }
 
-  /** Coalesces high-frequency appends into one notification per interval. */
+  /** Coalesces high-frequency appends onto the shared flush tick. */
   private scheduleNotify(): void {
-    if (this.flushHandle !== null) return;
-    this.flushHandle = setTimeout(() => {
-      this.flushHandle = null;
-      this.emit();
-    }, FLUSH_INTERVAL_MS);
+    scheduleStreamFlush(this.boundEmit);
   }
 
-  /** For lifecycle transitions, where latency is more visible than cost. */
+  /**
+   * For lifecycle transitions, where the delay would be perceptible. Flushes
+   * every other pending stream consumer too, so no pane is left a tick behind
+   * on a session that just started or finished.
+   */
   private notifyNow(): void {
-    if (this.flushHandle !== null) {
-      clearTimeout(this.flushHandle);
-      this.flushHandle = null;
-    }
-    this.emit();
+    scheduleStreamFlush(this.boundEmit);
+    flushStreamsNow();
   }
 
   private emit(): void {
