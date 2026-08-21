@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { DiffHunk } from '../../utils/diffParser';
 import { streamExplainDiff } from '../../services/api';
@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Code2,
   Layers,
+  RotateCcw,
 } from 'lucide-react';
 import { marked } from 'marked';
 
@@ -114,16 +115,18 @@ export const NaturalLanguageDiffView: React.FC<NaturalLanguageDiffViewProps> = (
   const [aiNarrative, setAiNarrative] = useState<string>('');
   const [isLoadingAi, setIsLoadingAi] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
+  const [hasRequested, setHasRequested] = useState<boolean>(false);
 
   // Instant heuristic summary
   const heuristic = useMemo(() => {
     return generateHeuristicSummary(file, hunks);
   }, [file, hunks]);
 
-  // Request AI Natural Language Narrative Translation
+  // Request AI Natural Language Narrative Translation (ONLY ON USER CLICK)
   const requestAiNarrative = () => {
     if (isLoadingAi) return;
     setIsLoadingAi(true);
+    setHasRequested(true);
     setAiNarrative('');
 
     const prompt = `请将以下 Git 代码修改（Diff）转译为流畅、生动、通俗易懂的自然语言改动叙述。
@@ -153,13 +156,6 @@ export const NaturalLanguageDiffView: React.FC<NaturalLanguageDiffViewProps> = (
       },
     });
   };
-
-  // Auto trigger AI translation if narrative is empty
-  useEffect(() => {
-    if (!aiNarrative && !isLoadingAi && aiConfig.apiKey) {
-      requestAiNarrative();
-    }
-  }, [file.newPath]);
 
   const handleCopyProse = () => {
     const textToCopy = aiNarrative
@@ -197,11 +193,11 @@ export const NaturalLanguageDiffView: React.FC<NaturalLanguageDiffViewProps> = (
           <button
             onClick={requestAiNarrative}
             disabled={isLoadingAi}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold transition shadow-sm"
-            title="使用 AI 深度将 Diff 转译为通俗自然语言"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold transition shadow-md shadow-purple-600/20 active:scale-95"
+            title="点击开始将当前 Diff 转译为通俗自然语言"
           >
             <Sparkles className={`w-3.5 h-3.5 ${isLoadingAi ? 'animate-spin' : ''}`} />
-            <span>{isLoadingAi ? 'AI 转译中...' : '重新 AI 转译'}</span>
+            <span>{isLoadingAi ? 'AI 正在转译...' : hasRequested ? '重新 AI 转译' : '✨ 开始自然语言转译'}</span>
           </button>
 
           <button
@@ -210,7 +206,7 @@ export const NaturalLanguageDiffView: React.FC<NaturalLanguageDiffViewProps> = (
             title="复制为 PR / 提交说明文案"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? '已复制' : '复制改动说明'}</span>
+            <span>{copied ? '已复制' : '复制说明'}</span>
           </button>
 
           <button
@@ -224,18 +220,57 @@ export const NaturalLanguageDiffView: React.FC<NaturalLanguageDiffViewProps> = (
         </div>
       </div>
 
-      {/* Main Section 1: AI Generated Prose Narrative */}
-      {aiNarrative && (
+      {/* Hero Card Before User Initiates AI Translation */}
+      {!hasRequested && !aiNarrative && (
+        <div className="bg-gradient-to-b from-[#1C1E2A] to-[#161722] border border-purple-500/25 rounded-2xl p-8 text-center space-y-4 shadow-xl">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 text-purple-300 flex items-center justify-center mx-auto border border-purple-500/30 shadow-lg shadow-purple-500/10">
+            <BookOpen className="w-7 h-7 text-purple-400" />
+          </div>
+          <div className="space-y-1.5 max-w-md mx-auto">
+            <h3 className="font-bold text-sm text-white">
+              点击将本次代码修改转译为自然语言
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              将枯燥的代码行差异转换为像技术博客或 PR 描述一样的自然语言故事，清晰解释改动意图与业务逻辑。
+            </p>
+          </div>
+          <div>
+            <button
+              onClick={requestAiNarrative}
+              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-purple-600/30 transition hover:scale-105 active:scale-95 inline-flex items-center space-x-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>✨ 点击开始自然语言转译</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Section 1: AI Generated Prose Narrative (After Conversion) */}
+      {(hasRequested || aiNarrative) && (
         <div className="bg-[#181923] border border-purple-500/30 rounded-xl p-5 shadow-xl relative overflow-hidden">
-          <div className="flex items-center space-x-2 text-xs font-bold text-purple-300 mb-3 pb-2 border-b border-white/5">
-            <Sparkles className="w-4 h-4 text-purple-400" />
-            <span>AI 自然语言深度叙述 (Natural Language Narrative)</span>
+          <div className="flex items-center justify-between pb-2 border-b border-white/5 mb-3">
+            <div className="flex items-center space-x-2 text-xs font-bold text-purple-300">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              <span>AI 自然语言深度叙述 (Natural Language Narrative)</span>
+            </div>
+            {isLoadingAi && (
+              <span className="text-[11px] text-purple-400 animate-pulse font-mono">
+                正在生成自然语言转译中...
+              </span>
+            )}
           </div>
 
-          <div
-            className="prose prose-invert prose-sm max-w-none text-slate-200 text-xs leading-relaxed font-sans"
-            dangerouslySetInnerHTML={{ __html: marked.parse(aiNarrative) as string }}
-          />
+          {aiNarrative ? (
+            <div
+              className="prose prose-invert prose-sm max-w-none text-slate-200 text-xs leading-relaxed font-sans"
+              dangerouslySetInnerHTML={{ __html: marked.parse(aiNarrative) as string }}
+            />
+          ) : (
+            <div className="py-8 text-center text-xs text-slate-500 animate-pulse">
+              正在调用 AI 深度转译代码改动逻辑，请稍候...
+            </div>
+          )}
         </div>
       )}
 
