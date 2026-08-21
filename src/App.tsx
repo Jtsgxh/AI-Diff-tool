@@ -205,29 +205,40 @@ export const App: React.FC = () => {
     setIsExplanationOpen(true);
   };
 
-  const handleExplainFile = (file: DiffFile) => {
+  const handleExplainFile = (file: DiffFile, mode: 'agent' | 'fast' = 'agent') => {
     setExplanationScope({
       type: 'file',
       title: `文件差异: ${file.newPath}`,
       filePath: file.newPath,
       diff: file.diff,
       commitMessage: diffResult?.title,
+      initialMode: mode,
     });
     setIsExplanationOpen(true);
   };
 
-  const handleExplainHunk = (hunkHeader: string, hunkDiff: string, hunkIndex?: number) => {
+  const handleExplainHunk = (
+    hunkHeader: string,
+    hunkDiff: string,
+    hunkIndex?: number,
+    mode: 'agent' | 'fast' = 'agent'
+  ) => {
     setExplanationScope({
       type: 'hunk',
       title: `改动块${hunkIndex ? ` #${hunkIndex}` : ''}: ${hunkHeader}`,
       filePath: selectedFilePath || undefined,
       diff: hunkDiff,
       commitMessage: diffResult?.title,
+      initialMode: mode,
     });
     setIsExplanationOpen(true);
   };
 
-  const handleExplainMultipleHunks = (selectedHunks: any[], file: DiffFile) => {
+  const handleExplainMultipleHunks = (
+    selectedHunks: any[],
+    file: DiffFile,
+    mode: 'agent' | 'fast' = 'agent'
+  ) => {
     const hunkIndices = selectedHunks.map((h) => `#${h.index}`).join(', ');
     const combinedDiff = selectedHunks
       .map(
@@ -247,6 +258,7 @@ export const App: React.FC = () => {
       filePath: file.newPath,
       diff: combinedDiff,
       commitMessage: diffResult?.title,
+      initialMode: mode,
     });
     setIsExplanationOpen(true);
   };

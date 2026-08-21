@@ -10,15 +10,17 @@ import {
   Layers,
   CheckSquare,
   Square,
+  Zap,
+  Brain,
 } from 'lucide-react';
 
 interface DiffViewerProps {
   file: DiffFile | null;
   viewMode: DiffViewMode;
   onToggleViewMode: (mode: DiffViewMode) => void;
-  onExplainHunk: (hunkHeader: string, hunkDiff: string, hunkIndex?: number) => void;
-  onExplainMultipleHunks: (selectedHunks: DiffHunk[], file: DiffFile) => void;
-  onExplainFile: (file: DiffFile) => void;
+  onExplainHunk: (hunkHeader: string, hunkDiff: string, hunkIndex?: number, mode?: 'agent' | 'fast') => void;
+  onExplainMultipleHunks: (selectedHunks: DiffHunk[], file: DiffFile, mode?: 'agent' | 'fast') => void;
+  onExplainFile: (file: DiffFile, mode?: 'agent' | 'fast') => void;
   aiConfig: AIProviderConfig;
 }
 
@@ -30,6 +32,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   onExplainMultipleHunks,
   onExplainFile,
 }) => {
+  // Global default explanation mode in this viewer: 'agent' (default) or 'fast'
+  const [defaultMode, setDefaultMode] = useState<'agent' | 'fast'>('agent');
+
   // Multi-selected hunk IDs
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
 
@@ -44,7 +49,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         <FileCode className="w-12 h-12 mb-3 text-slate-600 stroke-1" />
         <p className="text-sm font-medium text-slate-400">请选择左侧文件以查看代码差异对比</p>
         <p className="text-xs text-slate-600 mt-1">
-          悬浮代码块即可唤起 AI 块级解释，或勾选多块进行联合分析
+          支持「⚡ 直接 Diff 解释」与「🧠 文件关联解释 (Codex Agent)」两种审查方式
         </p>
       </div>
     );
@@ -184,7 +189,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#181921] overflow-hidden relative">
-      {/* Diff Toolbar (Clean standard toolbar) */}
+      {/* Diff Toolbar */}
       <div className="h-11 bg-[#15161C] border-b border-white/10 px-4 flex items-center justify-between select-none shrink-0">
         <div className="flex items-center space-x-2 min-w-0">
           <FileCode className="w-4 h-4 text-purple-400 shrink-0" />
@@ -199,12 +204,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         </div>
 
         {/* Right Action buttons */}
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2.5">
           {/* Quick select all blocks button if file has multiple hunks */}
           {hunks.length > 1 && (
             <button
               onClick={selectedHunkIds.size === hunks.length ? clearHunkSelection : selectAllHunks}
-              className="text-xs text-slate-400 hover:text-purple-300 transition flex items-center gap-1"
+              className="text-xs text-slate-400 hover:text-purple-300 transition flex items-center gap-1 mr-1"
               title="多选当前文件的所有改动块"
             >
               {selectedHunkIds.size === hunks.length ? (
@@ -221,13 +226,48 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             </button>
           )}
 
+          {/* Mode Selector Segmented Button in Toolbar */}
+          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 text-xs">
+            <button
+              onClick={() => setDefaultMode('agent')}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium ${
+                defaultMode === 'agent'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="默认模式：关联解释（Codex Agent 自主全库探查）"
+            >
+              <Brain className="w-3 h-3 text-purple-300" />
+              <span>关联解释</span>
+            </button>
+            <button
+              onClick={() => setDefaultMode('fast')}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium ${
+                defaultMode === 'fast'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="默认模式：直接 Diff 解释（仅看增删改动）"
+            >
+              <Zap className="w-3 h-3 text-amber-300" />
+              <span>直接 Diff</span>
+            </button>
+          </div>
+
           {/* AI Explain File Button */}
           <button
-            onClick={() => onExplainFile(file)}
-            className="flex items-center space-x-1.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-xs font-medium px-2.5 py-1 rounded shadow transition"
+            onClick={() => onExplainFile(file, defaultMode)}
+            className={`flex items-center space-x-1.5 text-white text-xs font-medium px-2.5 py-1 rounded shadow transition ${
+              defaultMode === 'agent'
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
+                : 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500'
+            }`}
+            title={`使用当前「${defaultMode === 'agent' ? '文件关联模式' : '直接 Diff 模式'}」审查整个文件`}
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>AI 汇总解释此文件</span>
+            {defaultMode === 'agent' ? <Brain className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+            <span>
+              {defaultMode === 'agent' ? 'Codex 关联解释此文件' : '直接解释此文件'}
+            </span>
           </button>
 
           {/* Mode Switcher: Split vs Unified */}
@@ -275,7 +315,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   : 'hover:bg-white/[0.015]'
               }`}
             >
-              {/* Floating Hunk Hover Toolbar (Only visible on hover or when selected) */}
+              {/* Floating Hunk Hover Toolbar with Clear Distinction Buttons */}
               <div
                 className={`absolute right-4 top-2 z-20 flex items-center space-x-1.5 transition-opacity duration-150 ${
                   isSelected
@@ -306,15 +346,26 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   <span>{isSelected ? `块 #${hunk.index} 已选` : `选择块 #${hunk.index}`}</span>
                 </button>
 
-                {/* Single Hunk AI Explain Button */}
+                {/* Option 1: Fast Direct Diff Explain Button */}
                 <button
                   type="button"
-                  onClick={() => onExplainHunk(hunk.header, hunkText, hunk.index)}
-                  className="px-2.5 py-1 rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-lg shadow-purple-600/30 border border-purple-400/30 transition hover:scale-105 active:scale-95"
-                  title="针对当前改动块进行 AI 语义解释"
+                  onClick={() => onExplainHunk(hunk.header, hunkText, hunk.index, 'fast')}
+                  className="px-2 py-1 rounded-md bg-amber-600/30 hover:bg-amber-600/60 text-amber-200 border border-amber-500/40 text-[11px] font-sans font-medium flex items-center space-x-1 backdrop-blur-md shadow transition hover:scale-105"
+                  title="【直接 Diff 解释】仅针对当前增删代码直接解释，不查阅外部文件"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>AI 解释此块</span>
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>直接解释</span>
+                </button>
+
+                {/* Option 2: Codex Agent Context-Aware Explain Button */}
+                <button
+                  type="button"
+                  onClick={() => onExplainHunk(hunk.header, hunkText, hunk.index, 'agent')}
+                  className="px-2.5 py-1 rounded-md bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-lg shadow-purple-600/30 border border-purple-400/30 transition hover:scale-105 active:scale-95"
+                  title="【文件关联解释】Codex 智能体将自主检索全库关联文件与下游调用"
+                >
+                  <Brain className="w-3.5 h-3.5" />
+                  <span>关联解释 (Codex)</span>
                 </button>
               </div>
 
@@ -326,7 +377,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 </div>
               )}
 
-              {/* Diff Lines Rendering (Clean, Standard) */}
+              {/* Diff Lines Rendering */}
               {viewMode === 'unified' ? (
                 <div>{hunk.lines.map((line, lineIdx) => renderUnifiedLine(line, lineIdx))}</div>
               ) : (
@@ -337,7 +388,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         })}
       </div>
 
-      {/* Floating Multi-Selection Action Bar (Only when 1+ hunks are selected) */}
+      {/* Floating Multi-Selection Action Bar (with Dual Mode Buttons) */}
       {selectedHunkIds.size > 0 && (
         <div className="absolute bottom-3 left-6 right-6 bg-[#161722]/95 border border-purple-500/50 rounded-xl px-4 py-2.5 shadow-2xl backdrop-blur-md flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
@@ -373,14 +424,28 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             </div>
           </div>
 
-          {/* AI Explain Multi-Hunk Button */}
-          <button
-            onClick={() => onExplainMultipleHunks(selectedHunkObjects, file)}
-            className="flex items-center space-x-2 px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-lg shadow-lg shadow-purple-600/30 transition hover:scale-105 active:scale-95"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>AI 联合解释选中的 {selectedHunkIds.size} 个改动块</span>
-          </button>
+          {/* Dual Action Buttons for Multi-Selection */}
+          <div className="flex items-center space-x-2">
+            {/* Direct Diff Multi-Explain */}
+            <button
+              onClick={() => onExplainMultipleHunks(selectedHunkObjects, file, 'fast')}
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/40 font-medium text-xs rounded-lg transition"
+              title="仅针对选中的改动块进行直接快速对比解释"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>直接联合解释 ({selectedHunkIds.size} 块)</span>
+            </button>
+
+            {/* Codex Agent Multi-Explain */}
+            <button
+              onClick={() => onExplainMultipleHunks(selectedHunkObjects, file, 'agent')}
+              className="flex items-center space-x-2 px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-lg shadow-lg shadow-purple-600/30 transition hover:scale-105 active:scale-95"
+              title="Codex 智能体将探查代码库，联合分析所选改动块的跨文件影响"
+            >
+              <Brain className="w-4 h-4" />
+              <span>Codex 关联联合解释 ({selectedHunkIds.size} 块)</span>
+            </button>
+          </div>
         </div>
       )}
     </div>

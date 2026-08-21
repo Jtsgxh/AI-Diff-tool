@@ -33,6 +33,7 @@ export interface ExplanationScope {
   diff: string;
   filePath?: string;
   commitMessage?: string;
+  initialMode?: 'agent' | 'fast';
 }
 
 interface AIExplanationDrawerProps {
@@ -71,6 +72,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
   const abortStreamRef = useRef<(() => void) | null>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
+
+  // Sync initialMode when scope opens
+  useEffect(() => {
+    if (scope?.initialMode) {
+      setEngineMode(scope.initialMode);
+    }
+  }, [scope]);
 
   // Trigger initial explanation when scope changes or mode changes
   useEffect(() => {
@@ -131,7 +139,6 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           config: aiConfig,
           onToolEvent: (event) => {
             setCurrentToolEvents((prev) => {
-              // Update existing tool_call with tool_result if matching
               if (event.type === 'tool_result' && event.id) {
                 const idx = prev.findIndex((e) => e.id === event.id);
                 if (idx !== -1) {
@@ -162,7 +169,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           },
         });
       } else {
-        // Fast Diff Direct Stream Mode
+        // Fast Direct Diff Mode
         cancel = await streamExplainDiff({
           scopeType,
           diff: scope.diff,
@@ -224,7 +231,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   if (!isOpen || !scope) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[580px] max-w-[92vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
+    <div className="fixed inset-y-0 right-0 w-[600px] max-w-[94vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
       {/* Top Header */}
       <div className="h-14 px-4 bg-[#121319] border-b border-white/10 flex items-center justify-between select-none shrink-0">
         <div className="flex items-center space-x-2.5 min-w-0">
@@ -234,7 +241,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           <div className="flex flex-col min-w-0">
             <div className="flex items-center space-x-1.5">
               <span className="font-semibold text-xs text-white truncate">
-                AI 语义解释与全库审查
+                AI 语义解释与审查
               </span>
               <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
                 {aiConfig.model || aiConfig.provider}
@@ -253,7 +260,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             <button
               onClick={() => setEngineMode('agent')}
               disabled={isStreaming}
-              className={`flex items-center space-x-1 px-2 py-1 rounded-md transition font-medium ${
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition font-medium ${
                 engineMode === 'agent'
                   ? 'bg-purple-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -261,20 +268,20 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               title="智能体自主探索：访问文件系统、全局搜索引用、多文件关联分析"
             >
               <Brain className="w-3.5 h-3.5 text-purple-300" />
-              <span>Agent 全库审查</span>
+              <span>关联解释 (Codex)</span>
             </button>
             <button
               onClick={() => setEngineMode('fast')}
               disabled={isStreaming}
-              className={`flex items-center space-x-1 px-2 py-1 rounded-md transition font-medium ${
+              className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition font-medium ${
                 engineMode === 'fast'
-                  ? 'bg-purple-600 text-white shadow-sm'
+                  ? 'bg-amber-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
-              title="快速单 Diff 解析模式"
+              title="直接 Diff 模式：极速聚焦当前修改代码行"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>快速 Diff</span>
+              <span>直接 Diff 解释</span>
             </button>
           </div>
 
@@ -302,6 +309,51 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+      </div>
+
+      {/* Prominent Mode Distinction Banner */}
+      <div
+        className={`px-4 py-2 border-b flex items-center justify-between text-xs transition-colors select-none ${
+          engineMode === 'agent'
+            ? 'bg-purple-950/40 border-purple-500/30 text-purple-200'
+            : 'bg-amber-950/40 border-amber-500/30 text-amber-200'
+        }`}
+      >
+        <div className="flex items-center space-x-2 min-w-0">
+          {engineMode === 'agent' ? (
+            <>
+              <Brain className="w-4 h-4 text-purple-400 shrink-0" />
+              <div className="truncate">
+                <span className="font-bold">【文件关联解释模式 (Codex Agent)】</span>
+                <span className="text-[11px] text-purple-300/80 ml-1">
+                  已启用文件系统访问，智能体自主跨文件检索类定义与下游调用
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+              <div className="truncate">
+                <span className="font-bold">【直接 Diff 解释模式】</span>
+                <span className="text-[11px] text-amber-300/80 ml-1">
+                  仅针对当前选定的增删片段直接分析，不查阅外部文件
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={() => setEngineMode(engineMode === 'agent' ? 'fast' : 'agent')}
+          disabled={isStreaming}
+          className={`shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium border transition ${
+            engineMode === 'agent'
+              ? 'bg-purple-600/30 hover:bg-purple-600/50 border-purple-400/40 text-purple-200'
+              : 'bg-amber-600/30 hover:bg-amber-600/50 border-amber-400/40 text-amber-200'
+          }`}
+        >
+          切为{engineMode === 'agent' ? '「直接 Diff 解释」' : '「文件关联解释」'}
+        </button>
       </div>
 
       {/* Main Content Area */}
@@ -343,8 +395,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           </div>
         ))}
 
-        {/* Live Agent Tool-Calling Action Trail */}
-        {currentToolEvents.length > 0 && (
+        {/* Live Agent Tool-Calling Action Trail (Only in Agent mode) */}
+        {engineMode === 'agent' && currentToolEvents.length > 0 && (
           <div className="bg-[#181924] border border-purple-500/30 rounded-xl overflow-hidden shadow-lg transition-all">
             {/* Trail Header */}
             <div
@@ -356,7 +408,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                   <Brain className="w-3.5 h-3.5 animate-pulse" />
                 </div>
                 <div className="flex items-center space-x-1.5 text-xs font-semibold text-purple-200">
-                  <span>智能体代码库自主探索引擎</span>
+                  <span>Codex 智能体代码库自主探索引擎</span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 font-mono">
                     已执行 {currentToolEvents.length} 次动作
                   </span>
@@ -464,7 +516,11 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         {isStreaming && !streamContent && currentToolEvents.length === 0 && (
           <div className="flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
             <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-            <p className="text-xs">智能体正在分析 Diff 语义并决定是否探查外部代码库...</p>
+            <p className="text-xs">
+              {engineMode === 'agent'
+                ? 'Codex 智能体正在评估 Diff 语义并决定是否探查外部文件...'
+                : 'AI 正在直接分析该段 Diff 语法与逻辑...'}
+            </p>
           </div>
         )}
 
@@ -480,7 +536,11 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               value={userQuestion}
               onChange={(e) => setUserQuestion(e.target.value)}
               disabled={isStreaming}
-              placeholder="针对此差异向 AI 提问 (AI 将结合完整代码库进行深度解答)..."
+              placeholder={
+                engineMode === 'agent'
+                  ? '针对此差异向 Codex 智能体提问 (将结合全库文件进行关联深度解答)...'
+                  : '针对此差异直接提问 (聚焦当前 Diff 语法与逻辑)...'
+              }
               className="w-full bg-[#1A1B23] text-xs text-slate-200 pl-3 pr-8 py-2 rounded-lg border border-white/10 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500"
             />
             {isStreaming ? (
