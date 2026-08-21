@@ -43,8 +43,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   // Multi-selected hunk IDs
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
 
-  // Global & Per-Hunk Pseudocode / Natural Language Code Mode
-  const [isGlobalPseudocode, setIsGlobalPseudocode] = useState<boolean>(false);
+  // Hunks with Pseudocode / Natural Language Code enabled
   const [hunkPseudocodeSet, setHunkPseudocodeSet] = useState<Set<string>>(new Set());
 
   // Inline Natural Language State per Hunk
@@ -93,6 +92,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     setSelectedHunkIds(new Set());
   };
 
+  // Toggle Pseudocode for an individual Hunk (guaranteed 2-way on/off toggle)
   const toggleHunkPseudocode = (hunkId: string) => {
     setHunkPseudocodeSet((prev) => {
       const next = new Set(prev);
@@ -103,6 +103,16 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       }
       return next;
     });
+  };
+
+  // Global Toggle Pseudocode for all Hunks
+  const isAllPseudocode = hunks.length > 0 && hunkPseudocodeSet.size === hunks.length;
+  const toggleGlobalPseudocode = () => {
+    if (hunkPseudocodeSet.size > 0) {
+      setHunkPseudocodeSet(new Set()); // Turn all off
+    } else {
+      setHunkPseudocodeSet(new Set(hunks.map((h) => h.id))); // Turn all on
+    }
   };
 
   const selectedHunkObjects = hunks.filter((h) => selectedHunkIds.has(h.id));
@@ -307,18 +317,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             </button>
           )}
 
-          {/* Global Pseudocode / Natural Language Code Switcher */}
+          {/* Global Pseudocode Toggle Button */}
           <button
-            onClick={() => setIsGlobalPseudocode((prev) => !prev)}
+            onClick={toggleGlobalPseudocode}
             className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
-              isGlobalPseudocode
+              hunkPseudocodeSet.size > 0
                 ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-md shadow-purple-500/20'
                 : 'bg-[#1E202A] hover:bg-[#282A38] text-slate-300 border-white/10 hover:text-white'
             }`}
             title="将 Diff 改动代码直接替换为高度提炼概括的中文自然语言伪代码"
           >
-            <Sparkles className={`w-3.5 h-3.5 ${isGlobalPseudocode ? 'text-white' : 'text-purple-400'}`} />
-            <span>{isGlobalPseudocode ? '🔤 概括伪代码显示中' : '显示为概括伪代码'}</span>
+            <Sparkles className={`w-3.5 h-3.5 ${hunkPseudocodeSet.size > 0 ? 'text-white' : 'text-purple-400'}`} />
+            <span>{hunkPseudocodeSet.size > 0 ? `🔤 概括伪代码 [开 (${hunkPseudocodeSet.size}/${hunks.length})]` : '显示为概括伪代码'}</span>
           </button>
 
           {/* Mode Selector Segmented Button in Toolbar */}
@@ -400,7 +410,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         {hunks.map((hunk, hunkIdx) => {
           const isSelected = selectedHunkIds.has(hunk.id);
           const isNaturalExpanded = expandedNaturalHunkIds.has(hunk.id);
-          const isHunkPseudocode = isGlobalPseudocode || hunkPseudocodeSet.has(hunk.id);
+          const isHunkPseudocode = hunkPseudocodeSet.has(hunk.id);
           const hunkText = getHunkDiffText(hunk);
 
           const conceptual = isHunkPseudocode ? generateConceptualHunkPseudocode(hunk) : null;
@@ -444,7 +454,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   <span>{isSelected ? `块 #${hunk.index} 已选` : `选择块 #${hunk.index}`}</span>
                 </button>
 
-                {/* Per-Hunk Conceptual Pseudocode Toggle */}
+                {/* Per-Hunk Conceptual Pseudocode Toggle (guaranteed 2-way on/off toggle) */}
                 <button
                   type="button"
                   onClick={() => toggleHunkPseudocode(hunk.id)}
@@ -453,7 +463,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                       ? 'bg-purple-600 text-white border-purple-400 shadow-purple-600/30'
                       : 'bg-[#1D1F2A]/90 hover:bg-purple-600/30 text-purple-300 hover:text-white border-purple-500/30'
                   }`}
-                  title="将本块代码直接替换为概括性伪代码"
+                  title={isHunkPseudocode ? "点击关闭伪代码，恢复显示原始代码" : "点击将本块代码替换为概括性伪代码"}
                 >
                   <Sparkles className="w-3 h-3" />
                   <span>{isHunkPseudocode ? '概括伪代码 [开]' : '显示为伪代码'}</span>
@@ -563,7 +573,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                       <Sparkles className="w-4 h-4 text-purple-400" />
                       <span>改动块 #{hunk.index} 概括性伪代码对照 (Conceptual Pseudocode)</span>
                     </div>
-                    <span className="text-[10px] text-slate-500 font-mono">已将繁杂代码行提炼为高层语义步骤</span>
+                    <button
+                      onClick={() => toggleHunkPseudocode(hunk.id)}
+                      className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition border border-white/5"
+                    >
+                      ✕ 恢复原始代码
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">
