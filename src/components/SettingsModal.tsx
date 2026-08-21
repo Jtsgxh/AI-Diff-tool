@@ -23,7 +23,10 @@ import {
   Gamepad2,
   Code2,
   BookOpen,
+  Database,
+  Trash2,
 } from 'lucide-react';
+import { aiCache } from '../services/aiCache';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -824,6 +827,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                   />
                   <p className="text-[10px] text-slate-500">全库检索某函数/类名的最多调用行</p>
+                </div>
+              </div>
+
+              {/* 3. Cache Storage Manager */}
+              <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-sky-400" />
+                    <span>💾 本地审查与伪代码持久化缓存 (AI Review Cache)</span>
+                  </label>
+                  <span className="font-mono text-xs text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded">
+                    已保存 {aiCache.getCount()} 处审查结果
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  系统会自动为已分析过的改动块与 Codex 报告建立指纹缓存，再次查看时 0ms 瞬间加载，0 额外 Token 消耗。
+                </p>
+                <div className="pt-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      aiCache.clear();
+                      alert('已成功清空所有本地 AI 审查与伪代码缓存！');
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-lg text-xs transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>清空所有已缓存的 AI 结果</span>
+                  </button>
                 </div>
               </div>
             </div>

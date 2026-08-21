@@ -95,6 +95,7 @@ export async function fetchWorkingTreeDiff(path: string): Promise<DiffResult> {
 import { aiLogger } from './aiLogger';
 
 export interface StreamExplainPayload {
+  sessionId?: string;
   scopeType?: 'line' | 'chunk' | 'file' | 'commit';
   targetLine?: {
     lineNumber?: number;
@@ -116,10 +117,12 @@ const activeStreams = new Map<string, () => void>();
 export async function streamExplainDiff(payload: StreamExplainPayload): Promise<() => void> {
   const abortController = new AbortController();
 
-  // Deduplicate: cancel any identical in-flight stream
-  const requestFingerprint = `diff::${payload.scopeType || ''}::${payload.filePath || ''}::${
-    payload.targetLine?.lineNumber || ''
-  }::${payload.userPrompt || ''}::${payload.diff?.length || 0}`;
+  // Deduplicate: only cancel exact same session or exact same request fingerprint
+  const requestFingerprint =
+    payload.sessionId ||
+    `diff::${payload.scopeType || ''}::${payload.filePath || ''}::${
+      payload.targetLine?.lineNumber || ''
+    }::${payload.userPrompt || ''}::${payload.diff?.length || 0}`;
 
   if (activeStreams.has(requestFingerprint)) {
     activeStreams.get(requestFingerprint)?.();
@@ -277,6 +280,7 @@ export interface AgentStatusEvent {
 }
 
 export interface StreamAgentExplainPayload {
+  sessionId?: string;
   repoPath: string;
   scopeType?: 'line' | 'chunk' | 'file' | 'commit';
   targetLine?: {
@@ -301,10 +305,12 @@ export async function streamAgentExplainDiff(
 ): Promise<() => void> {
   const abortController = new AbortController();
 
-  // Deduplicate: cancel any identical in-flight agent stream
-  const requestFingerprint = `agent::${payload.repoPath}::${payload.scopeType || ''}::${
-    payload.filePath || ''
-  }::${payload.userPrompt || ''}::${payload.diff?.length || 0}`;
+  // Deduplicate: only cancel exact same session or exact same agent fingerprint
+  const requestFingerprint =
+    payload.sessionId ||
+    `agent::${payload.repoPath}::${payload.scopeType || ''}::${payload.filePath || ''}::${
+      payload.userPrompt || ''
+    }::${payload.diff?.length || 0}`;
 
   if (activeStreams.has(requestFingerprint)) {
     activeStreams.get(requestFingerprint)?.();

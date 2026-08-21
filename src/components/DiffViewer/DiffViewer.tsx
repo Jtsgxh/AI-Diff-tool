@@ -2,7 +2,11 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
 import { parseAiPseudocodeLines } from '../../utils/pseudocodeConverter';
-import { streamExplainDiff } from '../../services/api';
+import {
+  streamExplainDiff,
+  StreamExplainPayload,
+} from '../../services/api';
+import { aiCache } from '../../services/aiCache';
 import { DEFAULT_PROMPTS } from '../../constants/defaultPrompts';
 import {
   Columns,
@@ -124,17 +128,34 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       .join('\n');
   };
 
-  // Fetch AI-Driven Pseudocode for a specific Hunk (with cache & duplicate request prevention)
+  // Fetch AI-Driven Pseudocode for a specific Hunk (with persistent cache & duplicate request prevention)
   const fetchAiPseudocode = async (hunkId: string, hunk: DiffHunk) => {
     const hunkDiffText = getHunkDiffText(hunk);
     const cacheKey = `${file.newPath}::${hunkId}::${hunkDiffText.length}`;
+    const persistentKey = aiCache.generateKey({
+      type: 'pseudocode',
+      filePath: file.newPath,
+      diff: hunkDiffText,
+      model: aiConfig.model,
+    });
 
-    // 1. Check in-memory cache: if already translated, load instantly with 0 network calls
+    // 1. Check in-memory & persistent cache: if already translated, load instantly with 0 network calls
     const cached = pseudocodeCacheRef.current.get(cacheKey);
     if (cached) {
       setHunkAiLineMap((prev) => ({
         ...prev,
         [hunkId]: { dels: cached.dels, adds: cached.adds, loading: false },
+      }));
+      return;
+    }
+
+    const persistentCached = aiCache.get(persistentKey);
+    if (persistentCached?.report) {
+      const parsed = parseAiPseudocodeLines(persistentCached.report);
+      pseudocodeCacheRef.current.set(cacheKey, parsed);
+      setHunkAiLineMap((prev) => ({
+        ...prev,
+        [hunkId]: { dels: parsed.dels, adds: parsed.adds, loading: false },
       }));
       return;
     }
@@ -155,6 +176,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     let lastRenderedLineCount = 0;
 
     const cancelStream = await streamExplainDiff({
+      sessionId: `hunk_pseudocode_${hunkId}`,
       scopeType: 'chunk',
       filePath: file.newPath,
       diff: hunkDiffText,
@@ -177,6 +199,11 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         activeAbortsRef.current.delete(hunkId);
         const parsed = parseAiPseudocodeLines(accumulatedText);
         pseudocodeCacheRef.current.set(cacheKey, parsed);
+        aiCache.set(persistentKey, {
+          report: accumulatedText,
+          model: aiConfig.model,
+          provider: aiConfig.provider,
+        });
         setHunkAiLineMap((prev) => ({
           ...prev,
           [hunkId]: { dels: parsed.dels, adds: parsed.adds, loading: false },
@@ -259,7 +286,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const totalSelectedAdds = selectedHunkObjects.reduce((sum, h) => sum + h.additions, 0);
   const totalSelectedDels = selectedHunkObjects.reduce((sum, h) => sum + h.deletions, 0);
 
-  // Toggle Inline Natural Language for a specific Hunk (ONLY ON CLICK)
+  // Toggle Inline Natural Language for a specific Hunk (with persistent cache)
   const toggleHunkNaturalLanguage = (hunkId: string, hunk: DiffHunk) => {
     const isCurrentlyExpanded = expandedNaturalHunkIds.has(hunkId);
 
@@ -276,6 +303,24 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         return next;
       });
 
+      const hunkDiffText = getHunkDiffText(hunk);
+      const persistentKey = aiCache.generateKey({
+        type: 'natural_language',
+        filePath: file.newPath,
+        diff: hunkDiffText,
+        model: aiConfig.model,
+      });
+
+      // Check persistent cache
+      const cached = aiCache.get(persistentKey);
+      if (cached?.report) {
+        setHunkNaturalContent((c) => ({
+          ...c,
+          [hunkId]: { text: cached.report, loading: false },
+        }));
+        return;
+      }
+
       // Fetch AI translation if not yet loaded
       if (!hunkNaturalContent[hunkId]?.text && !hunkNaturalContent[hunkId]?.loading) {
         setHunkNaturalContent((c) => ({
@@ -283,23 +328,32 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           [hunkId]: { text: '', loading: true },
         }));
 
-        const hunkDiffText = getHunkDiffText(hunk);
         const prompt =
           aiConfig.naturalLanguagePrompt?.trim() || DEFAULT_PROMPTS.naturalLanguagePrompt;
+        let accumulatedNatural = '';
 
         streamExplainDiff({
+          sessionId: `hunk_natural_${hunkId}`,
           scopeType: 'chunk',
           filePath: file.newPath,
           diff: hunkDiffText,
           userPrompt: prompt,
           config: aiConfig,
           onChunk: (chunk: string) => {
+            accumulatedNatural += chunk;
             setHunkNaturalContent((c) => ({
               ...c,
               [hunkId]: { text: (c[hunkId]?.text || '') + chunk, loading: true },
             }));
           },
           onComplete: () => {
+            if (accumulatedNatural.trim()) {
+              aiCache.set(persistentKey, {
+                report: accumulatedNatural,
+                model: aiConfig.model,
+                provider: aiConfig.provider,
+              });
+            }
             setHunkNaturalContent((c) => ({
               ...c,
               [hunkId]: { text: c[hunkId]?.text || '', loading: false },

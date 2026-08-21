@@ -21,6 +21,11 @@ import {
   Terminal,
   Activity,
   Radio,
+  Plus,
+  Layers,
+  Database,
+  CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 import { AIProviderConfig } from '../../types';
 import {
@@ -29,6 +34,7 @@ import {
   AgentToolEvent,
   AgentStatusEvent,
 } from '../../services/api';
+import { aiCache } from '../../services/aiCache';
 
 export interface ExplanationScope {
   type: 'commit' | 'file' | 'hunk' | 'chunks' | 'compare' | 'line';
@@ -37,6 +43,34 @@ export interface ExplanationScope {
   filePath?: string;
   commitMessage?: string;
   initialMode?: 'agent' | 'fast';
+  targetLine?: {
+    lineNumber?: number;
+    content: string;
+    type?: 'add' | 'delete' | 'normal';
+  };
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  toolEvents?: AgentToolEvent[];
+}
+
+export interface ReviewSession {
+  id: string;
+  title: string;
+  shortTitle: string;
+  scope: ExplanationScope;
+  engineMode: 'agent' | 'fast';
+  isStreaming: boolean;
+  streamContent: string;
+  currentToolEvents: AgentToolEvent[];
+  agentStatus: AgentStatusEvent | null;
+  chatHistory: ChatMessage[];
+  elapsedSeconds: number;
+  isCached?: boolean;
+  error?: string | null;
+  abortStream?: () => void;
 }
 
 interface AIExplanationDrawerProps {
@@ -47,12 +81,6 @@ interface AIExplanationDrawerProps {
   aiConfig: AIProviderConfig;
 }
 
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  toolEvents?: AgentToolEvent[];
-}
-
 export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   isOpen,
   onClose,
@@ -60,650 +88,749 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   repoPath,
   aiConfig,
 }) => {
-  const [engineMode, setEngineMode] = useState<'agent' | 'fast'>('agent');
-  const [streamContent, setStreamContent] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [sessions, setSessions] = useState<ReviewSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [userQuestion, setUserQuestion] = useState('');
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // Agent live status and action trail
-  const [agentStatus, setAgentStatus] = useState<AgentStatusEvent | null>(null);
-  const [currentToolEvents, setCurrentToolEvents] = useState<AgentToolEvent[]>([]);
+  // Active session tool trail expansion & tool preview
   const [isTrailExpanded, setIsTrailExpanded] = useState<boolean>(true);
   const [expandedToolIndex, setExpandedToolIndex] = useState<number | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
 
-  const abortStreamRef = useRef<(() => void) | null>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<any>(null);
-  const lastRequestedKeyRef = useRef<string>('');
+  const activeAbortsRef = useRef<Map<string, () => void>>(new Map());
+  const timersRef = useRef<Map<string, any>>(new Map());
 
-  // Timer for execution elapsed time
-  useEffect(() => {
-    if (isStreaming) {
-      setElapsedSeconds(0);
-      timerRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => +(prev + 0.5).toFixed(1));
-      }, 500);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+  const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || null;
+
+  const getShortTitle = (s: ExplanationScope) => {
+    if (s.filePath) {
+      const fileName = s.filePath.replace(/\\/g, '/').split('/').pop() || s.filePath;
+      if (s.type === 'hunk') return `${fileName}: 块`;
+      if (s.type === 'line') return `${fileName}: L${s.targetLine?.lineNumber || ''}`;
+      return fileName;
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isStreaming]);
+    if (s.type === 'commit') return s.title.slice(0, 16);
+    return s.title.slice(0, 16);
+  };
 
-  // Trigger initial explanation strictly once when scope or mode changes
+  // Launch or switch to review session when scope prop changes
   useEffect(() => {
     if (isOpen && scope) {
-      const targetMode = scope.initialMode || engineMode;
-      if (scope.initialMode && scope.initialMode !== engineMode) {
-        setEngineMode(scope.initialMode);
-      }
-
-      const requestKey = `${scope.type}::${scope.filePath}::${scope.diff?.length || 0}::${targetMode}`;
-      if (lastRequestedKeyRef.current === requestKey) {
-        return; // Deduplicate
-      }
-      lastRequestedKeyRef.current = requestKey;
-
-      handleStartExplanation(undefined, targetMode);
-    } else {
-      lastRequestedKeyRef.current = '';
-      if (abortStreamRef.current) {
-        abortStreamRef.current();
-      }
+      startOrActivateSession(scope, scope.initialMode || 'agent', false);
     }
-  }, [isOpen, scope, engineMode]);
+  }, [isOpen, scope]);
 
-  // Auto scroll to bottom during streaming
+  // Auto scroll active session
   useEffect(() => {
-    contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [streamContent, currentToolEvents, agentStatus, chatHistory]);
+    if (activeSession?.isStreaming) {
+      contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [
+    activeSession?.streamContent,
+    activeSession?.currentToolEvents,
+    activeSession?.agentStatus,
+    activeSession?.chatHistory,
+  ]);
 
-  const handleStartExplanation = async (
-    customPrompt?: string,
-    modeOverride?: 'agent' | 'fast'
+  const updateSession = (id: string, updater: (prev: ReviewSession) => ReviewSession) => {
+    setSessions((prev) => prev.map((s) => (s.id === id ? updater(s) : s)));
+  };
+
+  const startOrActivateSession = (
+    targetScope: ExplanationScope,
+    mode: 'agent' | 'fast',
+    forceRefresh = false
   ) => {
-    if (!scope) return;
-    const modeToUse = modeOverride || engineMode;
+    const sessionId = `session_${targetScope.type}_${targetScope.filePath || 'global'}_${
+      targetScope.diff.length
+    }_${mode}`;
 
-    if (abortStreamRef.current) {
-      abortStreamRef.current();
+    const existing = sessions.find((s) => s.id === sessionId);
+    if (existing && !forceRefresh) {
+      setActiveSessionId(sessionId);
+      return;
     }
 
-    setError(null);
-    setIsStreaming(true);
-    setCurrentToolEvents([]);
-    setAgentStatus({
-      type: 'status',
-      phase: 'initializing',
-      message:
-        modeToUse === 'agent'
-          ? 'Codex 智能体已连接，准备探索代码库...'
-          : 'AI 正在解析 Diff...',
+    const shortTitle = getShortTitle(targetScope);
+    const fullTitle = targetScope.title || shortTitle;
+
+    // Check Cache
+    const cacheKey = aiCache.generateKey({
+      type: targetScope.type,
+      filePath: targetScope.filePath,
+      diff: targetScope.diff,
+      targetLine: targetScope.targetLine?.lineNumber,
+      engineMode: mode,
+      model: aiConfig.model,
     });
-    setElapsedSeconds(0);
 
-    if (!customPrompt) {
-      setStreamContent('');
-      setChatHistory([]);
-    } else {
-      setChatHistory((prev) => [...prev, { role: 'user', content: customPrompt }]);
-      setStreamContent('');
+    if (!forceRefresh) {
+      const cached = aiCache.get(cacheKey);
+      if (cached) {
+        const cachedSession: ReviewSession = {
+          id: sessionId,
+          title: fullTitle,
+          shortTitle,
+          scope: targetScope,
+          engineMode: mode,
+          isStreaming: false,
+          streamContent: cached.report,
+          currentToolEvents: cached.toolEvents || [],
+          agentStatus: {
+            type: 'status',
+            phase: 'completed',
+            message: '已从本地缓存秒开加载',
+          },
+          chatHistory: cached.chatHistory || [],
+          elapsedSeconds: 0,
+          isCached: true,
+          error: null,
+        };
+
+        setSessions((prev) => {
+          const filtered = prev.filter((s) => s.id !== sessionId);
+          return [cachedSession, ...filtered];
+        });
+        setActiveSessionId(sessionId);
+        return;
+      }
     }
+
+    // Abort previous stream for this specific session ID if running
+    if (activeAbortsRef.current.has(sessionId)) {
+      activeAbortsRef.current.get(sessionId)?.();
+      activeAbortsRef.current.delete(sessionId);
+    }
+    if (timersRef.current.has(sessionId)) {
+      clearInterval(timersRef.current.get(sessionId));
+      timersRef.current.delete(sessionId);
+    }
+
+    const newSession: ReviewSession = {
+      id: sessionId,
+      title: fullTitle,
+      shortTitle,
+      scope: targetScope,
+      engineMode: mode,
+      isStreaming: true,
+      streamContent: '',
+      currentToolEvents: [],
+      agentStatus: {
+        type: 'status',
+        phase: 'initializing',
+        message: mode === 'agent' ? 'Codex 智能体探查中...' : 'Diff 解析中...',
+      },
+      chatHistory: [],
+      elapsedSeconds: 0,
+      isCached: false,
+      error: null,
+    };
+
+    setSessions((prev) => {
+      const filtered = prev.filter((s) => s.id !== sessionId);
+      return [newSession, ...filtered];
+    });
+    setActiveSessionId(sessionId);
+
+    // Timer for elapsed seconds
+    const timer = setInterval(() => {
+      updateSession(sessionId, (s) => ({
+        ...s,
+        elapsedSeconds: +(s.elapsedSeconds + 0.5).toFixed(1),
+      }));
+    }, 500);
+    timersRef.current.set(sessionId, timer);
+
+    // Execute Streaming in background
+    executeStreamSession(sessionId, targetScope, mode, cacheKey);
+  };
+
+  const executeStreamSession = async (
+    sessionId: string,
+    targetScope: ExplanationScope,
+    mode: 'agent' | 'fast',
+    cacheKey: string,
+    customPrompt?: string
+  ) => {
+    const scopeType =
+      targetScope.type === 'hunk' || targetScope.type === 'chunks'
+        ? 'chunk'
+        : targetScope.type === 'file'
+        ? 'file'
+        : targetScope.type === 'line'
+        ? 'line'
+        : 'commit';
+
+    let accumulatedStream = '';
+    let accumulatedToolEvents: AgentToolEvent[] = [];
+
+    const onCompleteCleanup = () => {
+      if (timersRef.current.has(sessionId)) {
+        clearInterval(timersRef.current.get(sessionId));
+        timersRef.current.delete(sessionId);
+      }
+      activeAbortsRef.current.delete(sessionId);
+
+      // Save into persistent cache
+      if (!customPrompt && accumulatedStream.trim().length > 0) {
+        aiCache.set(cacheKey, {
+          report: accumulatedStream,
+          toolEvents: accumulatedToolEvents,
+          model: aiConfig.model,
+          provider: aiConfig.provider,
+        });
+      }
+    };
 
     try {
-      const scopeType =
-        scope.type === 'hunk' || scope.type === 'chunks'
-          ? 'chunk'
-          : scope.type === 'file'
-          ? 'file'
-          : scope.type === 'line'
-          ? 'line'
-          : 'commit';
-
       let cancel: () => void;
 
-      if (modeToUse === 'agent') {
-        // Agentic Autonomous Multi-File Exploration Mode
+      if (mode === 'agent') {
         cancel = await streamAgentExplainDiff({
+          sessionId,
           repoPath,
           scopeType,
-          diff: scope.diff,
-          filePath: scope.filePath,
-          commitMessage: scope.commitMessage,
+          diff: targetScope.diff,
+          filePath: targetScope.filePath,
+          commitMessage: targetScope.commitMessage,
           userPrompt: customPrompt,
           config: aiConfig,
           onStatusUpdate: (status) => {
-            setAgentStatus(status);
+            updateSession(sessionId, (s) => ({ ...s, agentStatus: status }));
           },
           onToolEvent: (event) => {
-            setCurrentToolEvents((prev) => {
+            updateSession(sessionId, (s) => {
+              let updatedEvents = [...s.currentToolEvents];
               if (event.type === 'tool_result' && event.id) {
-                const idx = prev.findIndex((e) => e.id === event.id);
+                const idx = updatedEvents.findIndex((e) => e.id === event.id);
                 if (idx !== -1) {
-                  const copy = [...prev];
-                  copy[idx] = { ...copy[idx], ...event };
-                  return copy;
+                  updatedEvents[idx] = { ...updatedEvents[idx], ...event };
+                } else {
+                  updatedEvents.push(event);
                 }
+              } else {
+                updatedEvents.push(event);
               }
-              return [...prev, event];
+              accumulatedToolEvents = updatedEvents;
+              return { ...s, currentToolEvents: updatedEvents };
             });
           },
           onChunk: (chunk) => {
-            setStreamContent((prev) => prev + chunk);
+            accumulatedStream += chunk;
+            updateSession(sessionId, (s) => ({
+              ...s,
+              streamContent: s.streamContent + chunk,
+            }));
           },
           onComplete: () => {
-            setIsStreaming(false);
-            setAgentStatus({
-              type: 'status',
-              phase: 'completed',
-              message: 'Codex 审查完成',
-            });
-            if (customPrompt) {
-              setChatHistory((prev) => [
-                ...prev,
-                { role: 'assistant', content: streamContent, toolEvents: currentToolEvents },
-              ]);
-              setStreamContent('');
-            }
+            updateSession(sessionId, (s) => ({
+              ...s,
+              isStreaming: false,
+              agentStatus: {
+                type: 'status',
+                phase: 'completed',
+                message: 'Codex 深度审查完成',
+              },
+              chatHistory: customPrompt
+                ? [
+                    ...s.chatHistory,
+                    {
+                      role: 'assistant',
+                      content: s.streamContent,
+                      toolEvents: s.currentToolEvents,
+                    },
+                  ]
+                : s.chatHistory,
+              streamContent: customPrompt ? '' : s.streamContent,
+            }));
+            onCompleteCleanup();
           },
           onError: (err) => {
-            setIsStreaming(false);
-            setError(err.message);
+            updateSession(sessionId, (s) => ({
+              ...s,
+              isStreaming: false,
+              error: err.message,
+            }));
+            onCompleteCleanup();
           },
         });
       } else {
-        // Fast Direct Diff Mode
         cancel = await streamExplainDiff({
+          sessionId,
           scopeType,
-          diff: scope.diff,
-          filePath: scope.filePath,
-          commitMessage: scope.commitMessage,
+          diff: targetScope.diff,
+          filePath: targetScope.filePath,
+          commitMessage: targetScope.commitMessage,
           userPrompt: customPrompt,
           config: aiConfig,
           onChunk: (chunk) => {
-            setStreamContent((prev) => prev + chunk);
+            accumulatedStream += chunk;
+            updateSession(sessionId, (s) => ({
+              ...s,
+              streamContent: s.streamContent + chunk,
+            }));
           },
           onComplete: () => {
-            setIsStreaming(false);
-            setAgentStatus({
-              type: 'status',
-              phase: 'completed',
-              message: '直接 Diff 解析完成',
-            });
-            if (customPrompt) {
-              setChatHistory((prev) => [
-                ...prev,
-                { role: 'assistant', content: streamContent },
-              ]);
-              setStreamContent('');
-            }
+            updateSession(sessionId, (s) => ({
+              ...s,
+              isStreaming: false,
+              agentStatus: {
+                type: 'status',
+                phase: 'completed',
+                message: '直接 Diff 解析完成',
+              },
+              chatHistory: customPrompt
+                ? [
+                    ...s.chatHistory,
+                    { role: 'assistant', content: s.streamContent },
+                  ]
+                : s.chatHistory,
+              streamContent: customPrompt ? '' : s.streamContent,
+            }));
+            onCompleteCleanup();
           },
           onError: (err) => {
-            setIsStreaming(false);
-            setError(err.message);
+            updateSession(sessionId, (s) => ({
+              ...s,
+              isStreaming: false,
+              error: err.message,
+            }));
+            onCompleteCleanup();
           },
         });
       }
 
-      abortStreamRef.current = cancel;
+      activeAbortsRef.current.set(sessionId, cancel);
+      updateSession(sessionId, (s) => ({ ...s, abortStream: cancel }));
     } catch (err: any) {
-      setIsStreaming(false);
-      setError(err.message);
+      updateSession(sessionId, (s) => ({
+        ...s,
+        isStreaming: false,
+        error: err.message,
+      }));
+      onCompleteCleanup();
     }
   };
 
-  const handleSendQuestion = (e: React.FormEvent) => {
+  const handleCloseSession = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (activeAbortsRef.current.has(id)) {
+      activeAbortsRef.current.get(id)?.();
+      activeAbortsRef.current.delete(id);
+    }
+    if (timersRef.current.has(id)) {
+      clearInterval(timersRef.current.get(id));
+      timersRef.current.delete(id);
+    }
+
+    setSessions((prev) => {
+      const filtered = prev.filter((s) => s.id !== id);
+      if (activeSessionId === id) {
+        setActiveSessionId(filtered.length > 0 ? filtered[0].id : null);
+      }
+      return filtered;
+    });
+  };
+
+  const handleClearAllSessions = () => {
+    activeAbortsRef.current.forEach((abort) => abort());
+    activeAbortsRef.current.clear();
+    timersRef.current.forEach((t) => clearInterval(t));
+    timersRef.current.clear();
+    setSessions([]);
+    setActiveSessionId(null);
+  };
+
+  const handleRerunCurrentSession = () => {
+    if (!activeSession) return;
+    startOrActivateSession(activeSession.scope, activeSession.engineMode, true);
+  };
+
+  const handleSwitchMode = (newMode: 'agent' | 'fast') => {
+    if (!activeSession || activeSession.engineMode === newMode) return;
+    startOrActivateSession(activeSession.scope, newMode, false);
+  };
+
+  const handleSendFollowUp = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userQuestion.trim() || isStreaming) return;
+    if (!userQuestion.trim() || !activeSession || activeSession.isStreaming) return;
+
     const q = userQuestion.trim();
     setUserQuestion('');
-    handleStartExplanation(q);
+
+    updateSession(activeSession.id, (s) => ({
+      ...s,
+      chatHistory: [...s.chatHistory, { role: 'user', content: q }],
+      streamContent: '',
+      isStreaming: true,
+      error: null,
+    }));
+
+    const cacheKey = aiCache.generateKey({
+      type: activeSession.scope.type,
+      filePath: activeSession.scope.filePath,
+      diff: activeSession.scope.diff,
+      userPrompt: q,
+      engineMode: activeSession.engineMode,
+      model: aiConfig.model,
+    });
+
+    executeStreamSession(activeSession.id, activeSession.scope, activeSession.engineMode, cacheKey, q);
   };
 
   const handleCopy = () => {
+    if (!activeSession) return;
     const textToCopy =
-      streamContent ||
-      chatHistory.map((m) => `${m.role === 'user' ? '问: ' : '答: '}${m.content}`).join('\n\n');
+      activeSession.streamContent ||
+      activeSession.chatHistory.map((m) => `${m.role.toUpperCase()}:\n${m.content}`).join('\n\n');
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleStop = () => {
-    if (abortStreamRef.current) {
-      abortStreamRef.current();
-      setIsStreaming(false);
-      setAgentStatus({
-        type: 'status',
-        phase: 'completed',
-        message: '用户已终止运行',
-      });
-    }
-  };
-
-  if (!isOpen || !scope) return null;
+  if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[620px] max-w-[95vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
-      {/* Top Header */}
-      <div className="h-14 px-4 bg-[#121319] border-b border-white/10 flex items-center justify-between select-none shrink-0 relative overflow-hidden">
-        {/* Animated Glowing Top Line when running */}
-        {isStreaming && (
-          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 via-pink-500 to-indigo-500 animate-pulse" />
-        )}
-
-        <div className="flex items-center space-x-2.5 min-w-0">
-          <div className="w-7 h-7 rounded bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center shadow-md shadow-purple-500/20 shrink-0">
-            <Sparkles className="w-4 h-4 text-white" />
-          </div>
-          <div className="flex flex-col min-w-0">
-            <div className="flex items-center space-x-1.5">
-              <span className="font-semibold text-xs text-white truncate">
-                AI 语义解释与审查
-              </span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
-                {aiConfig.model || aiConfig.provider}
-              </span>
+    <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-[#12131A]/95 backdrop-blur-xl border-l border-white/10 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
+      {/* 1. Header & Multi-Session Tab Bar */}
+      <div className="border-b border-white/10 bg-[#171822] flex flex-col">
+        {/* Top Controls Bar */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+          <div className="flex items-center space-x-2.5">
+            <div className="flex items-center space-x-2 text-sm font-semibold text-slate-100">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              <span>AI 深度审查工作台</span>
             </div>
-            <span className="text-[11px] text-slate-400 truncate max-w-xs" title={scope.title}>
-              {scope.title}
-            </span>
-          </div>
-        </div>
 
-        {/* Engine Mode Toggle & Actions */}
-        <div className="flex items-center space-x-2">
-          {/* Mode Switcher */}
-          <div className="flex items-center bg-[#1A1B24] border border-white/10 rounded-lg p-0.5 text-[11px]">
-            <button
-              onClick={() => setEngineMode('agent')}
-              disabled={isStreaming}
-              className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition font-medium ${
-                engineMode === 'agent'
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="智能体自主探索：访问文件系统、全局搜索引用、多文件关联分析"
-            >
-              <Brain className="w-3.5 h-3.5 text-purple-300" />
-              <span>关联解释 (Codex)</span>
-            </button>
-            <button
-              onClick={() => setEngineMode('fast')}
-              disabled={isStreaming}
-              className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition font-medium ${
-                engineMode === 'fast'
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="直接 Diff 模式：极速聚焦当前修改代码行"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>直接 Diff</span>
-            </button>
-          </div>
-
-          <button
-            onClick={handleCopy}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition"
-            title="复制解释内容"
-          >
-            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-          </button>
-
-          <button
-            onClick={() => handleStartExplanation()}
-            disabled={isStreaming}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition disabled:opacity-50"
-            title="重新生成解释"
-          >
-            <RefreshCw className={`w-4 h-4 ${isStreaming ? 'animate-spin text-purple-400' : ''}`} />
-          </button>
-
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Prominent Mode Distinction Banner */}
-      <div
-        className={`px-4 py-2 border-b flex items-center justify-between text-xs transition-colors select-none ${
-          engineMode === 'agent'
-            ? 'bg-purple-950/40 border-purple-500/30 text-purple-200'
-            : 'bg-amber-950/40 border-amber-500/30 text-amber-200'
-        }`}
-      >
-        <div className="flex items-center space-x-2 min-w-0">
-          {engineMode === 'agent' ? (
-            <>
-              <Brain className="w-4 h-4 text-purple-400 shrink-0" />
-              <div className="truncate">
-                <span className="font-bold">【文件关联解释模式 (Codex Agent)】</span>
-                <span className="text-[11px] text-purple-300/80 ml-1">
-                  已启用文件系统访问，智能体自主跨文件检索类定义与下游调用
-                </span>
-              </div>
-            </>
-          ) : (
-            <>
-              <Zap className="w-4 h-4 text-amber-400 shrink-0" />
-              <div className="truncate">
-                <span className="font-bold">【直接 Diff 解释模式】</span>
-                <span className="text-[11px] text-amber-300/80 ml-1">
-                  仅针对当前选定的增删片段直接分析，不查阅外部文件
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-
-        <button
-          onClick={() => setEngineMode(engineMode === 'agent' ? 'fast' : 'agent')}
-          disabled={isStreaming}
-          className={`shrink-0 ml-2 px-2 py-0.5 rounded text-[11px] font-medium border transition ${
-            engineMode === 'agent'
-              ? 'bg-purple-600/30 hover:bg-purple-600/50 border-purple-400/40 text-purple-200'
-              : 'bg-amber-600/30 hover:bg-amber-600/50 border-amber-400/40 text-amber-200'
-          }`}
-        >
-          切为{engineMode === 'agent' ? '「直接 Diff 解释」' : '「文件关联解释」'}
-        </button>
-      </div>
-
-      {/* Active Custom Prompt Pill (if configured) */}
-      {aiConfig.customSystemPrompt && (
-        <div className="px-4 py-1.5 bg-[#121319] border-b border-purple-500/20 flex items-center justify-between text-[11px] text-purple-300">
-          <div className="flex items-center space-x-1.5 min-w-0">
-            <span className="shrink-0 px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-semibold text-[10px]">
-              🎯 自定义偏好指令
-            </span>
-            <span className="truncate text-slate-300" title={aiConfig.customSystemPrompt}>
-              {aiConfig.customSystemPrompt}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* 🚀 Real-time Live Agent Activity HUD (Running / Idle Status Indicator) */}
-      <div className="px-4 py-2 bg-[#101117] border-b border-white/5 flex items-center justify-between text-xs font-mono select-none">
-        <div className="flex items-center space-x-2 min-w-0">
-          {isStreaming ? (
-            <>
-              {/* Glowing animated green radar beacon */}
-              <span className="relative flex h-2.5 w-2.5 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-400" />
-              </span>
-              <span className="font-bold text-emerald-400 text-[11px] shrink-0">
-                {engineMode === 'agent' ? 'Codex Agent 运行中' : 'AI 生成中'}
-              </span>
-              <span className="text-slate-400 truncate text-[11px]">
-                {agentStatus?.message || '正在分析中...'}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="inline-flex rounded-full h-2 w-2 bg-slate-500 shrink-0" />
-              <span className="text-slate-400 text-[11px]">
-                {agentStatus?.message || '空闲已就绪'}
-              </span>
-            </>
-          )}
-        </div>
-
-        <div className="flex items-center space-x-2 text-[10px] text-slate-500 shrink-0">
-          {isStreaming && (
-            <span className="text-purple-400 font-bold animate-pulse">
-              ⏱️ {elapsedSeconds}s
-            </span>
-          )}
-          {currentToolEvents.length > 0 && (
-            <span className="bg-purple-500/10 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/20">
-              🛠️ {currentToolEvents.length} 次动作
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-slate-200 leading-relaxed font-sans">
-        {error && (
-          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300 flex items-start space-x-2">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            <div className="flex-1 text-xs">{error}</div>
-          </div>
-        )}
-
-        {/* Previous Chat Q&A history if any */}
-        {chatHistory.map((msg, i) => (
-          <div
-            key={`chat-${i}`}
-            className={`p-3 rounded-lg text-xs leading-relaxed ${
-              msg.role === 'user'
-                ? 'bg-purple-950/40 border border-purple-500/30 text-purple-200 ml-6'
-                : 'bg-[#1D1F2A] border border-white/5 text-slate-200 mr-2'
-            }`}
-          >
-            <div className="flex items-center space-x-1.5 mb-1 text-[11px] font-semibold text-slate-400">
-              {msg.role === 'user' ? (
-                <>
-                  <User className="w-3.5 h-3.5 text-purple-400" />
-                  <span>您的问题:</span>
-                </>
-              ) : (
-                <>
-                  <Bot className="w-3.5 h-3.5 text-purple-400" />
-                  <span>AI 架构分析:</span>
-                </>
-              )}
-            </div>
-            <div
-              className="prose prose-invert prose-xs max-w-none text-slate-200"
-              dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) as string }}
-            />
-          </div>
-        ))}
-
-        {/* Live Agent Tool-Calling Action Trail (Visible in Agent mode) */}
-        {engineMode === 'agent' && (currentToolEvents.length > 0 || isStreaming) && (
-          <div className="bg-[#181924] border border-purple-500/30 rounded-xl overflow-hidden shadow-lg transition-all">
-            {/* Trail Header */}
-            <div
-              onClick={() => setIsTrailExpanded(!isTrailExpanded)}
-              className="px-3.5 py-2.5 bg-gradient-to-r from-purple-950/60 to-indigo-950/50 border-b border-purple-500/20 flex items-center justify-between cursor-pointer select-none"
-            >
-              <div className="flex items-center space-x-2">
-                <div className="w-5 h-5 rounded bg-purple-500/20 text-purple-300 flex items-center justify-center">
-                  <Brain className={`w-3.5 h-3.5 ${isStreaming ? 'animate-pulse text-purple-300' : ''}`} />
-                </div>
-                <div className="flex items-center space-x-1.5 text-xs font-semibold text-purple-200">
-                  <span>Codex 智能体代码库探索轨迹</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 font-mono">
-                    已探查 {currentToolEvents.length} 个节点
+            {/* Global Parallel Counter */}
+            <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-300 font-mono">
+              <Layers className="w-3 h-3 text-purple-400" />
+              <span>
+                {sessions.filter((s) => s.isStreaming).length > 0 ? (
+                  <span className="text-emerald-400 font-bold">
+                    {sessions.filter((s) => s.isStreaming).length} 个并行运行中
                   </span>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2 text-slate-400">
-                {isStreaming && (
-                  <span className="text-[10px] text-emerald-400 flex items-center gap-1 animate-pulse">
-                    <Activity className="w-3 h-3" />
-                    <span>{agentStatus?.message || '智能体推理中...'}</span>
-                  </span>
-                )}
-                {isTrailExpanded ? (
-                  <ChevronDown className="w-4 h-4" />
                 ) : (
-                  <ChevronRight className="w-4 h-4" />
+                  <span>共 {sessions.length} 个审查</span>
                 )}
-              </div>
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {/* Clear All Sessions */}
+            {sessions.length > 1 && (
+              <button
+                onClick={handleClearAllSessions}
+                className="p-1 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 rounded transition text-xs flex items-center space-x-1"
+                title="关闭所有审查标签页"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Close Entire Drawer */}
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition"
+              title="关闭抽屉"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Multi-Tab Strip (Tabs Bar) */}
+        {sessions.length > 0 && (
+          <div className="flex items-center space-x-1 px-3 py-1.5 overflow-x-auto scrollbar-none bg-[#111218]">
+            {sessions.map((sess) => {
+              const isActive = sess.id === activeSessionId;
+              return (
+                <div
+                  key={sess.id}
+                  onClick={() => setActiveSessionId(sess.id)}
+                  className={`flex items-center space-x-2 px-2.5 py-1 rounded-lg text-xs cursor-pointer select-none transition shrink-0 group border ${
+                    isActive
+                      ? 'bg-purple-600/25 border-purple-500/40 text-white font-medium shadow-sm'
+                      : 'bg-white/[0.03] border-transparent text-slate-400 hover:bg-white/[0.06] hover:text-slate-200'
+                  }`}
+                >
+                  {/* Mode Icon */}
+                  {sess.engineMode === 'agent' ? (
+                    <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  ) : (
+                    <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  )}
+
+                  {/* Short Title */}
+                  <span className="truncate max-w-[130px] font-mono text-[11px]">
+                    {sess.shortTitle}
+                  </span>
+
+                  {/* Status Indicator */}
+                  {sess.isStreaming ? (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                  ) : sess.isCached ? (
+                    <span title="来自本地缓存">
+                      <Database className="w-3 h-3 text-sky-400 shrink-0" />
+                    </span>
+                  ) : (
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                  )}
+
+                  {/* Close Tab Button */}
+                  <button
+                    onClick={(e) => handleCloseSession(sess.id, e)}
+                    className="opacity-40 group-hover:opacity-100 hover:text-rose-400 p-0.5 rounded transition"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Active Session Mode Switch & Meta Bar */}
+        {activeSession && (
+          <div className="flex items-center justify-between px-4 py-2 bg-[#14151F] text-xs">
+            {/* Mode Switcher */}
+            <div className="flex items-center bg-[#1B1C27] p-0.5 rounded-lg border border-white/5">
+              <button
+                onClick={() => handleSwitchMode('agent')}
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
+                  activeSession.engineMode === 'agent'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Brain className="w-3.5 h-3.5" />
+                <span>🧠 Codex 智能体</span>
+              </button>
+              <button
+                onClick={() => handleSwitchMode('fast')}
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
+                  activeSession.engineMode === 'fast'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>⚡ 直接 Diff</span>
+              </button>
             </div>
 
-            {/* Trail Events List */}
-            {isTrailExpanded && (
-              <div className="p-2.5 space-y-1.5 max-h-64 overflow-y-auto bg-[#12131A] text-[11px] font-mono">
-                {currentToolEvents.length === 0 && isStreaming && (
-                  <div className="p-3 text-center text-slate-400 flex items-center justify-center space-x-2">
-                    <div className="w-3.5 h-3.5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-                    <span>智能体正在评估 Diff 语义并准备探查外部文件...</span>
+            {/* Cache / Status Badge & Actions */}
+            <div className="flex items-center space-x-2">
+              {activeSession.isCached && (
+                <span className="flex items-center space-x-1 text-[11px] text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded-full font-mono">
+                  <Database className="w-3 h-3" />
+                  <span>本地缓存秒开</span>
+                </span>
+              )}
+
+              {activeSession.isStreaming && (
+                <span className="flex items-center space-x-1.5 text-[11px] text-emerald-400 font-mono">
+                  <Activity className="w-3.5 h-3.5 animate-spin" />
+                  <span>{activeSession.elapsedSeconds}s</span>
+                </span>
+              )}
+
+              {/* Rerun / Refresh */}
+              <button
+                onClick={handleRerunCurrentSession}
+                disabled={activeSession.isStreaming}
+                className="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-md transition disabled:opacity-50"
+                title="重新审查（强制绕过缓存刷新）"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Copy Report */}
+              <button
+                onClick={handleCopy}
+                className="p-1 hover:bg-white/10 text-slate-400 hover:text-white rounded-md transition"
+                title="复制审查报告"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 2. Main Content Area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-slate-200">
+        {!activeSession ? (
+          <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs space-y-2">
+            <Brain className="w-10 h-10 text-slate-600 stroke-1" />
+            <span>暂无活跃审查任务，请点击改动块或文件开启审查</span>
+          </div>
+        ) : (
+          <>
+            {/* Codex Agent Tool Calling Trace (Foldable Accordion) */}
+            {activeSession.engineMode === 'agent' && activeSession.currentToolEvents.length > 0 && (
+              <div className="border border-purple-500/20 bg-purple-950/20 rounded-xl overflow-hidden shadow-inner">
+                <div
+                  onClick={() => setIsTrailExpanded(!isTrailExpanded)}
+                  className="flex items-center justify-between px-3 py-2 bg-purple-900/30 cursor-pointer select-none hover:bg-purple-900/40 transition"
+                >
+                  <div className="flex items-center space-x-2 text-xs font-semibold text-purple-200">
+                    <Terminal className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Codex 自主代码库探查轨迹</span>
+                    <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px]">
+                      {activeSession.currentToolEvents.length} 次动作
+                    </span>
+                  </div>
+
+                  {isTrailExpanded ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 text-purple-300" />
+                  )}
+                </div>
+
+                {isTrailExpanded && (
+                  <div className="p-2 space-y-1.5 bg-[#141320]/60 max-h-56 overflow-y-auto text-[11px] font-mono">
+                    {activeSession.currentToolEvents.map((evt, idx) => {
+                      const isToolResult = evt.type === 'tool_result';
+                      const isExpanded = expandedToolIndex === idx;
+
+                      return (
+                        <div
+                          key={`tool-${idx}`}
+                          className="p-1.5 rounded bg-white/[0.03] border border-white/5 hover:border-purple-500/30 transition"
+                        >
+                          <div
+                            onClick={() => setExpandedToolIndex(isExpanded ? null : idx)}
+                            className="flex items-center justify-between cursor-pointer text-slate-300 hover:text-white"
+                          >
+                            <div className="flex items-center space-x-1.5 truncate">
+                              {evt.name?.includes('read') ? (
+                                <FileText className="w-3 h-3 text-sky-400 shrink-0" />
+                              ) : evt.name?.includes('search') ? (
+                                <Search className="w-3 h-3 text-emerald-400 shrink-0" />
+                              ) : (
+                                <FolderSearch className="w-3 h-3 text-amber-400 shrink-0" />
+                              )}
+                              <span className="font-bold text-purple-300">{evt.name || '工具调用'}</span>
+                              <span className="text-slate-400 truncate text-[10px]">
+                                {evt.args ? JSON.stringify(evt.args) : evt.summary || ''}
+                              </span>
+                            </div>
+
+                            {evt.output && (
+                              <span className="text-[10px] text-purple-400 hover:underline shrink-0 ml-1">
+                                {isExpanded ? '收起' : '详情'}
+                              </span>
+                            )}
+                          </div>
+
+                          {isExpanded && evt.output && (
+                            <pre className="mt-1.5 p-2 rounded bg-black/60 text-slate-300 text-[10px] overflow-x-auto whitespace-pre-wrap max-h-40 border border-white/5">
+                              {evt.output}
+                            </pre>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-
-                {currentToolEvents.map((evt, idx) => {
-                  const isExpanded = expandedToolIndex === idx;
-                  const isSearch = evt.name === 'search_code';
-                  const isRead = evt.name === 'read_file';
-                  const isFind = evt.name === 'find_files';
-
-                  return (
-                    <div
-                      key={idx}
-                      className="border border-white/5 rounded-lg bg-[#161720] overflow-hidden"
-                    >
-                      <div
-                        onClick={() => setExpandedToolIndex(isExpanded ? null : idx)}
-                        className="px-2.5 py-1.5 flex items-center justify-between cursor-pointer hover:bg-white/5 transition text-slate-300"
-                      >
-                        <div className="flex items-center space-x-2 truncate">
-                          {isSearch && <Search className="w-3 h-3 text-sky-400 shrink-0" />}
-                          {isRead && <FileText className="w-3 h-3 text-emerald-400 shrink-0" />}
-                          {isFind && <FolderSearch className="w-3 h-3 text-amber-400 shrink-0" />}
-                          {!isSearch && !isRead && !isFind && (
-                            <Terminal className="w-3 h-3 text-purple-400 shrink-0" />
-                          )}
-
-                          <span className="font-bold text-purple-300">{evt.name || 'action'}</span>
-                          <span className="text-slate-400 truncate">
-                            {evt.args
-                              ? JSON.stringify(evt.args).replace(/[{}"]/g, '')
-                              : evt.summary || ''}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center space-x-1.5 shrink-0 pl-2">
-                          {evt.output ? (
-                            <span className="text-[10px] text-emerald-400 flex items-center gap-0.5">
-                              <Check className="w-3 h-3" /> 已获取
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-amber-400 flex items-center gap-1 animate-pulse">
-                              <div className="w-2.5 h-2.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                              执行中
-                            </span>
-                          )}
-                          {isExpanded ? (
-                            <ChevronDown className="w-3 h-3 text-slate-500" />
-                          ) : (
-                            <ChevronRight className="w-3 h-3 text-slate-500" />
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Tool Output Snippet */}
-                      {isExpanded && evt.output && (
-                        <div className="p-2 bg-[#0D0E14] border-t border-white/5 text-[10px] text-slate-400 max-h-40 overflow-y-auto whitespace-pre font-mono">
-                          {evt.output}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
               </div>
             )}
-          </div>
-        )}
 
-        {/* Live Streaming Content */}
-        {streamContent && (
-          <div className="p-3.5 bg-[#191A22] rounded-xl border border-white/5 relative">
-            <div
-              className="prose prose-invert prose-xs max-w-none text-slate-200 font-sans leading-relaxed
-                [&_h3]:text-sm [&_h3]:font-bold [&_h3]:text-purple-300 [&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:border-b [&_h3]:border-white/5 [&_h3]:pb-1
-                [&_p]:my-1.5 [&_p]:text-slate-300
-                [&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1.5
-                [&_li]:my-0.5 [&_li]:text-slate-300
-                [&_table]:w-full [&_table]:my-2 [&_table]:border-collapse
-                [&_th]:bg-purple-950/40 [&_th]:p-1.5 [&_th]:text-left [&_th]:text-purple-200 [&_th]:border [&_th]:border-white/10
-                [&_td]:p-1.5 [&_td]:border [&_td]:border-white/10 [&_td]:text-slate-300
-                [&_blockquote]:border-l-2 [&_blockquote]:border-purple-500 [&_blockquote]:pl-2.5 [&_blockquote]:my-1.5 [&_blockquote]:text-purple-200
-                [&_code]:bg-[#121319] [&_code]:px-1 [&_code]:py-0.2 [&_code]:rounded [&_code]:text-purple-300 [&_code]:font-mono"
-              dangerouslySetInnerHTML={{ __html: marked.parse(streamContent) as string }}
-            />
-            {isStreaming && (
-              <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
+            {/* Error Banner */}
+            {activeSession.error && (
+              <div className="flex items-start space-x-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="font-semibold">审查异常中断</div>
+                  <div className="text-[11px] opacity-80 mt-0.5">{activeSession.error}</div>
+                </div>
+              </div>
             )}
-          </div>
-        )}
 
-        {isStreaming && !streamContent && currentToolEvents.length === 0 && (
-          <div className="flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
-            <div className="relative flex items-center justify-center">
-              <div className="w-10 h-10 rounded-full border-2 border-purple-500/30 animate-ping absolute" />
-              <div className="w-10 h-10 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-              <Brain className="w-5 h-5 text-purple-400 absolute" />
-            </div>
-            <div className="text-center space-y-1">
-              <p className="text-xs font-semibold text-purple-200">
-                {agentStatus?.message || 'Codex 智能体正在评估代码库依赖...'}
-              </p>
-              <p className="text-[11px] text-slate-500">
-                智能体将自主探索关联文件并综合推理全景报告
-              </p>
-            </div>
-          </div>
-        )}
+            {/* Primary Markdown Report Output */}
+            {activeSession.streamContent && (
+              <div
+                className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed overflow-x-auto"
+                dangerouslySetInnerHTML={{ __html: marked.parse(activeSession.streamContent) }}
+              />
+            )}
 
-        <div ref={contentEndRef} />
+            {/* Chat Follow-Up History */}
+            {activeSession.chatHistory.length > 0 && (
+              <div className="space-y-3 pt-4 border-t border-white/10">
+                {activeSession.chatHistory.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start space-x-2.5 ${
+                      msg.role === 'user' ? 'justify-end' : 'justify-start'
+                    }`}
+                  >
+                    {msg.role === 'assistant' && (
+                      <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5">
+                        <Bot className="w-3.5 h-3.5 text-purple-300" />
+                      </div>
+                    )}
+
+                    <div
+                      className={`p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'bg-purple-600 text-white shadow-md'
+                          : 'bg-[#181924] border border-white/5 text-slate-200'
+                      }`}
+                    >
+                      <div
+                        className="prose prose-invert prose-xs max-w-none"
+                        dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
+                      />
+                    </div>
+
+                    {msg.role === 'user' && (
+                      <div className="w-6 h-6 rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <User className="w-3.5 h-3.5 text-slate-300" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div ref={contentEndRef} />
+          </>
+        )}
       </div>
 
-      {/* Footer / Interactive Q&A Toolbar */}
-      <div className="p-3 bg-[#121319] border-t border-white/10 shrink-0">
-        <form onSubmit={handleSendQuestion} className="flex items-center space-x-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={userQuestion}
-              onChange={(e) => setUserQuestion(e.target.value)}
-              disabled={isStreaming}
-              placeholder={
-                engineMode === 'agent'
-                  ? '针对此差异向 Codex 智能体提问 (将结合全库文件进行关联深度解答)...'
-                  : '针对此差异直接提问 (聚焦当前 Diff 语法与逻辑)...'
-              }
-              className="w-full bg-[#1A1B23] text-xs text-slate-200 pl-3 pr-8 py-2 rounded-lg border border-white/10 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500"
-            />
-            {isStreaming ? (
-              <button
-                type="button"
-                onClick={handleStop}
-                className="absolute right-2 top-2 text-rose-400 hover:text-rose-300"
-                title="停止生成"
-              >
-                <StopCircle className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!userQuestion.trim()}
-                className="absolute right-2 top-2 text-purple-400 hover:text-purple-300 disabled:opacity-30 transition"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+      {/* 3. Follow-Up Chat Input */}
+      {activeSession && (
+        <form
+          onSubmit={handleSendFollowUp}
+          className="p-3 border-t border-white/10 bg-[#161722] flex items-center space-x-2"
+        >
+          <input
+            type="text"
+            value={userQuestion}
+            onChange={(e) => setUserQuestion(e.target.value)}
+            disabled={activeSession.isStreaming}
+            placeholder={
+              activeSession.isStreaming
+                ? 'AI 正在分析生成中...'
+                : '追问 AI：例如“这个方法有潜在并发问题吗？”'
+            }
+            className="flex-1 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500 disabled:opacity-50"
+          />
+
+          <button
+            type="submit"
+            disabled={!userQuestion.trim() || activeSession.isStreaming}
+            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white p-2 rounded-lg transition shrink-0"
+          >
+            <Send className="w-3.5 h-3.5" />
+          </button>
         </form>
-      </div>
+      )}
     </div>
   );
 };
