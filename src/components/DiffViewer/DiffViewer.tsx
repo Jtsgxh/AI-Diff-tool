@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
 import { generateConceptualHunkPseudocode } from '../../utils/pseudocodeConverter';
@@ -281,37 +281,37 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full bg-[#181921] overflow-hidden relative">
       {/* Diff Toolbar */}
-      <div className="h-11 bg-[#15161C] border-b border-white/10 px-4 flex items-center justify-between select-none shrink-0">
-        <div className="flex items-center space-x-2 min-w-0">
+      <div className="h-11 bg-[#15161C] border-b border-white/10 px-3 flex items-center justify-between select-none shrink-0 gap-2 overflow-x-auto">
+        <div className="flex items-center space-x-2 min-w-0 shrink">
           <FileCode className="w-4 h-4 text-purple-400 shrink-0" />
-          <span className="font-mono text-xs font-semibold text-slate-200 truncate">
+          <span className="font-mono text-xs font-semibold text-slate-200 truncate max-w-[160px] md:max-w-[260px] lg:max-w-[360px]" title={file.newPath}>
             {file.newPath}
           </span>
-          <span className="text-[11px] text-emerald-400 font-mono">+{file.additions}</span>
-          <span className="text-[11px] text-rose-400 font-mono">-{file.deletions}</span>
-          <span className="text-[11px] bg-white/5 text-slate-400 px-1.5 py-0.5 rounded font-mono">
-            {hunks.length} 个改动块
+          <span className="text-[11px] text-emerald-400 font-mono shrink-0">+{file.additions}</span>
+          <span className="text-[11px] text-rose-400 font-mono shrink-0">-{file.deletions}</span>
+          <span className="text-[11px] bg-white/5 text-slate-400 px-1.5 py-0.5 rounded font-mono shrink-0 hidden sm:inline-block">
+            {hunks.length} 块
           </span>
         </div>
 
         {/* Right Action buttons */}
-        <div className="flex items-center space-x-2.5">
+        <div className="flex items-center space-x-2 shrink-0">
           {/* Quick select all blocks button if file has multiple hunks */}
           {hunks.length > 1 && (
             <button
               onClick={selectedHunkIds.size === hunks.length ? clearHunkSelection : selectAllHunks}
-              className="text-xs text-slate-400 hover:text-purple-300 transition flex items-center gap-1 mr-1"
+              className="text-xs text-slate-400 hover:text-purple-300 transition flex items-center gap-1 shrink-0 whitespace-nowrap px-1"
               title="多选当前文件的所有改动块"
             >
               {selectedHunkIds.size === hunks.length ? (
                 <>
-                  <CheckSquare className="w-3.5 h-3.5 text-purple-400" />
-                  <span>已全选块</span>
+                  <CheckSquare className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span>已全选</span>
                 </>
               ) : (
                 <>
-                  <Square className="w-3.5 h-3.5" />
-                  <span>多选所有块</span>
+                  <Square className="w-3.5 h-3.5 shrink-0" />
+                  <span>多选块</span>
                 </>
               )}
             </button>
@@ -320,41 +320,41 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           {/* Global Pseudocode Toggle Button */}
           <button
             onClick={toggleGlobalPseudocode}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
               hunkPseudocodeSet.size > 0
                 ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-md shadow-purple-500/20'
                 : 'bg-[#1E202A] hover:bg-[#282A38] text-slate-300 border-white/10 hover:text-white'
             }`}
             title="将 Diff 改动代码直接替换为高度提炼概括的中文自然语言伪代码"
           >
-            <Sparkles className={`w-3.5 h-3.5 ${hunkPseudocodeSet.size > 0 ? 'text-white' : 'text-purple-400'}`} />
-            <span>{hunkPseudocodeSet.size > 0 ? `🔤 概括伪代码 [开 (${hunkPseudocodeSet.size}/${hunks.length})]` : '显示为概括伪代码'}</span>
+            <Sparkles className={`w-3.5 h-3.5 shrink-0 ${hunkPseudocodeSet.size > 0 ? 'text-white' : 'text-purple-400'}`} />
+            <span>{hunkPseudocodeSet.size > 0 ? '🔤 伪代码 [开]' : '🔤 伪代码'}</span>
           </button>
 
           {/* Mode Selector Segmented Button in Toolbar */}
-          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 text-xs">
+          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
             <button
               onClick={() => setDefaultMode('agent')}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium ${
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'agent'
                   ? 'bg-purple-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title="默认模式：关联解释（Codex Agent 自主全库探查）"
             >
-              <Brain className="w-3 h-3 text-purple-300" />
+              <Brain className="w-3 h-3 text-purple-300 shrink-0" />
               <span>关联解释</span>
             </button>
             <button
               onClick={() => setDefaultMode('fast')}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium ${
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'fast'
                   ? 'bg-amber-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title="默认模式：直接 Diff 解释（仅看增删改动）"
             >
-              <Zap className="w-3 h-3 text-amber-300" />
+              <Zap className="w-3 h-3 text-amber-300 shrink-0" />
               <span>直接 Diff</span>
             </button>
           </div>
@@ -362,43 +362,43 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           {/* AI Explain File Button */}
           <button
             onClick={() => onExplainFile(file, defaultMode)}
-            className={`flex items-center space-x-1.5 text-white text-xs font-medium px-2.5 py-1 rounded shadow transition ${
+            className={`flex items-center space-x-1.5 text-white text-xs font-medium px-2.5 py-1 rounded-lg shadow transition shrink-0 whitespace-nowrap ${
               defaultMode === 'agent'
                 ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
                 : 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500'
             }`}
             title={`使用当前「${defaultMode === 'agent' ? '文件关联模式' : '直接 Diff 模式'}」审查整个文件`}
           >
-            {defaultMode === 'agent' ? <Brain className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
+            {defaultMode === 'agent' ? <Brain className="w-3.5 h-3.5 shrink-0" /> : <Zap className="w-3.5 h-3.5 shrink-0" />}
             <span>
-              {defaultMode === 'agent' ? 'Codex 关联解释此文件' : '直接解释此文件'}
+              {defaultMode === 'agent' ? 'Codex 解释此文件' : '解释此文件'}
             </span>
           </button>
 
           {/* Mode Switcher: Split vs Unified */}
-          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded p-0.5 space-x-0.5">
+          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
             <button
               onClick={() => onToggleViewMode('split')}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded text-xs transition ${
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'split'
                   ? 'bg-purple-600 text-white font-medium shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title="双栏代码对比 (Side-by-Side Split Diff)"
             >
-              <Columns className="w-3 h-3" />
+              <Columns className="w-3 h-3 shrink-0" />
               <span>Split</span>
             </button>
             <button
               onClick={() => onToggleViewMode('unified')}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded text-xs transition ${
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'unified'
                   ? 'bg-purple-600 text-white font-medium shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title="单栏内联代码对比 (Inline Unified Diff)"
             >
-              <AlignJustify className="w-3 h-3" />
+              <AlignJustify className="w-3 h-3 shrink-0" />
               <span>Unified</span>
             </button>
           </div>
