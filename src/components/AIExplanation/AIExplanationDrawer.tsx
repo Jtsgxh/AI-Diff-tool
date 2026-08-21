@@ -109,6 +109,11 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const contentEndRef = useRef<HTMLDivElement>(null);
   const activeAbortsRef = useRef<Map<string, () => void>>(new Map());
   const timersRef = useRef<Map<string, any>>(new Map());
+  const sessionsRef = useRef<ReviewSession[]>(sessions);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || null;
 
@@ -346,6 +351,22 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             }));
           },
           onComplete: () => {
+            const latestSession = sessionsRef.current.find((s) => s.id === sessionId);
+            const updatedChatHistory: ChatMessage[] = customPrompt
+              ? [
+                  ...(latestSession?.chatHistory || []),
+                  {
+                    role: 'assistant',
+                    content: accumulatedStream,
+                    toolEvents: latestSession?.currentToolEvents,
+                  },
+                ]
+              : latestSession?.chatHistory || [];
+
+            const finalReport = customPrompt
+              ? latestSession?.initialReport || ''
+              : accumulatedStream;
+
             updateSession(sessionId, (s) => ({
               ...s,
               isStreaming: false,
@@ -354,18 +375,19 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 phase: 'completed',
                 message: customPrompt ? '追问解答完成' : 'Codex 深度审查完成',
               },
-              chatHistory: customPrompt
-                ? [
-                    ...s.chatHistory,
-                    {
-                      role: 'assistant',
-                      content: accumulatedStream,
-                      toolEvents: s.currentToolEvents,
-                    },
-                  ]
-                : s.chatHistory,
+              chatHistory: updatedChatHistory,
               currentFollowUpStream: '',
             }));
+
+            aiCache.set(cacheKey, {
+              report: finalReport,
+              toolEvents: latestSession?.currentToolEvents || accumulatedToolEvents,
+              chatHistory: updatedChatHistory,
+              reasoning: latestSession?.reasoningContent || accumulatedReasoning,
+              model: aiConfig.model,
+              provider: aiConfig.provider,
+            });
+
             onCompleteCleanup();
           },
           onError: (err) => {
@@ -402,6 +424,18 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             }));
           },
           onComplete: () => {
+            const latestSession = sessionsRef.current.find((s) => s.id === sessionId);
+            const updatedChatHistory: ChatMessage[] = customPrompt
+              ? [
+                  ...(latestSession?.chatHistory || []),
+                  { role: 'assistant', content: accumulatedStream },
+                ]
+              : latestSession?.chatHistory || [];
+
+            const finalReport = customPrompt
+              ? latestSession?.initialReport || ''
+              : accumulatedStream;
+
             updateSession(sessionId, (s) => ({
               ...s,
               isStreaming: false,
@@ -410,14 +444,19 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 phase: 'completed',
                 message: customPrompt ? '追问解答完成' : '直接 Diff 解析完成',
               },
-              chatHistory: customPrompt
-                ? [
-                    ...s.chatHistory,
-                    { role: 'assistant', content: accumulatedStream },
-                  ]
-                : s.chatHistory,
+              chatHistory: updatedChatHistory,
               currentFollowUpStream: '',
             }));
+
+            aiCache.set(cacheKey, {
+              report: finalReport,
+              toolEvents: latestSession?.currentToolEvents || [],
+              chatHistory: updatedChatHistory,
+              reasoning: latestSession?.reasoningContent || accumulatedReasoning,
+              model: aiConfig.model,
+              provider: aiConfig.provider,
+            });
+
             onCompleteCleanup();
           },
           onError: (err) => {
@@ -489,9 +528,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     const q = userQuestion.trim();
     setUserQuestion('');
 
+    const nextChatHistory: ChatMessage[] = [
+      ...activeSession.chatHistory,
+      { role: 'user', content: q },
+    ];
+
     updateSession(activeSession.id, (s) => ({
       ...s,
-      chatHistory: [...s.chatHistory, { role: 'user', content: q }],
+      chatHistory: nextChatHistory,
       currentFollowUpStream: '',
       isStreaming: true,
       error: null,
@@ -504,6 +548,15 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       targetLine: activeSession.scope.targetLine?.lineNumber,
       engineMode: activeSession.engineMode,
       model: aiConfig.model,
+    });
+
+    aiCache.set(cacheKey, {
+      report: activeSession.initialReport,
+      toolEvents: activeSession.currentToolEvents,
+      chatHistory: nextChatHistory,
+      reasoning: activeSession.reasoningContent,
+      model: aiConfig.model,
+      provider: aiConfig.provider,
     });
 
     executeStreamSession(activeSession.id, activeSession.scope, activeSession.engineMode, cacheKey, q);
@@ -528,10 +581,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-[#12131A]/95 backdrop-blur-xl border-l border-white/10 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
+    <div
+      className={`fixed inset-y-0 right-0 w-full max-w-2xl bg-[#12131A]/95 backdrop-blur-xl border-l border-white/10 shadow-2xl z-50 flex flex-col font-sans transition-transform duration-300 ease-out ${
+        isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+      }`}
+    >
       {/* 1. Header & Multi-Session Tab Bar */}
       <div className="border-b border-white/10 bg-[#171822] flex flex-col">
         {/* Top Controls Bar */}
