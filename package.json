@@ -1,0 +1,47 @@
+{
+  "name": "peaceful-shannon",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"tsx watch server/index.ts\" \"vite\"",
+    "build": "tsc && vite build",
+    "server": "tsx server/index.ts",
+    "client": "vite"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/cors": "^2.8.19",
+    "@types/diff": "^7.0.2",
+    "@types/express": "^5.0.6",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "autoprefixer": "^10.5.4",
+    "concurrently": "^10.0.5",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "cors": "^2.8.6",
+    "diff": "^9.0.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "lucide-react": "^1.33.0",
+    "marked": "^18.0.10",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "simple-git": "^3.36.0",
+    "tailwind-merge": "^3.6.0"
+  }
+}
