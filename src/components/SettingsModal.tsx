@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { AIProviderConfig } from '../types';
-import { Settings, Sparkles, X, Check, Key, Globe, Cpu, ShieldCheck } from 'lucide-react';
+import { Settings, X, Check, Key, Globe, Cpu } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -36,9 +36,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } else if (provider === 'ollama') {
       baseUrl = 'http://localhost:11434/v1';
       model = 'qwen2.5-coder';
-    } else if (provider === 'demo') {
-      baseUrl = '';
-      model = 'Built-in Demo Engine';
     }
 
     setForm((prev) => ({
@@ -69,8 +66,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">AI 语义分析引擎设置</h2>
-              <p className="text-[11px] text-slate-400">配置您的大语言模型 Provider 与 API 密钥</p>
+              <h2 className="text-sm font-bold text-white">AI 真实模型配置</h2>
+              <p className="text-[11px] text-slate-400">连接您的真实 LLM 大模型（DeepSeek / Gemini / OpenAI / 本地 Ollama）</p>
             </div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-200">
@@ -82,15 +79,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <form onSubmit={handleSave} className="p-5 space-y-4 text-xs">
           {/* Provider Selection Buttons */}
           <div>
-            <label className="block text-slate-300 font-semibold mb-2">选择 AI 提供商 (Provider)</label>
+            <label className="block text-slate-300 font-semibold mb-2">选择 AI 大模型提供商</label>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { id: 'demo', label: '🎮 体验模式 (免Key)', desc: '内置智能模拟' },
-                { id: 'deepseek', label: 'DeepSeek', desc: '高性价比/推理' },
+                { id: 'deepseek', label: 'DeepSeek', desc: '官方推荐 / 超强推理' },
                 { id: 'gemini', label: 'Google Gemini', desc: '超大上下文' },
-                { id: 'openai', label: 'OpenAI GPT-4o', desc: '官方 API' },
-                { id: 'ollama', label: 'Ollama 本地模型', desc: '内网私有/免联网' },
-                { id: 'custom', label: '自定义端点', desc: 'OpenAI 兼容协议' },
+                { id: 'openai', label: 'OpenAI', desc: 'GPT-4o / Mini' },
+                { id: 'ollama', label: 'Ollama 本地模型', desc: '本地私有 / 免Key' },
+                { id: 'custom', label: '自定义端点', desc: '中转站 / 兼容接口' },
               ].map((item) => (
                 <button
                   type="button"
@@ -109,63 +105,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {form.provider !== 'demo' && (
-            <div className="space-y-3 pt-2 border-t border-white/5">
-              {/* API Key */}
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
-                  <Key className="w-3.5 h-3.5 text-purple-400" />
-                  <span>API 密钥 (API Key)</span>
-                </label>
-                <input
-                  type="password"
-                  value={form.apiKey}
-                  onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                  placeholder={form.provider === 'ollama' ? 'Ollama 无需填 Key' : 'sk-...'}
-                  className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500/50"
-                />
-              </div>
-
-              {/* Base URL */}
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-sky-400" />
-                  <span>接口地址 (Base URL)</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.baseUrl}
-                  onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-                  placeholder="https://api.openai.com/v1"
-                  className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500/50"
-                />
-              </div>
-
-              {/* Model */}
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
-                  <Cpu className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>模型名称 (Model)</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.model}
-                  onChange={(e) => setForm({ ...form, model: e.target.value })}
-                  placeholder="deepseek-chat / gpt-4o-mini / gemini-1.5-flash / qwen2.5-coder"
-                  className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500/50"
-                />
-              </div>
+          <div className="space-y-3 pt-2 border-t border-white/5">
+            {/* API Key */}
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
+                <Key className="w-3.5 h-3.5 text-purple-400" />
+                <span>API 密钥 (API Key)</span>
+              </label>
+              <input
+                type="password"
+                value={form.apiKey}
+                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                placeholder={form.provider === 'ollama' ? 'Ollama 本地运行无需填 Key' : 'sk-...'}
+                className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500/50"
+              />
             </div>
-          )}
 
-          {form.provider === 'demo' && (
-            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg text-purple-300 flex items-start space-x-2">
-              <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
-              <div className="text-[11px] leading-relaxed">
-                <strong>体验模式（免配置）</strong>：已为您开启内置智能语义解析引擎，点击任意提交、文件或代码块均可即刻体验流式 Markdown 语义解析与交互式追问。
-              </div>
+            {/* Base URL */}
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-sky-400" />
+                <span>接口地址 (Base URL)</span>
+              </label>
+              <input
+                type="text"
+                value={form.baseUrl}
+                onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                placeholder="https://api.deepseek.com/v1"
+                className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500/50"
+              />
             </div>
-          )}
+
+            {/* Model */}
+            <div>
+              <label className="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                <span>模型名称 (Model)</span>
+              </label>
+              <input
+                type="text"
+                value={form.model}
+                onChange={(e) => setForm({ ...form, model: e.target.value })}
+                placeholder="deepseek-chat / gpt-4o-mini / gemini-1.5-flash / qwen2.5-coder"
+                className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500/50"
+              />
+            </div>
+          </div>
 
           {/* Footer */}
           <div className="pt-3 border-t border-white/10 flex items-center justify-between">

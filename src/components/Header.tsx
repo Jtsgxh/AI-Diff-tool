@@ -1,16 +1,13 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   GitBranch,
   FolderGit2,
-  FolderOpen,
-  Sparkles,
   Settings,
   RefreshCw,
   Layers,
-  ArrowRightLeft,
   CheckCircle2,
-  AlertCircle,
   ChevronDown,
+  Sparkles,
 } from 'lucide-react';
 import { RepoInfo, SelectionState } from '../types';
 
@@ -29,7 +26,6 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   repoInfo,
   repoPath,
-  onRepoChange,
   onOpenRepoModal,
   selection,
   onSelectWorkingTree,
@@ -37,8 +33,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   isLoading,
 }) => {
-  const isDemo = repoPath === 'demo';
-
   return (
     <header className="h-14 bg-[#14151B] border-b border-white/10 px-4 flex items-center justify-between select-none z-20">
       {/* Left: Brand Logo & Repo Selector */}
@@ -67,28 +61,15 @@ export const Header: React.FC<HeaderProps> = ({
             <FolderGit2 className="w-4 h-4 text-purple-400 group-hover:scale-105 transition" />
             <div className="flex items-center space-x-1.5 max-w-xs md:max-w-md truncate">
               <span className="font-bold text-white truncate">
-                {repoInfo?.name || (isDemo ? '内置演示仓库 (Demo Repo)' : repoPath)}
+                {repoInfo?.name || repoPath}
               </span>
-              {!isDemo && repoInfo?.path && (
+              {repoInfo?.path && (
                 <span className="text-[10px] text-slate-500 truncate hidden xl:inline">
                   ({repoInfo.path})
                 </span>
               )}
             </div>
             <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 shrink-0" />
-          </button>
-
-          {/* Quick Demo Toggle */}
-          <button
-            onClick={() => onRepoChange(isDemo ? 'current' : 'demo')}
-            className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition flex items-center gap-1 ${
-              isDemo
-                ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/30'
-                : 'bg-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/10 border border-white/5'
-            }`}
-            title="在演示仓库与本地工程仓库之间快速切换"
-          >
-            {isDemo ? '🎮 体验模式 (点击切本地)' : '🎮 体验演示库'}
           </button>
         </div>
       </div>

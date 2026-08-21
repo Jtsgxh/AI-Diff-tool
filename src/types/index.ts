@@ -43,7 +43,7 @@ export interface RepoInfo {
 export type DiffViewMode = 'split' | 'unified';
 
 export interface AIProviderConfig {
-  provider: 'demo' | 'deepseek' | 'gemini' | 'openai' | 'ollama' | 'custom';
+  provider: 'deepseek' | 'gemini' | 'openai' | 'ollama' | 'custom';
   apiKey: string;
   baseUrl: string;
   model: string;

@@ -2,11 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { exec } from 'child_process';
 import util from 'util';
 import { gitService } from './gitService';
 import { aiService } from './aiService';
-import { DEMO_COMMITS, DEMO_DIFFS } from './demoRepoService';
 
 const execPromise = util.promisify(exec);
 
@@ -18,15 +19,9 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-import fs from 'fs';
-import os from 'os';
-
 // Helper to normalize path
 function resolvePath(p?: string): string {
-  if (!p || p === 'demo') {
-    return 'demo';
-  }
-  if (p === 'current') {
+  if (!p || p === 'current') {
     return process.cwd();
   }
   const clean = p.trim().replace(/^["']|["']$/g, '');
@@ -50,9 +45,13 @@ app.get('/api/system/quick-paths', (req, res) => {
     if (process.platform === 'win32') {
       const letters = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
       for (const letter of letters) {
-        const drivePath = `${letter}:\\`;
-        if (fs.existsSync(drivePath)) {
-          drives.push({ name: `本地磁盘 (${letter}:)`, path: drivePath });
+        const driveRoot = `${letter}:\\`;
+        try {
+          if (fs.existsSync(driveRoot)) {
+            drives.push({ name: `本地磁盘 (${letter}:)`, path: driveRoot });
+          }
+        } catch {
+          // ignore inaccessible drive
         }
       }
     }
@@ -63,32 +62,44 @@ app.get('/api/system/quick-paths', (req, res) => {
   }
 });
 
-// 0.1 In-App Visual Directory Browser
+// 0.1 Browse Directory Items
 app.get('/api/system/browse', (req, res) => {
   try {
-    let targetPath = (req.query.path as string) || os.homedir();
-    targetPath = resolvePath(targetPath);
+    const rawPath = (req.query.path as string) || os.homedir();
+    const currentPath = resolvePath(rawPath);
 
-    if (!fs.existsSync(targetPath)) {
-      targetPath = os.homedir();
+    if (!fs.existsSync(currentPath)) {
+      return res.status(404).json({ error: `路径不存在: ${currentPath}` });
     }
 
-    const stat = fs.statSync(targetPath);
+    const stat = fs.statSync(currentPath);
     if (!stat.isDirectory()) {
-      targetPath = path.dirname(targetPath);
+      return res.status(400).json({ error: `不是有效的文件夹: ${currentPath}` });
     }
 
-    const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+    const items = fs.readdirSync(currentPath, { withFileTypes: true });
     const directories: { name: string; path: string; isGitRepo: boolean }[] = [];
 
-    for (const ent of entries) {
-      if (ent.isDirectory() && !ent.name.startsWith('.') && ent.name !== 'node_modules') {
-        const full = path.join(targetPath, ent.name);
+    // Check if current directory itself is a git repo
+    const isCurrentGitRepo = fs.existsSync(path.join(currentPath, '.git'));
+
+    for (const item of items) {
+      if (item.isDirectory()) {
+        const itemFullPath = path.join(currentPath, item.name);
+        let isGit = false;
         try {
-          const isGit = fs.existsSync(path.join(full, '.git'));
-          directories.push({ name: ent.name, path: full, isGitRepo: isGit });
-        } catch (e) {
-          // Skip inaccessible folders
+          isGit = fs.existsSync(path.join(itemFullPath, '.git'));
+        } catch {
+          isGit = false;
+        }
+
+        // Filter out typical system/hidden noise unless relevant
+        if (!item.name.startsWith('$') && item.name !== 'System Volume Information') {
+          directories.push({
+            name: item.name,
+            path: itemFullPath,
+            isGitRepo: isGit,
+          });
         }
       }
     }
@@ -97,24 +108,23 @@ app.get('/api/system/browse', (req, res) => {
     directories.sort((a, b) => {
       if (a.isGitRepo && !b.isGitRepo) return -1;
       if (!a.isGitRepo && b.isGitRepo) return 1;
-      return a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
     });
 
-    const isCurrentGitRepo = fs.existsSync(path.join(targetPath, '.git'));
-    const parent = path.dirname(targetPath) !== targetPath ? path.dirname(targetPath) : null;
+    const parentPath = path.dirname(currentPath);
 
     res.json({
-      current: targetPath,
-      parent,
+      currentPath,
+      parentPath: parentPath !== currentPath ? parentPath : null,
       isCurrentGitRepo,
-      directories,
+      directories: directories.slice(0, 150),
     });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// 0.2 Native System Folder Picker (with 15s timeout)
+// 0.2 System Native Folder Picker
 app.post('/api/system/pick-folder', async (req, res) => {
   try {
     if (process.platform === 'win32') {
@@ -134,20 +144,6 @@ app.post('/api/system/pick-folder', async (req, res) => {
 // 1. Get Repo Basic Info
 app.get('/api/repo/info', async (req, res) => {
   const repoPath = req.query.path as string;
-  if (repoPath === 'demo') {
-    return res.json({
-      path: 'demo',
-      name: 'demo-repository (Simulated Fork Client)',
-      currentBranch: 'main',
-      tracking: 'origin/main',
-      ahead: 1,
-      behind: 0,
-      isClean: false,
-      modifiedFilesCount: 2,
-      branches: ['main', 'feature/auth-jwt', 'bugfix/memory-leak'],
-      remotes: [{ name: 'origin', refs: { fetch: 'https://github.com/demo/repo.git', push: 'https://github.com/demo/repo.git' } }],
-    });
-  }
 
   try {
     const targetPath = resolvePath(repoPath);
@@ -162,10 +158,6 @@ app.get('/api/repo/info', async (req, res) => {
 app.get('/api/repo/commits', async (req, res) => {
   const repoPath = req.query.path as string;
   const limit = parseInt(req.query.limit as string, 10) || 100;
-
-  if (repoPath === 'demo') {
-    return res.json({ commits: DEMO_COMMITS });
-  }
 
   try {
     const targetPath = resolvePath(repoPath);
@@ -183,24 +175,6 @@ app.get('/api/repo/diff/commit', async (req, res) => {
 
   if (!hash) {
     return res.status(400).json({ error: 'Commit hash is required' });
-  }
-
-  if (repoPath === 'demo') {
-    const demoDiff = DEMO_DIFFS[hash] || {
-      title: `Commit ${hash.slice(0, 7)}`,
-      summary: { filesChanged: 1, insertions: 10, deletions: 4 },
-      files: [
-        {
-          oldPath: 'src/demo.ts',
-          newPath: 'src/demo.ts',
-          status: 'modified',
-          additions: 10,
-          deletions: 4,
-          diff: `diff --git a/src/demo.ts b/src/demo.ts\nindex 1234567..89abcdef 100644\n--- a/src/demo.ts\n+++ b/src/demo.ts\n@@ -1,4 +1,10 @@\n-console.log("old");\n+console.log("new updated code");\n+// Added feature logic\n+export function demo() {\n+  return true;\n+}`,
-        },
-      ],
-    };
-    return res.json(demoDiff);
   }
 
   try {
@@ -222,23 +196,6 @@ app.get('/api/repo/diff/compare', async (req, res) => {
     return res.status(400).json({ error: 'Both base and target are required for comparison' });
   }
 
-  if (repoPath === 'demo') {
-    return res.json({
-      title: `Compare ${base.slice(0, 7)}...${target.slice(0, 7)}`,
-      summary: { filesChanged: 2, insertions: 42, deletions: 12 },
-      files: [
-        {
-          oldPath: 'src/config.ts',
-          newPath: 'src/config.ts',
-          status: 'modified',
-          additions: 12,
-          deletions: 2,
-          diff: `diff --git a/src/config.ts b/src/config.ts\nindex 111..222 100644\n--- a/src/config.ts\n+++ b/src/config.ts\n@@ -5,2 +5,12 @@\n-export const TIMEOUT = 3000;\n+export const TIMEOUT = 5000;\n+export const RETRY_ATTEMPTS = 3;\n+export const ENABLE_AI_STREAMING = true;`,
-        },
-      ],
-    });
-  }
-
   try {
     const targetPath = resolvePath(repoPath);
     const diff = await gitService.getCompareDiff(targetPath, base, target);
@@ -251,23 +208,6 @@ app.get('/api/repo/diff/compare', async (req, res) => {
 // 5. Working Tree Diff (Uncommitted changes)
 app.get('/api/repo/diff/working-tree', async (req, res) => {
   const repoPath = req.query.path as string;
-
-  if (repoPath === 'demo') {
-    return res.json({
-      title: 'Uncommitted Changes (Working Tree)',
-      summary: { filesChanged: 2, insertions: 15, deletions: 3 },
-      files: [
-        {
-          oldPath: 'src/App.tsx',
-          newPath: 'src/App.tsx',
-          status: 'modified',
-          additions: 10,
-          deletions: 3,
-          diff: `diff --git a/src/App.tsx b/src/App.tsx\nindex 1234567..89abcdef 100644\n--- a/src/App.tsx\n+++ b/src/App.tsx\n@@ -10,3 +10,10 @@\n-  return <div>Legacy Diff Viewer</div>;\n+  return (\n+    <div className="flex h-screen">\n+      <CommitGraph />\n+      <DiffViewer />\n+    </div>\n+  );`,
-        },
-      ],
-    });
-  }
 
   try {
     const targetPath = resolvePath(repoPath);

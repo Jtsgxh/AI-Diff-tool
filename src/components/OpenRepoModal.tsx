@@ -172,20 +172,6 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                 </div>
               </div>
             )}
-
-            {/* Simulated Demo Switch */}
-            <div className="pt-2 border-t border-white/5">
-              <button
-                onClick={() => {
-                  onSelectRepo('demo');
-                  onClose();
-                }}
-                className="w-full text-left p-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-300 text-[11px] font-semibold transition flex items-center space-x-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>切到演示仓库</span>
-              </button>
-            </div>
           </div>
 
           {/* Right Main Area: Visual Folder Navigator */}

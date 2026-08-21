@@ -176,8 +176,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               <span className="font-semibold text-xs text-white truncate">
                 AI 语义解释与审查
               </span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase font-mono">
-                {aiConfig.provider === 'demo' ? '⚡ Demo Engine' : aiConfig.model || 'LLM'}
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
+                {aiConfig.model || aiConfig.provider}
               </span>
             </div>
             <span className="text-[11px] text-slate-400 truncate max-w-xs" title={scope.title}>

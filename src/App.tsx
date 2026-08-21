@@ -28,10 +28,10 @@ import { OpenRepoModal } from './components/OpenRepoModal';
 import { AlertCircle } from 'lucide-react';
 
 const DEFAULT_AI_CONFIG: AIProviderConfig = {
-  provider: 'demo',
+  provider: 'deepseek',
   apiKey: '',
-  baseUrl: '',
-  model: 'Built-in Demo Engine',
+  baseUrl: 'https://api.deepseek.com/v1',
+  model: 'deepseek-chat',
 };
 
 export const App: React.FC = () => {
