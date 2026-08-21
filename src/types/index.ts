@@ -54,7 +54,7 @@ export interface AIPromptsConfig {
 }
 
 export interface AIProviderConfig extends AIPromptsConfig {
-  provider: 'deepseek' | 'gemini' | 'openai' | 'ollama' | 'custom';
+  provider: 'deepseek' | 'gemini' | 'openai' | 'openrouter' | 'ollama' | 'custom';
   apiKey: string;
   baseUrl: string;
   model: string;

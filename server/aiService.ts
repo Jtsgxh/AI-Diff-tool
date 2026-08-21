@@ -1,7 +1,7 @@
 import { Response } from 'express';
 
 export interface AIProviderConfig {
-  provider?: 'deepseek' | 'openai' | 'gemini' | 'ollama' | 'custom';
+  provider?: 'deepseek' | 'openai' | 'gemini' | 'openrouter' | 'ollama' | 'custom';
   apiKey?: string;
   baseUrl?: string;
   model?: string;
@@ -50,7 +50,7 @@ export class AIService {
     if (!apiKey && provider !== 'ollama') {
       res.write(
         `data: ${JSON.stringify({
-          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenAI, Gemini 等）以启用大模型真实解释。`,
+          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenRouter, OpenAI, Gemini 等）以启用大模型真实解释。`,
         })}\n\n`
       );
       res.write('data: [DONE]\n\n');
@@ -62,6 +62,9 @@ export class AIService {
       if (provider === 'deepseek') {
         baseUrl = 'https://api.deepseek.com/v1';
         model = model || 'deepseek-chat';
+      } else if (provider === 'openrouter') {
+        baseUrl = 'https://openrouter.ai/api/v1';
+        model = model || 'anthropic/claude-3.5-sonnet';
       } else if (provider === 'openai') {
         baseUrl = 'https://api.openai.com/v1';
         model = model || 'gpt-4o-mini';
@@ -123,6 +126,10 @@ export class AIService {
       };
       if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      if (provider === 'openrouter' || baseUrl.includes('openrouter')) {
+        headers['HTTP-Referer'] = 'https://github.com/Jtsgxh/AI-Diff-tool';
+        headers['X-Title'] = 'AI-Diff-tool';
       }
 
       const body = {

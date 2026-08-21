@@ -10,7 +10,7 @@ import { AgentTools } from './agentTools';
 import { AIProviderConfig, TargetLineInfo } from './aiService';
 
 export interface AgentExecutionConfig {
-  provider?: 'deepseek' | 'openai' | 'gemini' | 'ollama' | 'custom';
+  provider?: 'deepseek' | 'openai' | 'gemini' | 'openrouter' | 'ollama' | 'custom';
   apiKey?: string;
   baseUrl?: string;
   model?: string;
@@ -68,7 +68,7 @@ export class CodexAgentEngine {
       res.write(
         `data: ${JSON.stringify({
           type: 'chunk',
-          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenAI, Gemini 等）以启用官方 Codex 智能体全库审查。`,
+          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenRouter, OpenAI, Gemini 等）以启用官方 Codex 智能体全库审查。`,
         })}\n\n`
       );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -81,6 +81,9 @@ export class CodexAgentEngine {
       if (provider === 'deepseek') {
         baseUrl = 'https://api.deepseek.com/v1';
         modelName = modelName || 'deepseek-chat';
+      } else if (provider === 'openrouter') {
+        baseUrl = 'https://openrouter.ai/api/v1';
+        modelName = modelName || 'anthropic/claude-3.5-sonnet';
       } else if (provider === 'openai') {
         baseUrl = 'https://api.openai.com/v1';
         modelName = modelName || 'gpt-4o-mini';
@@ -239,6 +242,13 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
         baseURL: baseUrl,
         timeout: Math.max(10000, Math.min(120000, (config?.timeoutSeconds || 45) * 1000)),
         maxRetries: config?.maxRetries !== undefined ? Math.max(0, Math.min(5, config.maxRetries)) : 2,
+        defaultHeaders:
+          provider === 'openrouter' || baseUrl.includes('openrouter')
+            ? {
+                'HTTP-Referer': 'https://github.com/Jtsgxh/AI-Diff-tool',
+                'X-Title': 'AI-Diff-tool',
+              }
+            : undefined,
         fetch: customFetch,
       });
 

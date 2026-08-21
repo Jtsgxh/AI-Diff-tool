@@ -118,6 +118,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (provider === 'deepseek') {
       baseUrl = 'https://api.deepseek.com/v1';
       model = 'deepseek-chat';
+    } else if (provider === 'openrouter') {
+      baseUrl = 'https://openrouter.ai/api/v1';
+      model = 'anthropic/claude-3.5-sonnet';
     } else if (provider === 'openai') {
       baseUrl = 'https://api.openai.com/v1';
       model = 'gpt-4o-mini';
@@ -255,6 +258,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { id: 'deepseek', label: 'DeepSeek', desc: '官方推荐 / 超强推理' },
+                    { id: 'openrouter', label: 'OpenRouter', desc: '全模型聚合 / Claude / Llama' },
                     { id: 'gemini', label: 'Google Gemini', desc: '超大上下文' },
                     { id: 'openai', label: 'OpenAI', desc: 'GPT-4o / Mini' },
                     { id: 'ollama', label: 'Ollama 本地模型', desc: '本地私有 / 免Key' },
@@ -289,7 +293,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={form.apiKey}
                     onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
                     placeholder={
-                      form.provider === 'ollama' ? 'Ollama 本地运行无需填 Key' : 'sk-...'
+                      form.provider === 'ollama' ? 'Ollama 本地运行无需填 Key' : form.provider === 'openrouter' ? 'sk-or-v1-...' : 'sk-...'
                     }
                     className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-purple-500/50"
                   />
@@ -305,24 +309,55 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="text"
                     value={form.baseUrl}
                     onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-                    placeholder="https://api.deepseek.com/v1"
+                    placeholder={form.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.deepseek.com/v1'}
                     className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500/50"
                   />
                 </div>
 
                 {/* Model */}
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1 flex items-center gap-1.5">
-                    <Cpu className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>模型名称 (Model)</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-300 font-semibold flex items-center gap-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>模型名称 (Model)</span>
+                    </label>
+                    {form.provider === 'openrouter' && (
+                      <span className="text-[10px] text-purple-300">💡 点击下方推荐模型快捷填入</span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={form.model}
                     onChange={(e) => setForm({ ...form, model: e.target.value })}
-                    placeholder="deepseek-chat / gpt-4o-mini / gemini-1.5-flash / qwen2.5-coder"
+                    placeholder="deepseek-chat / anthropic/claude-3.5-sonnet / gpt-4o-mini"
                     className="w-full bg-[#13141A] border border-white/10 rounded-lg px-3 py-2 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500/50"
                   />
+
+                  {/* OpenRouter Model Quick Presets */}
+                  {form.provider === 'openrouter' && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {[
+                        { name: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
+                        { name: 'deepseek/deepseek-chat', label: 'DeepSeek V3' },
+                        { name: 'openai/gpt-4o', label: 'GPT-4o' },
+                        { name: 'google/gemini-2.0-flash-001', label: 'Gemini 2.0 Flash' },
+                        { name: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B' },
+                      ].map((m) => (
+                        <button
+                          key={m.name}
+                          type="button"
+                          onClick={() => setForm({ ...form, model: m.name })}
+                          className={`text-[10px] px-2 py-0.5 rounded border transition font-mono ${
+                            form.model === m.name
+                              ? 'bg-purple-600/30 text-purple-200 border-purple-500/50'
+                              : 'bg-white/5 text-slate-400 border-white/5 hover:text-slate-200 hover:bg-white/10'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
