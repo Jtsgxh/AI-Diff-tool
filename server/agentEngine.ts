@@ -163,33 +163,21 @@ export class CodexAgentEngine {
 
     const tools = new AgentTools(repoPath);
 
-    const systemPrompt = `你是由 OpenAI Codex 驱动的高级代码审查智能体与架构师。你拥有对当前代码库的只读探查工具。
+    // Primary system instructions driven by user configuration (with clean default fallback)
+    const basePrompt =
+      config?.customSystemPrompt && config.customSystemPrompt.trim()
+        ? config.customSystemPrompt.trim()
+        : `你是由 OpenAI Codex 驱动的高级代码审查智能体与架构师。
+你的使命是深入、透彻地审查给定的 Git Diff，剖析代码改动的具体语句逻辑、算法流转以及对工程外部调用的影响。
+【探查工具】：你可以使用 \`read_file\`、\`search_code\`、\`find_files\` 主动查阅相关源文件或搜索下游引用（通常 2~4 次关键调用即可）。
+【输出要求】：请使用清晰易读的 Markdown 格式输出代码修改剖析与跨文件调用分析，直击要点，无需输出无关的套话模板。`;
 
-【探查阶段与目标】：
-1. 你的核心使命是全面、透彻地审查给定的 Git Diff。
-2. 你可以使用工具主动查阅相关源文件或搜索下游引用（聚焦于核心类继承、关键接口与直接调用方，避免探查无关构建脚本）。
-3. 探查通常在 3~5 次关键工具调用后即可获得充足证据。收集完核心证据后，立即输出审查报告。
+    const systemPrompt = `${basePrompt}
 
-【可用工具】：
-- \`read_file\`: 阅读仓库中指定文件的关键代码。
-- \`search_code\`: 全局搜索某个核心符号/类名的下游引用。
-- \`find_files\`: 模糊搜索文件名。
-
-【最终审查报告严格结构 (Markdown)】：
-### 📝 核心代码改动剖析与逐行解释 (Code Logic Breakdown)
-【最重要部分 / 必须置于第一部分】：直击要害，逐行/逐点深入解析当前修改的代码逻辑。详细拆解添加（+）、删除（-）或重构的核心语句、函数逻辑、变量含义、参数调整以及为何这样改动。
-
-### 🌐 全局架构与改动意图 (Cross-Module Context & Intent)
-结合探查到的外部代码库结构与文件关系，说明本次改动的宏观架构目的与业务背景。
-
-### 🔍 跨文件影响与关键依赖分析 (Impact & Callers Analysis)
-分析本次修改对外部类、下游调用方及命名空间的影响，指出是否存在破坏性变更或引用缺失。
-
-### ⚠️ 深度风险雷达与边界隐患 (Risk Radar)
-检查并发安全性（竞态/死锁）、内存/资源管理、空异常、异常逃逸等。
-
-### 💡 架构重构与测试建议 (Actionable Suggestions)
-提出针对代码健壮性、可读性或单元测试的建议。` + (config?.customSystemPrompt && config.customSystemPrompt.trim() ? `\n\n【用户全局自定义审查指令 / 核心关注点】：\n${config.customSystemPrompt.trim()}` : '');
+【可用工具说明】：
+- \`read_file\`: 阅读仓库中指定文件的关键代码段（可指定 start_line 与 end_line）。
+- \`search_code\`: 全局搜索某个符号、类名、接口或函数调用的所有使用位置（用于评估下游影响）。
+- \`find_files\`: 模糊搜索文件名，定位同名测试、接口契约或配置文件。`;
 
     let initialUserMsg = '';
     if (scopeType === 'line' && targetLine) {
@@ -200,14 +188,14 @@ export class CodexAgentEngine {
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
         5000
-      )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查（报告首先必须详细剖析该行代码与核心逻辑改动）。`;
+      )}\n\`\`\`\n\n${userPrompt ? `【附加要求】: ${userPrompt}\n\n` : ''}请对该行改动与关联上下文进行代码审查。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
       }\n\`\`\`diff\n${diff.slice(
         0,
         8000
-      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请结合代码库进行跨文件关联审查。报告的第一部分必须是【📝 核心代码改动剖析与逐行解释】。`;
+      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请结合代码库进行关联审查并输出报告。`;
     }
 
     const messages: any[] = [
@@ -382,11 +370,11 @@ export class CodexAgentEngine {
       );
 
       if (!finalReportText) {
-        // Explicitly prompt for the complete structured report, emphasizing the code explanation first
+        // Explicitly prompt for the complete structured report respecting user guidelines
         messages.push({
           role: 'user',
           content:
-            '【探查阶段结束】请根据上述探查到的全部代码上下文与修改差异，立即输出一份完整、严谨、深度的 Markdown 代码审查报告。第一部分必须是【📝 核心代码改动剖析与逐行解释】（深入解析每处增删的具体代码逻辑与语句含义），随后包含【全局架构与改动意图】、【跨文件影响与关键依赖分析】、【深度风险雷达】与【架构重构与测试建议】。',
+            '【探查阶段结束】请根据上述探查到的全部代码上下文与修改差异，按照设定的审查规则，直接输出最终完整的 Markdown 代码审查报告。',
         });
 
         const synthesisRes = await fetchWithRetry(

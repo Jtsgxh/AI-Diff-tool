@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { AIProviderConfig } from '../types';
 import {
   Settings,
@@ -20,6 +20,7 @@ import {
   TestTube,
   Flame,
   Gamepad2,
+  Code2,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -31,11 +32,20 @@ interface SettingsModalProps {
 
 const PROMPT_PRESETS = [
   {
-    id: 'default',
-    title: '🛡️ 架构与安全全景审查 (默认)',
+    id: 'clean_direct',
+    title: '📝 纯粹代码改动直解 (极简·推荐)',
+    icon: Code2,
+    desc: '直接对代码改动进行详实的逐行与逻辑剖析，说明改动原因与影响，彻底摒弃模板套话与泛泛之词。',
+    prompt:
+      '你是一位资深代码审查专家。请直接对选定或提交的代码改动进行详实、深入的逐行与逻辑剖析，清晰解释核心语句含义、参数调整与为何这样改动。如涉及外部调用请说明影响。直击要点，无需输出无关的套话模板，无需输出泛泛的风险与建议。',
+  },
+  {
+    id: 'full_architecture',
+    title: '🌐 架构与跨模块全景审查',
     icon: ShieldCheck,
-    desc: '全面分析代码逻辑、跨模块架构、依赖破坏及并发/内存边界风险。',
-    prompt: '',
+    desc: '深入分析代码改动的具体逻辑、外部源文件关联、下游调用方破坏性及工程架构目的。',
+    prompt:
+      '你是由 OpenAI Codex 驱动的资深架构师。请深入剖析本次代码修改的核心语句逻辑，并结合代码库关联文件分析跨模块依赖、下游调用方影响与工程架构目的。',
   },
   {
     id: 'performance',
@@ -67,7 +77,7 @@ const PROMPT_PRESETS = [
     icon: Gamepad2,
     desc: '关注帧率平稳度、状态流转完整性、Update 轮询开销及网络同步一致性。',
     prompt:
-      '请以游戏服务端/客户端核心开发者的视角审查：1. 状态机切换逻辑是否闭环无死态；2. 每帧 Update/Tick 是否有不必要开销；3. 数据同步协议一致性与客户端容错；4. 对象池生命周期回收。',
+      '请以游戏核心开发者的视角审查：1. 状态机切换逻辑是否闭环无死态；2. 每帧 Update/Tick 是否有不必要开销；3. 数据同步协议一致性与客户端容错；4. 对象池生命周期回收。',
   },
 ];
 
@@ -303,17 +313,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="p-3 bg-purple-950/25 border border-purple-500/30 rounded-lg text-slate-300 text-xs">
                 <div className="flex items-center space-x-2 font-semibold text-purple-200 mb-1">
                   <Sparkles className="w-4 h-4 text-purple-400" />
-                  <span>全局自定义审查指令 (Custom Review Directive)</span>
+                  <span>全局自定义审查指令 (Prompt Presets & Editor)</span>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  在此输入的指令将作为全局规则注入给 AI / Codex 智能体，让审查始终聚焦于您最关心的业务与技术重点。
+                  点击下方预设可一键套用推荐指令，或在下方文本框中自由修改/编写任意专属审查规则。
                 </p>
               </div>
 
               {/* One-Click Presets */}
               <div>
                 <label className="block text-slate-300 font-semibold mb-2">
-                  ⚡ 常用审查偏好一键预设
+                  ⚡ 常用审查偏好一键预设 (点击即可填充到下方编辑)
                 </label>
                 <div className="grid grid-cols-1 gap-1.5">
                   {PROMPT_PRESETS.map((preset) => {
@@ -339,7 +349,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             </span>
                             {isSelected && (
                               <span className="text-[10px] text-purple-300 font-mono flex items-center gap-0.5">
-                                <Check className="w-3 h-3" /> 当前采用
+                                <Check className="w-3 h-3" /> 当前选中
                               </span>
                             )}
                           </div>
@@ -357,7 +367,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="space-y-1.5 pt-2 border-t border-white/5">
                 <div className="flex items-center justify-between">
                   <label className="block text-slate-300 font-semibold">
-                    自定义指令内容 (编辑或直接手写)
+                    生效的审查指令内容 (可自由编辑)
                   </label>
                   {form.customSystemPrompt && (
                     <button
@@ -365,7 +375,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClick={() => setForm({ ...form, customSystemPrompt: '' })}
                       className="text-[10px] text-slate-500 hover:text-rose-400 transition"
                     >
-                      清空自定义指令
+                      清空指令 (恢复默认纯净模式)
                     </button>
                   )}
                 </div>
@@ -373,11 +383,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   rows={4}
                   value={form.customSystemPrompt}
                   onChange={(e) => setForm({ ...form, customSystemPrompt: e.target.value })}
-                  placeholder="例如：请重点关注 Unity 性能、GC 内存分配与线程安全性，并使用中文回答..."
+                  placeholder="例如：请直接对代码改动进行逐行剖析，解释修改原因与外部调用影响，无需输出套话..."
                   className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
                 />
                 <p className="text-[10px] text-slate-500">
-                  留空则使用官方默认的【核心代码改动剖析 ➔ 架构意图 ➔ 跨文件影响 ➔ 风险雷达】审查规范。
+                  后台代码不会硬编码任何固定的风险或建议模板，所有审查行为完全由您配置的这段 Prompt 决定。
                 </p>
               </div>
             </div>

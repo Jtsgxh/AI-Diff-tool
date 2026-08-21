@@ -1,4 +1,4 @@
-import { Response } from 'express';
+﻿import { Response } from 'express';
 
 export interface AIProviderConfig {
   provider?: 'deepseek' | 'openai' | 'gemini' | 'ollama' | 'custom';
@@ -38,28 +38,22 @@ export class AIService {
     let baseUrl = config?.baseUrl || process.env.AI_BASE_URL || '';
     let model = config?.model || process.env.AI_MODEL || '';
 
-    // Set standard SSE headers
+    // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders?.();
 
-    // Check API Key requirement (Ollama can run without API key)
     if (!apiKey && provider !== 'ollama') {
-      const warningMsg = `### ⚠️ 未检测到 API Key
-请点击右上角 **「⚙️ AI 引擎配置」**：
-1. 选择您使用的 AI 提供商（如 **DeepSeek**, **Google Gemini**, **OpenAI** 或 **自定义中转站**）并填入您的 API Key；
-2. 或者选择 **Ollama 本地模型**（需本地运行 Ollama，无需 Key）。
-
-配置保存后即可立即使用真实大模型对您的代码进行深度语义解析与审查。`;
-
-      res.write(`data: ${JSON.stringify({ text: warningMsg })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenAI, Gemini 等）以启用大模型真实解释。`,
+        })}\n\n`
+      );
       res.write('data: [DONE]\n\n');
       res.end();
       return;
     }
 
-    // Configure endpoints if not explicitly provided
     if (!baseUrl) {
       if (provider === 'deepseek') {
         baseUrl = 'https://api.deepseek.com/v1';
@@ -77,62 +71,42 @@ export class AIService {
     }
 
     try {
+      const baseCustomPrompt = config?.customSystemPrompt && config.customSystemPrompt.trim();
       let systemPrompt = '';
 
-      if (scopeType === 'line' && targetLine) {
-        systemPrompt = `你是一位资深代码审查专家。用户在 Git Diff 中选中了具体某一行代码进行深度审查。
-请使用结构清晰的 Markdown 格式输出：
-### 📝 该行代码改动直解 (Line Explanation)
-详细解释该行代码的具体语法语义、修改内容以及为什么要这样写。
-
-### 🎯 动机与上下文分析 (Intent & Context)
-结合该文件上下文，分析修改该行的核心意图。
-
-### ⚠️ 潜在影响与风险 (Impact & Risks)
-分析改动该行是否存在破坏调用方、引发并发问题或破坏兼容性的隐患。`;
+      if (baseCustomPrompt) {
+        systemPrompt = baseCustomPrompt;
+      } else if (scopeType === 'line' && targetLine) {
+        systemPrompt = `你是一位资深代码审查专家。请对用户选中的具体代码行进行清晰、透彻的代码改动直解与上下文意图分析。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
       } else if (scopeType === 'chunk') {
-        systemPrompt = `你是一位资深代码审查专家。用户在当前文件中勾选了特定的代码改动块（Diff Hunks）进行联合审查。
-请使用结构清晰的 Markdown 格式输出：
-### 📝 核心改动块代码逻辑剖析 (Hunk Code Breakdown)
-【最重要部分 / 必须置于首位】：逐块深入拆解所选改动块的具体代码逻辑，详细解释添加（+）与删除（-）的核心语句、参数调整、变量含义以及函数逻辑流转。
-
-### 📌 选定改动块的协同目的 (Combined Intent)
-一到两句话概括所选改动块共同实现的目标。
-
-### ⚠️ 潜在影响与风险雷达 (Risk Radar)
-分析所选改动块组合在一起对模块状态、并发安全或外部调用的潜在副作用。
-
-### 💡 优化与测试建议 (Suggestions)
-给出代码健壮性优化点或单元测试编写建议。`;
+        systemPrompt = `你是一位资深代码审查专家。请对用户选定的代码改动块（Diff Hunks）进行深入的代码逻辑剖析与改动目的说明。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
       } else {
-        systemPrompt = `你是一位资深架构师和代码审查专家。你的任务是对给定的 Git Diff 进行深度语义分析。
-请使用结构清晰的 Markdown 格式输出，包含以下维度：
-### 📝 核心代码改动剖析与逐行解释 (Code Logic Breakdown)
-【最重要部分 / 必须置于首位】：直击要害，逐点/逐段深入解析本次修改的代码逻辑。详细拆解添加（+）、删除（-）或修改的核心语句、算法变更、变量语义以及为何这样改动。
-
-### 📌 变更核心概述与意图 (Summary & Intent)
-一到两句话精炼概括本次改动的宏观目的与业务背景。
-
-### ⚠️ 潜在隐患与风险雷达 (Risk Radar)
-检查是否存在并发安全、内存泄漏、边界异常、兼容性 Breaking Changes 等风险。
-
-### 💡 优化与重构建议 (Optimization Suggestions)
-提出针对代码健壮性、可读性或测试用例的建议。`;
-      }
-
-      if (config?.customSystemPrompt && config.customSystemPrompt.trim()) {
-        systemPrompt += `\n\n【用户全局自定义审查指令 / 关注重点】：\n${config.customSystemPrompt.trim()}`;
+        systemPrompt = `你是一位资深架构师和代码审查专家。你的任务是对给定的 Git Diff 进行深度语义分析，深入剖析代码改动的核心逻辑、语句含义与修改目的。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
       }
 
       let userContent = '';
       if (scopeType === 'line' && targetLine) {
         userContent = userPrompt
-          ? `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '} ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(0, 5000)}\n\`\`\`\n\n【用户问题】: ${userPrompt}`
-          : `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '} ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(0, 5000)}\n\`\`\`\n\n请针对该聚焦行进行专业解释。`;
+          ? `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${
+              targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '
+            } ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
+              0,
+              5000
+            )}\n\`\`\`\n\n【附加要求】: ${userPrompt}`
+          : `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${
+              targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '
+            } ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
+              0,
+              5000
+            )}\n\`\`\`\n\n请针对该聚焦行进行专业解释。`;
       } else {
         userContent = userPrompt
-          ? `【上下文 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${commitMessage || '无'}\n\`\`\`diff\n${diff.slice(0, 9000)}\n\`\`\`\n\n【用户问题】: ${userPrompt}`
-          : `【请分析以下 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${commitMessage || '无'}\n\`\`\`diff\n${diff.slice(0, 9000)}\n\`\`\``;
+          ? `【上下文 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${
+              commitMessage || '无'
+            }\n\`\`\`diff\n${diff.slice(0, 9000)}\n\`\`\`\n\n【附加要求】: ${userPrompt}`
+          : `【请分析以下 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${
+              commitMessage || '无'
+            }\n\`\`\`diff\n${diff.slice(0, 9000)}\n\`\`\``;
       }
 
       const url = baseUrl.endsWith('/') ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;
@@ -144,22 +118,39 @@ export class AIService {
         headers['Authorization'] = `Bearer ${apiKey}`;
       }
 
+      const body = {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        stream: true,
+      };
+
       const response = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          model: model || 'deepseek-chat',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userContent },
-          ],
-          stream: true,
-        }),
+        body: JSON.stringify(body),
       });
 
-      if (!response.ok || !response.body) {
-        const errText = await response.text();
-        res.write(`data: ${JSON.stringify({ text: `⚠️ **AI 模型 API 请求失败 (${response.status})**:\n\`\`\`\n${errText}\n\`\`\`\n请检查 API Key 与 Base URL 是否正确。` })}\n\n`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        res.write(
+          `data: ${JSON.stringify({
+            text: `### ❌ 大模型接口请求失败 (${response.status})\n\`\`\`\n${errorText}\n\`\`\`\n> 请在右上角 **「⚙️ AI 引擎配置」** 中检查您的 API Key、Base URL 与模型名称是否正确。`,
+          })}\n\n`
+        );
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+
+      if (!response.body) {
+        res.write(
+          `data: ${JSON.stringify({
+            text: '❌ 未收到模型服务端的流式响应，请重试。',
+          })}\n\n`
+        );
         res.write('data: [DONE]\n\n');
         res.end();
         return;
@@ -180,16 +171,12 @@ export class AIService {
         for (const line of lines) {
           const trimmed = line.trim();
           if (!trimmed || !trimmed.startsWith('data: ')) continue;
-          const dataStr = trimmed.slice(6);
-          if (dataStr === '[DONE]') {
-            res.write('data: [DONE]\n\n');
-            res.end();
-            return;
-          }
+          const dataStr = trimmed.replace(/^data:\s*/, '');
+          if (dataStr === '[DONE]') continue;
 
           try {
             const parsed = JSON.parse(dataStr);
-            const delta = parsed.choices?.[0]?.delta?.content;
+            const delta = parsed.choices?.[0]?.delta?.content || '';
             if (delta) {
               res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
             }
@@ -202,7 +189,11 @@ export class AIService {
       res.write('data: [DONE]\n\n');
       res.end();
     } catch (err: any) {
-      res.write(`data: ${JSON.stringify({ text: `\n\n❌ **请求连接失败**: ${err.message}\n请检查您的网络连接或 Base URL 是否有效。` })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({
+          text: `\n\n❌ **请求连接失败**: ${err.message}\n请检查您的网络连接或 Base URL 是否有效。`,
+        })}\n\n`
+      );
       res.write('data: [DONE]\n\n');
       res.end();
     }
