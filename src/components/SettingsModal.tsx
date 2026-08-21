@@ -13,6 +13,13 @@ import {
   RotateCcw,
   FileCode2,
   Search,
+  MessageSquareQuote,
+  Sparkles,
+  ShieldCheck,
+  Zap,
+  TestTube,
+  Flame,
+  Gamepad2,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -22,6 +29,48 @@ interface SettingsModalProps {
   onSaveConfig: (config: AIProviderConfig) => void;
 }
 
+const PROMPT_PRESETS = [
+  {
+    id: 'default',
+    title: '🛡️ 架构与安全全景审查 (默认)',
+    icon: ShieldCheck,
+    desc: '全面分析代码逻辑、跨模块架构、依赖破坏及并发/内存边界风险。',
+    prompt: '',
+  },
+  {
+    id: 'performance',
+    title: '⚡ 性能优化与内存 GC 审查',
+    icon: Zap,
+    desc: '重点排查高频循环分配、GC 垃圾回收压力、锁竞争及算法复杂度。',
+    prompt:
+      '请以性能优化专家的视角进行审查。重点关注：1. 是否存在高频循环内的堆内存分配或装箱拆箱（GC 压力）；2. 锁竞争、死锁与线程安全；3. 算法时间/空间复杂度优化空间；4. 异步/协程生命周期管理。',
+  },
+  {
+    id: 'testing',
+    title: '🧪 边界条件与单元测试推演',
+    icon: TestTube,
+    desc: '深度推演空指针、越界、溢出等边界异常，并给出对应单元测试建议。',
+    prompt:
+      '请重点以测试专家的视角审查：1. 深入推演所有边界条件（Null、空集合、数值溢出、并发交错）；2. 检查异常捕获是否恰当；3. 为本次修改的代码编写具体的单元测试用例（Given-When-Then 格式）。',
+  },
+  {
+    id: 'cleancode',
+    title: '🧼 Clean Code 与代码规范',
+    icon: Flame,
+    desc: '严格检查代码可读性、函数职责单一性（SRP）、设计模式与命名语义。',
+    prompt:
+      '请以 Clean Code 专家的视角审查：1. 函数是否符合单一职责原则（SRP）；2. 命名是否具有自解释性，是否存在代码坏味道（Code Smells）；3. 架构解耦与设计模式重构建议。',
+  },
+  {
+    id: 'gamedev',
+    title: '🎮 游戏逻辑与状态机安全',
+    icon: Gamepad2,
+    desc: '关注帧率平稳度、状态流转完整性、Update 轮询开销及网络同步一致性。',
+    prompt:
+      '请以游戏服务端/客户端核心开发者的视角审查：1. 状态机切换逻辑是否闭环无死态；2. 每帧 Update/Tick 是否有不必要开销；3. 数据同步协议一致性与客户端容错；4. 对象池生命周期回收。',
+  },
+];
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -30,6 +79,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [form, setForm] = useState<AIProviderConfig>({
     ...config,
+    customSystemPrompt: config.customSystemPrompt || '',
     maxExplorationTurns: config.maxExplorationTurns || 5,
     timeoutSeconds: config.timeoutSeconds || 35,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
@@ -37,7 +87,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     maxSearchResults: config.maxSearchResults || 30,
   });
 
-  const [activeTab, setActiveTab] = useState<'model' | 'agent'>('model');
+  const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'prompts'>('model');
   const [savedMessage, setSavedMessage] = useState(false);
 
   if (!isOpen) return null;
@@ -79,6 +129,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }));
   };
 
+  const handleApplyPresetPrompt = (prompt: string) => {
+    setForm((prev) => ({
+      ...prev,
+      customSystemPrompt: prompt,
+    }));
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveConfig(form);
@@ -99,9 +156,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Settings className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">AI 引擎与 Codex 运行配置</h2>
+              <h2 className="text-sm font-bold text-white">AI 引擎与审查定制配置</h2>
               <p className="text-[11px] text-slate-400">
-                配置模型连接与智能体探查轮次、超时及代码库检索上限
+                配置模型连接、自定义审查提示词与 Codex 智能体运行参数
               </p>
             </div>
           </div>
@@ -127,6 +184,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <button
             type="button"
+            onClick={() => setActiveTab('prompts')}
+            className={`pb-2.5 flex items-center space-x-1.5 border-b-2 transition ${
+              activeTab === 'prompts'
+                ? 'border-purple-500 text-purple-300 font-bold'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MessageSquareQuote className="w-3.5 h-3.5 text-purple-400" />
+            <span>审查提示词定制</span>
+            {form.customSystemPrompt && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            )}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('agent')}
             className={`pb-2.5 flex items-center space-x-1.5 border-b-2 transition ${
               activeTab === 'agent'
@@ -136,9 +209,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <Brain className="w-3.5 h-3.5 text-purple-400" />
             <span>Codex 探查与运行上限</span>
-            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.2 rounded-full font-mono">
-              可调
-            </span>
           </button>
         </div>
 
@@ -227,7 +297,93 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: Agent Exploration & Limits Configuration */}
+          {/* TAB 2: Custom Prompts Settings */}
+          {activeTab === 'prompts' && (
+            <div className="space-y-4">
+              <div className="p-3 bg-purple-950/25 border border-purple-500/30 rounded-lg text-slate-300 text-xs">
+                <div className="flex items-center space-x-2 font-semibold text-purple-200 mb-1">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>全局自定义审查指令 (Custom Review Directive)</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  在此输入的指令将作为全局规则注入给 AI / Codex 智能体，让审查始终聚焦于您最关心的业务与技术重点。
+                </p>
+              </div>
+
+              {/* One-Click Presets */}
+              <div>
+                <label className="block text-slate-300 font-semibold mb-2">
+                  ⚡ 常用审查偏好一键预设
+                </label>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {PROMPT_PRESETS.map((preset) => {
+                    const isSelected = form.customSystemPrompt === preset.prompt;
+                    const Icon = preset.icon;
+
+                    return (
+                      <button
+                        type="button"
+                        key={preset.id}
+                        onClick={() => handleApplyPresetPrompt(preset.prompt)}
+                        className={`p-2.5 rounded-lg border text-left transition flex items-start space-x-3 ${
+                          isSelected
+                            ? 'bg-purple-600/20 border-purple-500 text-white shadow-sm'
+                            : 'bg-[#15161E] border-white/5 text-slate-400 hover:text-slate-200 hover:border-white/10'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-200 text-xs">
+                              {preset.title}
+                            </span>
+                            {isSelected && (
+                              <span className="text-[10px] text-purple-300 font-mono flex items-center gap-0.5">
+                                <Check className="w-3 h-3" /> 当前采用
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                            {preset.desc}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Custom Prompt Textarea */}
+              <div className="space-y-1.5 pt-2 border-t border-white/5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-300 font-semibold">
+                    自定义指令内容 (编辑或直接手写)
+                  </label>
+                  {form.customSystemPrompt && (
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, customSystemPrompt: '' })}
+                      className="text-[10px] text-slate-500 hover:text-rose-400 transition"
+                    >
+                      清空自定义指令
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  rows={4}
+                  value={form.customSystemPrompt}
+                  onChange={(e) => setForm({ ...form, customSystemPrompt: e.target.value })}
+                  placeholder="例如：请重点关注 Unity 性能、GC 内存分配与线程安全性，并使用中文回答..."
+                  className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
+                />
+                <p className="text-[10px] text-slate-500">
+                  留空则使用官方默认的【核心代码改动剖析 ➔ 架构意图 ➔ 跨文件影响 ➔ 风险雷达】审查规范。
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: Agent Exploration & Limits Configuration */}
           {activeTab === 'agent' && (
             <div className="space-y-4">
               <div className="p-3 bg-purple-950/25 border border-purple-500/30 rounded-lg text-slate-300 text-xs flex items-center justify-between">

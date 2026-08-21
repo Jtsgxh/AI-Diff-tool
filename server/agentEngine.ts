@@ -189,7 +189,7 @@ export class CodexAgentEngine {
 检查并发安全性（竞态/死锁）、内存/资源管理、空异常、异常逃逸等。
 
 ### 💡 架构重构与测试建议 (Actionable Suggestions)
-提出针对代码健壮性、可读性或单元测试的建议。`;
+提出针对代码健壮性、可读性或单元测试的建议。` + (config?.customSystemPrompt && config.customSystemPrompt.trim() ? `\n\n【用户全局自定义审查指令 / 核心关注点】：\n${config.customSystemPrompt.trim()}` : '');
 
     let initialUserMsg = '';
     if (scopeType === 'line' && targetLine) {

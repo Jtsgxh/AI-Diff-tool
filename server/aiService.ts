@@ -5,6 +5,7 @@ export interface AIProviderConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  customSystemPrompt?: string;
   maxExplorationTurns?: number;
   timeoutSeconds?: number;
   maxRetries?: number;
@@ -117,6 +118,10 @@ export class AIService {
 
 ### 💡 优化与重构建议 (Optimization Suggestions)
 提出针对代码健壮性、可读性或测试用例的建议。`;
+      }
+
+      if (config?.customSystemPrompt && config.customSystemPrompt.trim()) {
+        systemPrompt += `\n\n【用户全局自定义审查指令 / 关注重点】：\n${config.customSystemPrompt.trim()}`;
       }
 
       let userContent = '';

@@ -47,6 +47,8 @@ export interface AIProviderConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
+  // Custom Prompts
+  customSystemPrompt?: string;
   // Codex Agent Runtime Controls
   maxExplorationTurns?: number;
   timeoutSeconds?: number;

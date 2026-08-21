@@ -407,6 +407,20 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         </button>
       </div>
 
+      {/* Active Custom Prompt Pill (if configured) */}
+      {aiConfig.customSystemPrompt && (
+        <div className="px-4 py-1.5 bg-[#121319] border-b border-purple-500/20 flex items-center justify-between text-[11px] text-purple-300">
+          <div className="flex items-center space-x-1.5 min-w-0">
+            <span className="shrink-0 px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-semibold text-[10px]">
+              🎯 自定义偏好指令
+            </span>
+            <span className="truncate text-slate-300" title={aiConfig.customSystemPrompt}>
+              {aiConfig.customSystemPrompt}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 🚀 Real-time Live Agent Activity HUD (Running / Idle Status Indicator) */}
       <div className="px-4 py-2 bg-[#101117] border-b border-white/5 flex items-center justify-between text-xs font-mono select-none">
         <div className="flex items-center space-x-2 min-w-0">
