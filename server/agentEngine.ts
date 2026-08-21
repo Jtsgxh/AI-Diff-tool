@@ -282,7 +282,7 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
         })}\n\n`
       );
 
-      let producedReport = false;
+      let accumulatedContent = '';
       let actionCount = 0;
 
       // 5. Execute Official Streamed Runner Loop
@@ -359,7 +359,7 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
                 );
               }
               if (delta?.content) {
-                producedReport = true;
+                accumulatedContent += delta.content;
                 res.write(`data: ${JSON.stringify({ type: 'chunk', text: delta.content })}\n\n`);
               }
             }
@@ -376,8 +376,13 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
         }
       }
 
-      // 6. Guaranteed Synthesis Phase if report was not produced during the loop
-      if (!producedReport) {
+      // 6. Guaranteed Synthesis Phase if substantial report was not delivered
+      const hasSubstantialReport =
+        accumulatedContent.length > 300 ||
+        (accumulatedContent.includes('###') && accumulatedContent.length > 150) ||
+        (accumulatedContent.includes('**') && accumulatedContent.length > 200);
+
+      if (!hasSubstantialReport) {
         res.write(
           `data: ${JSON.stringify({
             type: 'status',
@@ -401,14 +406,18 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
 
           synthesisMessages.push({
             role: 'user',
-            content: `【探查阶段结束】已在代码库中检索到以下关联上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，按照设定的审查规则，直接输出最终完整的 Markdown 代码审查报告。`,
+            content: `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`,
           });
         } else {
           synthesisMessages.push({
             role: 'user',
             content:
-              '【探查阶段结束】请根据上述代码修改差异，按照设定的审查规则，直接输出最终完整的 Markdown 代码审查报告。',
+              '【探查阶段已结束】请根据上述代码修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。',
           });
+        }
+
+        if (accumulatedContent.length > 0) {
+          res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\n---\n\n' })}\n\n`);
         }
 
         const synthesisStream = await openaiClient.chat.completions.create({
