@@ -21,7 +21,7 @@ function extractAndStripDSML(content: string): {
 
   const toolCalls: { name: string; args: any }[] = [];
 
-  // Extract DSML invokes
+  // Extract DSML invokes if present
   const invokePattern = /invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\s*\/[^>]*invoke>/gi;
   let match: RegExpExecArray | null;
   while ((match = invokePattern.exec(content)) !== null) {
@@ -96,28 +96,28 @@ export class CodexAgentEngine {
 
     const systemPrompt = `你是由 OpenAI Codex 与智能体架构驱动的资深软件架构师。你拥有对当前完整代码库的文件系统访问与符号检索工具。
 
-【严格工具使用限制】：
-1. 你最多只能调用 1 到 2 次最关键的工具（例如：仅针对修改的关键类搜索 1 次引用，或仅阅读 1 个核心定义文件）。
-2. 严禁进行地毯式大范围搜索，严禁连续调用超过 2 个工具。
-3. 一旦获得关键上下文线索，必须立刻停止调用工具，直接输出最终的 Markdown 中文审查报告。
-4. 严禁在输出正文中输出任何 < | | DSML | | ... > 或 XML 标签。
+【自主探索与决策原则】：
+1. 仔细分析给定的 Git 差异。若发现不确定的类继承、接口声明、函数调用、跨文件依赖或命名空间变更，请自主调用工具深入探查代码库。
+2. 你拥有完全的自主权，可根据改动的复杂度自行决定调用哪些工具（查阅文件、全局搜索引用、定位测试等）以及探查多少步。
+3. 当你判断已收集到充分的上下文信息后，自主结束工具调用，直接输出一份结构完整、论据扎实、跨模块的全景 Markdown 审查报告。
 
 【可用工具】：
-- \`read_file\`: 阅读仓库中指定文件的关键代码段。
-- \`search_code\`: 全局搜索某个核心符号/类名的引用位置。
-- \`find_files\`: 模糊搜索文件名。
+- \`read_file\`: 阅读仓库中指定文件的关键代码段或完整实现。
+- \`search_code\`: 全局搜索某个符号、类名、接口或函数调用的所有使用位置（用于评估下游影响）。
+- \`find_files\`: 模糊搜索文件名，定位同名测试、接口契约或配置文件。
 
-【最终审查报告格式 (Markdown)】：
-### 🌐 全局架构与改动意图 (Cross-Module Intent)
-一到两句话概括本次改动的宏观目的。
+【最终审查报告结构 (Markdown)】：
+### 🌐 全局架构与改动意图 (Cross-Module Context & Intent)
+结合你探查到的外部源文件与工程结构，说明本次改动的宏观目的。
 
 ### 🔍 跨文件影响与关键依赖分析 (Impact & Callers Analysis)
-结合刚才检索到的关联文件与调用方，说明修改是否破坏外部调用、是否存在命名空间缺失。
+结合检索到的关联文件与下游调用方，说明修改是否破坏外部调用、是否存在命名空间缺失或类型不兼容。
 
 ### ⚠️ 深度风险雷达与边界隐患 (Risk Radar)
-分析并发安全、内存、异常处理、兼容性 Breaking Changes 等。
+检查并发安全性（竞态/死锁）、内存管理、空异常、异常逃逸、兼容性 Breaking Changes 等。
 
-### 💡 架构重构与测试建议 (Actionable Suggestions)`;
+### 💡 架构重构与测试建议 (Actionable Suggestions)
+提出针对代码健壮性、可读性或测试用例编写的建议。`;
 
     let initialUserMsg = '';
     if (scopeType === 'line' && targetLine) {
@@ -127,15 +127,15 @@ export class CodexAgentEngine {
         targetLine.content
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
-        5000
-      )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查（若有必要最多调用 1-2 次工具，随后直接输出报告）。`;
+        6000
+      )}\n\`\`\`\n\n请结合代码库全局上下文进行深度审查。如需跨文件信息请自主决定调用工具，收集完毕后输出报告。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
       }\n\`\`\`diff\n${diff.slice(
         0,
-        8000
-      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请最多调用 1-2 次关键工具检索上下文，随后直接输出深度审查报告。`;
+        9000
+      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请自主分析并决定是否探查关联代码文件或搜索引用，收集充分后输出深度审查报告。`;
     }
 
     const messages: any[] = [
@@ -147,16 +147,14 @@ export class CodexAgentEngine {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    let totalToolsExecuted = 0;
-    const maxTotalTools = 3; // Strict hard cap on tool executions
-    const maxIterations = 2; // Strict max turns
+    const maxIterations = 10; // Generous safe ceiling allowing full autonomous exploration
     let iteration = 0;
 
     try {
       while (iteration < maxIterations) {
         iteration++;
 
-        const isLastIteration = iteration >= maxIterations || totalToolsExecuted >= maxTotalTools;
+        const isLastIteration = iteration >= maxIterations;
 
         // Call LLM
         const response = await fetch(url, {
@@ -204,17 +202,15 @@ export class CodexAgentEngine {
           );
         }
 
-        if (activeToolCalls.length > 0 && !isLastIteration && totalToolsExecuted < maxTotalTools) {
-          // Limit to max 2 tools in this batch to prevent overload
-          const batchCalls = activeToolCalls.slice(0, 2);
+        if (activeToolCalls.length > 0 && !isLastIteration) {
           messages.push({
             role: 'assistant',
             content: cleanText || null,
-            tool_calls: batchCalls,
+            tool_calls: activeToolCalls,
           });
 
-          for (const toolCall of batchCalls) {
-            totalToolsExecuted++;
+          // Execute all tools requested by the Agent in this turn
+          for (const toolCall of activeToolCalls) {
             const funcName = toolCall.function.name;
             let args: any = {};
             try {
@@ -233,7 +229,7 @@ export class CodexAgentEngine {
               })}\n\n`
             );
 
-            // Execute tool safely
+            // Execute tool safely on the local repository
             const toolResult = await tools.executeTool(funcName, args);
 
             res.write(
@@ -242,29 +238,21 @@ export class CodexAgentEngine {
                 id: toolCallId,
                 name: funcName,
                 summary: `${funcName}(${Object.values(args).join(', ')})`,
-                output: toolResult.slice(0, 400) + (toolResult.length > 400 ? '...' : ''),
+                output: toolResult.slice(0, 500) + (toolResult.length > 500 ? '...' : ''),
               })}\n\n`
             );
 
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: toolResult.slice(0, 4000),
-            });
-          }
-
-          // If reached max, add a nudge to produce final report
-          if (totalToolsExecuted >= maxTotalTools || iteration === maxIterations - 1) {
-            messages.push({
-              role: 'user',
-              content: '【已收集到足够的关联代码上下文，请直接输出最终完整的 Markdown 审查报告，禁止再调用工具或输出任何标签】',
+              content: toolResult.slice(0, 5000),
             });
           }
         } else {
-          // Final Report Text output
+          // Agent autonomously finished calling tools -> outputs final comprehensive report
           const finalReport = cleanText || rawContent;
           if (finalReport) {
-            const chunkSize = 40;
+            const chunkSize = 35;
             for (let i = 0; i < finalReport.length; i += chunkSize) {
               const chunk = finalReport.slice(i, i + chunkSize);
               res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`);
