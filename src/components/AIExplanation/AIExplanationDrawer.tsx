@@ -19,12 +19,15 @@ import {
   ChevronDown,
   ChevronRight,
   Terminal,
+  Activity,
+  Radio,
 } from 'lucide-react';
 import { AIProviderConfig } from '../../types';
 import {
   streamExplainDiff,
   streamAgentExplainDiff,
   AgentToolEvent,
+  AgentStatusEvent,
 } from '../../services/api';
 
 export interface ExplanationScope {
@@ -65,13 +68,33 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Agent tool calls and exploration trail
+  // Agent live status and action trail
+  const [agentStatus, setAgentStatus] = useState<AgentStatusEvent | null>(null);
   const [currentToolEvents, setCurrentToolEvents] = useState<AgentToolEvent[]>([]);
   const [isTrailExpanded, setIsTrailExpanded] = useState<boolean>(true);
   const [expandedToolIndex, setExpandedToolIndex] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
 
   const abortStreamRef = useRef<(() => void) | null>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<any>(null);
+
+  // Timer for execution elapsed time
+  useEffect(() => {
+    if (isStreaming) {
+      setElapsedSeconds(0);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds((prev) => +(prev + 0.5).toFixed(1));
+      }, 500);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isStreaming]);
 
   // Sync initialMode when scope opens
   useEffect(() => {
@@ -94,7 +117,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   // Auto scroll to bottom during streaming
   useEffect(() => {
     contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [streamContent, currentToolEvents, chatHistory]);
+  }, [streamContent, currentToolEvents, agentStatus, chatHistory]);
 
   const handleStartExplanation = async (customPrompt?: string) => {
     if (!scope) return;
@@ -106,6 +129,11 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     setError(null);
     setIsStreaming(true);
     setCurrentToolEvents([]);
+    setAgentStatus({
+      type: 'status',
+      phase: 'initializing',
+      message: engineMode === 'agent' ? 'Codex 智能体已连接，准备探索代码库...' : 'AI 正在解析 Diff...',
+    });
 
     if (!customPrompt) {
       setStreamContent('');
@@ -137,6 +165,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           commitMessage: scope.commitMessage,
           userPrompt: customPrompt,
           config: aiConfig,
+          onStatusUpdate: (status) => {
+            setAgentStatus(status);
+          },
           onToolEvent: (event) => {
             setCurrentToolEvents((prev) => {
               if (event.type === 'tool_result' && event.id) {
@@ -155,6 +186,11 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           },
           onComplete: () => {
             setIsStreaming(false);
+            setAgentStatus({
+              type: 'status',
+              phase: 'completed',
+              message: 'Codex 审查完成',
+            });
             if (customPrompt) {
               setChatHistory((prev) => [
                 ...prev,
@@ -182,6 +218,11 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           },
           onComplete: () => {
             setIsStreaming(false);
+            setAgentStatus({
+              type: 'status',
+              phase: 'completed',
+              message: '直接 Diff 解析完成',
+            });
             if (customPrompt) {
               setChatHistory((prev) => [
                 ...prev,
@@ -225,15 +266,25 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     if (abortStreamRef.current) {
       abortStreamRef.current();
       setIsStreaming(false);
+      setAgentStatus({
+        type: 'status',
+        phase: 'completed',
+        message: '用户已终止运行',
+      });
     }
   };
 
   if (!isOpen || !scope) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[600px] max-w-[94vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
+    <div className="fixed inset-y-0 right-0 w-[620px] max-w-[95vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
       {/* Top Header */}
-      <div className="h-14 px-4 bg-[#121319] border-b border-white/10 flex items-center justify-between select-none shrink-0">
+      <div className="h-14 px-4 bg-[#121319] border-b border-white/10 flex items-center justify-between select-none shrink-0 relative overflow-hidden">
+        {/* Animated Glowing Top Line when running */}
+        {isStreaming && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 via-pink-500 to-indigo-500 animate-pulse" />
+        )}
+
         <div className="flex items-center space-x-2.5 min-w-0">
           <div className="w-7 h-7 rounded bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center shadow-md shadow-purple-500/20 shrink-0">
             <Sparkles className="w-4 h-4 text-white" />
@@ -281,7 +332,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               title="直接 Diff 模式：极速聚焦当前修改代码行"
             >
               <Zap className="w-3.5 h-3.5 text-amber-300" />
-              <span>直接 Diff 解释</span>
+              <span>直接 Diff</span>
             </button>
           </div>
 
@@ -356,6 +407,47 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         </button>
       </div>
 
+      {/* 🚀 Real-time Live Agent Activity HUD (Running / Idle Status Indicator) */}
+      <div className="px-4 py-2 bg-[#101117] border-b border-white/5 flex items-center justify-between text-xs font-mono select-none">
+        <div className="flex items-center space-x-2 min-w-0">
+          {isStreaming ? (
+            <>
+              {/* Glowing animated green radar beacon */}
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-400" />
+              </span>
+              <span className="font-bold text-emerald-400 text-[11px] shrink-0">
+                {engineMode === 'agent' ? 'Codex Agent 运行中' : 'AI 生成中'}
+              </span>
+              <span className="text-slate-400 truncate text-[11px]">
+                {agentStatus?.message || '正在分析中...'}
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="inline-flex rounded-full h-2 w-2 bg-slate-500 shrink-0" />
+              <span className="text-slate-400 text-[11px]">
+                {agentStatus?.message || '空闲已就绪'}
+              </span>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center space-x-2 text-[10px] text-slate-500 shrink-0">
+          {isStreaming && (
+            <span className="text-purple-400 font-bold animate-pulse">
+              ⏱️ {elapsedSeconds}s
+            </span>
+          )}
+          {currentToolEvents.length > 0 && (
+            <span className="bg-purple-500/10 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/20">
+              🛠️ {currentToolEvents.length} 次动作
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-slate-200 leading-relaxed font-sans">
         {error && (
@@ -395,29 +487,32 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           </div>
         ))}
 
-        {/* Live Agent Tool-Calling Action Trail (Only in Agent mode) */}
-        {engineMode === 'agent' && currentToolEvents.length > 0 && (
+        {/* Live Agent Tool-Calling Action Trail (Visible in Agent mode) */}
+        {engineMode === 'agent' && (currentToolEvents.length > 0 || isStreaming) && (
           <div className="bg-[#181924] border border-purple-500/30 rounded-xl overflow-hidden shadow-lg transition-all">
             {/* Trail Header */}
             <div
               onClick={() => setIsTrailExpanded(!isTrailExpanded)}
-              className="px-3.5 py-2 bg-gradient-to-r from-purple-950/50 to-indigo-950/40 border-b border-purple-500/20 flex items-center justify-between cursor-pointer select-none"
+              className="px-3.5 py-2.5 bg-gradient-to-r from-purple-950/60 to-indigo-950/50 border-b border-purple-500/20 flex items-center justify-between cursor-pointer select-none"
             >
               <div className="flex items-center space-x-2">
                 <div className="w-5 h-5 rounded bg-purple-500/20 text-purple-300 flex items-center justify-center">
-                  <Brain className="w-3.5 h-3.5 animate-pulse" />
+                  <Brain className={`w-3.5 h-3.5 ${isStreaming ? 'animate-pulse text-purple-300' : ''}`} />
                 </div>
                 <div className="flex items-center space-x-1.5 text-xs font-semibold text-purple-200">
-                  <span>Codex 智能体代码库自主探索引擎</span>
+                  <span>Codex 智能体代码库探索轨迹</span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 font-mono">
-                    已执行 {currentToolEvents.length} 次动作
+                    已探查 {currentToolEvents.length} 个节点
                   </span>
                 </div>
               </div>
 
-              <div className="flex items-center space-x-1 text-slate-400">
-                {isStreaming && !streamContent && (
-                  <span className="text-[10px] text-purple-400 animate-pulse mr-2">正在探查关联文件...</span>
+              <div className="flex items-center space-x-2 text-slate-400">
+                {isStreaming && (
+                  <span className="text-[10px] text-emerald-400 flex items-center gap-1 animate-pulse">
+                    <Activity className="w-3 h-3" />
+                    <span>{agentStatus?.message || '智能体推理中...'}</span>
+                  </span>
                 )}
                 {isTrailExpanded ? (
                   <ChevronDown className="w-4 h-4" />
@@ -429,7 +524,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
             {/* Trail Events List */}
             {isTrailExpanded && (
-              <div className="p-2.5 space-y-1.5 max-h-60 overflow-y-auto bg-[#12131A] text-[11px] font-mono">
+              <div className="p-2.5 space-y-1.5 max-h-64 overflow-y-auto bg-[#12131A] text-[11px] font-mono">
+                {currentToolEvents.length === 0 && isStreaming && (
+                  <div className="p-3 text-center text-slate-400 flex items-center justify-center space-x-2">
+                    <div className="w-3.5 h-3.5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                    <span>智能体正在评估 Diff 语义并准备探查外部文件...</span>
+                  </div>
+                )}
+
                 {currentToolEvents.map((evt, idx) => {
                   const isExpanded = expandedToolIndex === idx;
                   const isSearch = evt.name === 'search_code';
@@ -467,7 +569,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                               <Check className="w-3 h-3" /> 已获取
                             </span>
                           ) : (
-                            <span className="text-[10px] text-amber-400 animate-pulse">执行中...</span>
+                            <span className="text-[10px] text-amber-400 flex items-center gap-1 animate-pulse">
+                              <div className="w-2.5 h-2.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                              执行中
+                            </span>
                           )}
                           {isExpanded ? (
                             <ChevronDown className="w-3 h-3 text-slate-500" />
@@ -515,12 +620,19 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
         {isStreaming && !streamContent && currentToolEvents.length === 0 && (
           <div className="flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
-            <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-            <p className="text-xs">
-              {engineMode === 'agent'
-                ? 'Codex 智能体正在评估 Diff 语义并决定是否探查外部文件...'
-                : 'AI 正在直接分析该段 Diff 语法与逻辑...'}
-            </p>
+            <div className="relative flex items-center justify-center">
+              <div className="w-10 h-10 rounded-full border-2 border-purple-500/30 animate-ping absolute" />
+              <div className="w-10 h-10 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
+              <Brain className="w-5 h-5 text-purple-400 absolute" />
+            </div>
+            <div className="text-center space-y-1">
+              <p className="text-xs font-semibold text-purple-200">
+                {agentStatus?.message || 'Codex 智能体正在评估代码库依赖...'}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                智能体将自主探索关联文件并综合推理全景报告
+              </p>
+            </div>
           </div>
         )}
 

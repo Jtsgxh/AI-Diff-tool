@@ -92,6 +92,15 @@ export class CodexAgentEngine {
       }
     }
 
+    // 1. Emit Initial Immediate Status to UI
+    res.write(
+      `data: ${JSON.stringify({
+        type: 'status',
+        phase: 'initializing',
+        message: 'Codex 智能体已连接，正在初始化代码库只读沙箱...',
+      })}\n\n`
+    );
+
     const tools = new AgentTools(repoPath);
 
     const systemPrompt = `你是由 OpenAI Codex 与智能体架构驱动的资深软件架构师。你拥有对当前完整代码库的文件系统访问与符号检索工具。
@@ -147,7 +156,7 @@ export class CodexAgentEngine {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    const maxIterations = 10; // Generous safe ceiling allowing full autonomous exploration
+    const maxIterations = 10;
     let iteration = 0;
 
     try {
@@ -155,6 +164,19 @@ export class CodexAgentEngine {
         iteration++;
 
         const isLastIteration = iteration >= maxIterations;
+
+        // Emit thinking status
+        res.write(
+          `data: ${JSON.stringify({
+            type: 'status',
+            phase: 'thinking',
+            message:
+              iteration === 1
+                ? '第 1 轮决策：正在分析 Diff 语义特征与外部引用...'
+                : `第 ${iteration} 轮决策：已获取关联代码，正在综合推理...`,
+            step: iteration,
+          })}\n\n`
+        );
 
         // Call LLM
         const response = await fetch(url, {
@@ -203,13 +225,24 @@ export class CodexAgentEngine {
         }
 
         if (activeToolCalls.length > 0 && !isLastIteration) {
+          // Emit executing tools status
+          const toolNames = activeToolCalls.map((t) => t.function.name).join(', ');
+          res.write(
+            `data: ${JSON.stringify({
+              type: 'status',
+              phase: 'executing_tools',
+              message: `智能体决定调用工具: ${toolNames} 探查代码库...`,
+              step: iteration,
+            })}\n\n`
+          );
+
           messages.push({
             role: 'assistant',
             content: cleanText || null,
             tool_calls: activeToolCalls,
           });
 
-          // Execute all tools requested by the Agent in this turn
+          // Execute all tools requested by the Agent
           for (const toolCall of activeToolCalls) {
             const funcName = toolCall.function.name;
             let args: any = {};
@@ -250,6 +283,14 @@ export class CodexAgentEngine {
           }
         } else {
           // Agent autonomously finished calling tools -> outputs final comprehensive report
+          res.write(
+            `data: ${JSON.stringify({
+              type: 'status',
+              phase: 'reporting',
+              message: '证据收集充分，正在流式输出全景审查报告...',
+            })}\n\n`
+          );
+
           const finalReport = cleanText || rawContent;
           if (finalReport) {
             const chunkSize = 35;
@@ -263,6 +304,13 @@ export class CodexAgentEngine {
         }
       }
 
+      res.write(
+        `data: ${JSON.stringify({
+          type: 'status',
+          phase: 'completed',
+          message: 'Codex 审查完成',
+        })}\n\n`
+      );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
       res.end();
     } catch (err: any) {

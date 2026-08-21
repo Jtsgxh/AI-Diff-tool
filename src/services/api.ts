@@ -200,6 +200,13 @@ export interface AgentToolEvent {
   text?: string;
 }
 
+export interface AgentStatusEvent {
+  type: 'status';
+  phase: 'initializing' | 'thinking' | 'executing_tools' | 'reporting' | 'completed';
+  message: string;
+  step?: number;
+}
+
 export interface StreamAgentExplainPayload {
   repoPath: string;
   scopeType?: 'line' | 'chunk' | 'file' | 'commit';
@@ -213,6 +220,7 @@ export interface StreamAgentExplainPayload {
   commitMessage?: string;
   userPrompt?: string;
   config?: AIProviderConfig;
+  onStatusUpdate?: (status: AgentStatusEvent) => void;
   onToolEvent: (event: AgentToolEvent) => void;
   onChunk: (chunk: string) => void;
   onComplete: () => void;
@@ -275,7 +283,13 @@ export async function streamAgentExplainDiff(
               if (event.type === 'done') {
                 payload.onComplete();
                 return;
-              } else if (event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'thought') {
+              } else if (event.type === 'status') {
+                payload.onStatusUpdate?.(event);
+              } else if (
+                event.type === 'tool_call' ||
+                event.type === 'tool_result' ||
+                event.type === 'thought'
+              ) {
                 payload.onToolEvent(event);
               } else if (event.type === 'chunk' && event.text) {
                 payload.onChunk(event.text);
