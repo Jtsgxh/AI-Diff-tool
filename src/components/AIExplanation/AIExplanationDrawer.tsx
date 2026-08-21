@@ -134,19 +134,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     }
   }, [isOpen, scope]);
 
-  // Auto scroll active session
-  useEffect(() => {
-    if (activeSession?.isStreaming) {
-      contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [
-    activeSession?.initialReport,
-    activeSession?.currentFollowUpStream,
-    activeSession?.reasoningContent,
-    activeSession?.currentToolEvents,
-    activeSession?.agentStatus,
-    activeSession?.chatHistory,
-  ]);
+
 
   const updateSession = (id: string, updater: (prev: ReviewSession) => ReviewSession) => {
     setSessions((prev) => prev.map((s) => (s.id === id ? updater(s) : s)));
