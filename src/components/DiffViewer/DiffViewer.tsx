@@ -1,6 +1,7 @@
 ﻿import React, { useMemo, useState } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
+import { codeLineToPseudocode } from '../../utils/pseudocodeConverter';
 import { streamExplainDiff } from '../../services/api';
 import {
   Columns,
@@ -13,6 +14,7 @@ import {
   Zap,
   Brain,
   BookOpen,
+  Sparkles,
 } from 'lucide-react';
 import { marked } from 'marked';
 
@@ -41,6 +43,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   // Multi-selected hunk IDs
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
 
+  // Global & Per-Hunk Pseudocode / Natural Language Code Mode
+  const [isGlobalPseudocode, setIsGlobalPseudocode] = useState<boolean>(false);
+  const [hunkPseudocodeSet, setHunkPseudocodeSet] = useState<Set<string>>(new Set());
+
   // Inline Natural Language State per Hunk
   const [expandedNaturalHunkIds, setExpandedNaturalHunkIds] = useState<Set<string>>(new Set());
   const [hunkNaturalContent, setHunkNaturalContent] = useState<
@@ -58,7 +64,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         <FileCode className="w-12 h-12 mb-3 text-slate-600 stroke-1" />
         <p className="text-sm font-medium text-slate-400">请选择左侧文件以查看代码差异对比</p>
         <p className="text-xs text-slate-600 mt-1">
-          支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与每个改动块的「📖 自然语言直读」
+          支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🔤 Diff 代码显示为自然语言伪代码」
         </p>
       </div>
     );
@@ -85,6 +91,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   const clearHunkSelection = () => {
     setSelectedHunkIds(new Set());
+  };
+
+  const toggleHunkPseudocode = (hunkId: string) => {
+    setHunkPseudocodeSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(hunkId)) {
+        next.delete(hunkId);
+      } else {
+        next.add(hunkId);
+      }
+      return next;
+    });
   };
 
   const selectedHunkObjects = hunks.filter((h) => selectedHunkIds.has(h.id));
@@ -153,7 +171,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     });
   };
 
-  const renderUnifiedLine = (line: DiffLine, index: number) => {
+  const renderUnifiedLine = (line: DiffLine, index: number, hunkId: string) => {
     if (line.type === 'hunk-header') {
       return (
         <div
@@ -167,6 +185,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
     const isAdd = line.type === 'add';
     const isDelete = line.type === 'delete';
+    const isPseudocode = isGlobalPseudocode || hunkPseudocodeSet.has(hunkId);
+
+    const displayContent =
+      isPseudocode && (isAdd || isDelete)
+        ? codeLineToPseudocode(line.content)
+        : line.content;
 
     return (
       <div
@@ -198,15 +222,33 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           {isAdd ? '+' : isDelete ? '-' : ' '}
         </div>
 
-        {/* Code Content */}
-        <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0">{line.content}</div>
+        {/* Code / Pseudocode Content */}
+        <div
+          className={`flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0 ${
+            isPseudocode && (isAdd || isDelete) ? 'font-sans font-medium text-purple-100' : ''
+          }`}
+          title={isPseudocode ? `原代码: ${line.content}` : ''}
+        >
+          {displayContent}
+        </div>
       </div>
     );
   };
 
-  const renderSplitRow = (row: SplitDiffRow, index: number) => {
+  const renderSplitRow = (row: SplitDiffRow, index: number, hunkId: string) => {
     const leftIsDelete = row.left?.type === 'delete';
     const rightIsAdd = row.right?.type === 'add';
+    const isPseudocode = isGlobalPseudocode || hunkPseudocodeSet.has(hunkId);
+
+    const leftContent =
+      isPseudocode && leftIsDelete && row.left?.content
+        ? codeLineToPseudocode(row.left.content)
+        : row.left?.content || '';
+
+    const rightContent =
+      isPseudocode && rightIsAdd && row.right?.content
+        ? codeLineToPseudocode(row.right.content)
+        : row.right?.content || '';
 
     return (
       <div
@@ -225,12 +267,17 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           <div className="w-5 shrink-0 text-center font-bold select-none text-rose-400">
             {leftIsDelete ? '-' : ''}
           </div>
-          <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
-            {row.left?.content || ''}
+          <div
+            className={`flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0 ${
+              isPseudocode && leftIsDelete ? 'font-sans font-medium text-rose-100' : ''
+            }`}
+            title={isPseudocode && leftIsDelete ? `原代码: ${row.left?.content}` : ''}
+          >
+            {leftContent}
           </div>
         </div>
 
-        {/* Right (New Version) */}
+        {/* Right (New Version - Replaced with Natural Language / Pseudocode when enabled) */}
         <div
           className={`flex-1 flex min-w-0 ${
             rightIsAdd ? 'bg-emerald-950/25 text-emerald-200' : 'text-slate-300'
@@ -242,8 +289,13 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-400">
             {rightIsAdd ? '+' : ''}
           </div>
-          <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
-            {row.right?.content || ''}
+          <div
+            className={`flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0 ${
+              isPseudocode && rightIsAdd ? 'font-sans font-medium text-emerald-100' : ''
+            }`}
+            title={isPseudocode && rightIsAdd ? `原代码: ${row.right?.content}` : ''}
+          >
+            {rightContent}
           </div>
         </div>
       </div>
@@ -288,6 +340,20 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
               )}
             </button>
           )}
+
+          {/* Global Pseudocode / Natural Language Code Switcher */}
+          <button
+            onClick={() => setIsGlobalPseudocode((prev) => !prev)}
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border ${
+              isGlobalPseudocode
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-md shadow-purple-500/20'
+                : 'bg-[#1E202A] hover:bg-[#282A38] text-slate-300 border-white/10 hover:text-white'
+            }`}
+            title="将 Diff 中的改动代码行直接精确替换为通俗易读的中文自然语言/伪代码"
+          >
+            <Sparkles className={`w-3.5 h-3.5 ${isGlobalPseudocode ? 'text-white' : 'text-purple-400'}`} />
+            <span>{isGlobalPseudocode ? '🔤 伪代码显示中' : '显示为伪代码'}</span>
+          </button>
 
           {/* Mode Selector Segmented Button in Toolbar */}
           <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 text-xs">
@@ -368,6 +434,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         {hunks.map((hunk, hunkIdx) => {
           const isSelected = selectedHunkIds.has(hunk.id);
           const isNaturalExpanded = expandedNaturalHunkIds.has(hunk.id);
+          const isHunkPseudocode = isGlobalPseudocode || hunkPseudocodeSet.has(hunk.id);
           const hunkText = getHunkDiffText(hunk);
 
           return (
@@ -382,7 +449,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
               {/* Floating Hunk Hover Toolbar with Clear Distinction Buttons */}
               <div
                 className={`absolute right-4 top-2 z-20 flex items-center space-x-1.5 transition-opacity duration-150 ${
-                  isSelected || isNaturalExpanded
+                  isSelected || isNaturalExpanded || isHunkPseudocode
                     ? 'opacity-100'
                     : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto'
                 }`}
@@ -409,7 +476,22 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   <span>{isSelected ? `块 #${hunk.index} 已选` : `选择块 #${hunk.index}`}</span>
                 </button>
 
-                {/* Inline Natural Language Toggle Button on this Hunk */}
+                {/* Per-Hunk Pseudocode / Natural Language Toggle */}
+                <button
+                  type="button"
+                  onClick={() => toggleHunkPseudocode(hunk.id)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border backdrop-blur-md shadow-md transition hover:scale-105 active:scale-95 ${
+                    isHunkPseudocode
+                      ? 'bg-purple-600 text-white border-purple-400 shadow-purple-600/30'
+                      : 'bg-[#1D1F2A]/90 hover:bg-purple-600/30 text-purple-300 hover:text-white border-purple-500/30'
+                  }`}
+                  title="将本块的代码行精确替换为自然语言伪代码"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>{isHunkPseudocode ? '已转伪代码' : '转为伪代码'}</span>
+                </button>
+
+                {/* Inline Natural Language Summary Toggle Button on this Hunk */}
                 <button
                   type="button"
                   onClick={() => toggleHunkNaturalLanguage(hunk.id, hunk)}
@@ -421,7 +503,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   title="点击在此 Diff 块内直接展开/折叠自然语言直读释义"
                 >
                   <BookOpen className="w-3.5 h-3.5" />
-                  <span>{isNaturalExpanded ? '收起自然语言' : '📖 自然语言'}</span>
+                  <span>{isNaturalExpanded ? '收起释义' : '📖 块释义'}</span>
                 </button>
 
                 {/* Option 1: Fast Direct Diff Explain Button */}
@@ -451,7 +533,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
               {viewMode === 'split' && (
                 <div className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none flex items-center justify-between">
                   <span>{hunk.header}</span>
-                  <span className="text-[11px] text-slate-500 font-sans">块 #{hunk.index}</span>
+                  <div className="flex items-center space-x-2">
+                    {isHunkPseudocode && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-sans">
+                        ✨ 伪代码模式
+                      </span>
+                    )}
+                    <span className="text-[11px] text-slate-500 font-sans">块 #{hunk.index}</span>
+                  </div>
                 </div>
               )}
 
@@ -498,11 +587,19 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 </div>
               )}
 
-              {/* Diff Lines Rendering */}
+              {/* Diff Lines Rendering (Supports In-Place Pseudocode Replacement) */}
               {viewMode === 'unified' ? (
-                <div>{hunk.lines.map((line, lineIdx) => renderUnifiedLine(line, lineIdx))}</div>
+                <div>
+                  {hunk.lines.map((line, lineIdx) =>
+                    renderUnifiedLine(line, lineIdx, hunk.id)
+                  )}
+                </div>
               ) : (
-                <div>{hunk.splitRows.map((row, rowIdx) => renderSplitRow(row, rowIdx))}</div>
+                <div>
+                  {hunk.splitRows.map((row, rowIdx) =>
+                    renderSplitRow(row, rowIdx, hunk.id)
+                  )}
+                </div>
               )}
             </div>
           );
