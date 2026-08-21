@@ -172,9 +172,25 @@ export class CodexAgentEngine {
     });
 
     // 2. Autonomous Codex Planning Prompts
+    const isFollowUp = Boolean(userPrompt && userPrompt.trim());
     const userDefinedPrompt =
       config?.reviewPrompt?.trim() || config?.customSystemPrompt?.trim();
-    const systemPrompt = `你是由 OpenAI Codex 驱动的高级自主代码审查智能体（Autonomous Codex Agent）。
+
+    let systemPrompt = '';
+    if (isFollowUp) {
+      systemPrompt = `你是由 OpenAI Codex 驱动的高级自主代码审查与深度探索智能体（Autonomous Codex Agent）。
+当前用户正结合给定的 Git 代码差异与上下文向你发起【代码追问与技术探讨】。
+
+【关键行动原则】：
+1. 积极且优先自主调用工具探查真实代码：
+   针对用户的具体提问（例如：询问某个方法/函数的调用位置、类/接口的定义、特定逻辑的调用链、上下游影响、潜在并发/异常风险、某个变量的赋值流转等），严禁凭空盲猜或假设！请【优先且主动调用】提供的工具：
+   - \`search_code\`: 全库搜索关键字、方法名、类名、变量或接口调用方
+   - \`read_file\`: 读取关键文件的完整源码或被调用的外部类实现
+   - \`find_files\`: 查找相关工程源码文件
+2. 自主动态收敛：当你通过工具探查获取到真实的工程代码上下文后，请停止调用工具，直接给出专业、切中要害的解答；
+3. 输出要求：使用排版精美、层级清晰的 Markdown 输出，直击问题本质，无需机械套用初始审查报告的固定模板。`;
+    } else {
+      systemPrompt = `你是由 OpenAI Codex 驱动的高级自主代码审查智能体（Autonomous Codex Agent）。
 【核心自主规划原则】：
 1. 具备全权自主规划与探查能力：根据给定的 Diff，你可以完全自主决定调用 \`read_file\`、\`search_code\`、\`find_files\` 工具探查外部类、接口契约与下游调用链；
 2. 自主动态收敛：当你判断已经收集到足够理解本次改动全貌与影响的上下文后，请自主停止调用工具，直接输出完整的 Markdown 深度代码审查报告。
@@ -194,9 +210,23 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
 
 ### 🌐 跨模块影响与下游调用 (Callers & Impact)
 明确说明修改对外部依赖、调用方或工程配置的实际影响。`}`;
+    }
 
     let initialUserMsg = '';
-    if (scopeType === 'line' && targetLine) {
+    if (isFollowUp) {
+      initialUserMsg = `【代码改动上下文 Diff】:
+文件: ${filePath || '多文件'}
+提交信息: ${commitMessage || '无'}
+\`\`\`diff
+${diff.slice(0, 8000)}
+\`\`\`
+
+【用户追问】:
+${userPrompt?.trim()}
+
+【任务指令】:
+请针对我提出的具体追问，主动调用工具（如 search_code / read_file）探查代码库中的相关定义、调用链或接口实现，结合真实的工程上下文给出精准专业的解答。`;
+    } else if (scopeType === 'line' && targetLine) {
       initialUserMsg = `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${
         targetLine.lineNumber || ''
       })】:\n\`\`\`\n${targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '} ${
@@ -204,14 +234,14 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
       }\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
         0,
         5000
-      )}\n\`\`\`\n\n${userPrompt ? `【附加要求】: ${userPrompt}\n\n` : ''}请自主规划探查并进行深度代码审查。`;
+      )}\n\`\`\`\n\n请自主规划探查并进行深度代码审查。`;
     } else {
       initialUserMsg = `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${
         commitMessage || '无'
       }\n\`\`\`diff\n${diff.slice(
         0,
         8000
-      )}\n\`\`\`\n\n${userPrompt ? `【用户疑问】: ${userPrompt}\n\n` : ''}请自主规划代码库探查路径并输出审查报告。`;
+      )}\n\`\`\`\n\n请自主规划代码库探查路径并输出审查报告。`;
     }
 
     try {

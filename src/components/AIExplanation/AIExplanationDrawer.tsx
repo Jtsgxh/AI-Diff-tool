@@ -73,6 +73,7 @@ export interface ReviewSession {
   initialReasoning?: string;
   currentFollowUpStream: string;
   currentFollowUpReasoning?: string;
+  currentFollowUpToolEvents?: AgentToolEvent[];
   currentToolEvents: AgentToolEvent[];
   agentStatus: AgentStatusEvent | null;
   chatHistory: ChatMessage[];
@@ -416,19 +417,35 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           },
           onToolEvent: (event) => {
             updateSession(sessionId, (s) => {
-              let updatedEvents = [...s.currentToolEvents];
-              if (event.type === 'tool_result' && event.id) {
-                const idx = updatedEvents.findIndex((e) => e.id === event.id);
-                if (idx !== -1) {
-                  updatedEvents[idx] = { ...updatedEvents[idx], ...event };
+              if (customPrompt) {
+                let updatedEvents = [...(s.currentFollowUpToolEvents || [])];
+                if (event.type === 'tool_result' && event.id) {
+                  const idx = updatedEvents.findIndex((e) => e.id === event.id);
+                  if (idx !== -1) {
+                    updatedEvents[idx] = { ...updatedEvents[idx], ...event };
+                  } else {
+                    updatedEvents.push(event);
+                  }
                 } else {
                   updatedEvents.push(event);
                 }
+                accumulatedToolEvents = updatedEvents;
+                return { ...s, currentFollowUpToolEvents: updatedEvents };
               } else {
-                updatedEvents.push(event);
+                let updatedEvents = [...s.currentToolEvents];
+                if (event.type === 'tool_result' && event.id) {
+                  const idx = updatedEvents.findIndex((e) => e.id === event.id);
+                  if (idx !== -1) {
+                    updatedEvents[idx] = { ...updatedEvents[idx], ...event };
+                  } else {
+                    updatedEvents.push(event);
+                  }
+                } else {
+                  updatedEvents.push(event);
+                }
+                accumulatedToolEvents = updatedEvents;
+                return { ...s, currentToolEvents: updatedEvents };
               }
-              accumulatedToolEvents = updatedEvents;
-              return { ...s, currentToolEvents: updatedEvents };
             });
           },
           onChunk: (chunk) => {
@@ -448,7 +465,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                     role: 'assistant',
                     content: accumulatedStream,
                     reasoning: accumulatedReasoning,
-                    toolEvents: latestSession?.currentToolEvents,
+                    toolEvents: accumulatedToolEvents.length > 0 ? accumulatedToolEvents : undefined,
                   },
                 ]
               : latestSession?.chatHistory || [];
@@ -461,6 +478,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               ? latestSession?.initialReasoning || ''
               : accumulatedReasoning;
 
+            const finalInitialToolEvents = customPrompt
+              ? latestSession?.currentToolEvents || []
+              : accumulatedToolEvents;
+
             updateSession(sessionId, (s) => ({
               ...s,
               isStreaming: false,
@@ -472,11 +493,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               chatHistory: updatedChatHistory,
               currentFollowUpStream: '',
               currentFollowUpReasoning: '',
+              currentFollowUpToolEvents: [],
             }));
 
             aiCache.set(cacheKey, {
               report: finalReport,
-              toolEvents: latestSession?.currentToolEvents || accumulatedToolEvents,
+              toolEvents: finalInitialToolEvents,
               chatHistory: updatedChatHistory,
               reasoning: finalInitialReasoning,
               model: aiConfig.model,
@@ -1101,6 +1123,45 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                         </div>
                       )}
 
+                      {/* Follow-up assistant tool calling trace accordion */}
+                      {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
+                        <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs">
+                          <details className="group">
+                            <summary className="flex items-center justify-between px-3 py-1.5 bg-purple-950/40 cursor-pointer select-none text-purple-300 hover:text-purple-200 hover:bg-purple-900/40 transition">
+                              <div className="flex items-center space-x-1.5 font-medium text-[11px]">
+                                <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                <span>代码库探查 ({msg.toolEvents.length} 次动作)</span>
+                              </div>
+                              <span className="text-[10px] text-purple-400 group-open:hidden">点击展开</span>
+                            </summary>
+                            <div className="p-2 space-y-1.5 bg-[#0E0D17] text-[11px] font-mono border-t border-white/5 max-h-48 overflow-y-auto">
+                              {msg.toolEvents.map((evt, idx) => (
+                                <div key={idx} className="p-1.5 rounded bg-white/[0.03] border border-white/5">
+                                  <div className="flex items-center space-x-1.5 text-purple-300 font-semibold">
+                                    {evt.name?.includes('read') ? (
+                                      <FileText className="w-3 h-3 text-sky-400 shrink-0" />
+                                    ) : evt.name?.includes('search') ? (
+                                      <Search className="w-3 h-3 text-emerald-400 shrink-0" />
+                                    ) : (
+                                      <FolderSearch className="w-3 h-3 text-amber-400 shrink-0" />
+                                    )}
+                                    <span>{evt.name}</span>
+                                    <span className="text-slate-400 font-normal text-[10px] truncate">
+                                      {evt.args ? JSON.stringify(evt.args) : ''}
+                                    </span>
+                                  </div>
+                                  {evt.output && (
+                                    <pre className="mt-1 p-1.5 rounded bg-black/60 text-slate-300 text-[10px] whitespace-pre-wrap max-h-32 overflow-x-auto">
+                                      {evt.output}
+                                    </pre>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        </div>
+                      )}
+
                       <div
                         className="prose prose-invert prose-xs max-w-none"
                         dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
@@ -1118,7 +1179,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 {/* Active Streaming Follow-Up Bubble */}
                 {activeSession.isStreaming &&
                   (activeSession.currentFollowUpStream ||
-                    activeSession.currentFollowUpReasoning) && (
+                    activeSession.currentFollowUpReasoning ||
+                    (activeSession.currentFollowUpToolEvents &&
+                      activeSession.currentFollowUpToolEvents.length > 0)) && (
                     <div className="flex items-start space-x-2.5 justify-start">
                       <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
                         <Bot className="w-3.5 h-3.5 text-purple-300" />
@@ -1140,6 +1203,31 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                             </div>
                           </div>
                         )}
+
+                        {/* Live tool events during follow-up stream */}
+                        {activeSession.currentFollowUpToolEvents &&
+                          activeSession.currentFollowUpToolEvents.length > 0 && (
+                            <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs shadow-inner">
+                              <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-purple-950/50 text-purple-300 font-medium text-[11px] border-b border-white/5">
+                                <Terminal className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                                <span>
+                                  正在自主探查代码库... (
+                                  {activeSession.currentFollowUpToolEvents.length} 次动作)
+                                </span>
+                              </div>
+                              <div className="p-2 space-y-1 bg-[#0E0D17] text-[11px] font-mono max-h-36 overflow-y-auto">
+                                {activeSession.currentFollowUpToolEvents.map((evt, idx) => (
+                                  <div key={idx} className="flex items-center space-x-1.5 text-slate-300">
+                                    <span className="text-purple-400 font-bold">•</span>
+                                    <span className="text-purple-300">{evt.name}:</span>
+                                    <span className="text-slate-400 truncate text-[10px]">
+                                      {evt.args ? JSON.stringify(evt.args) : ''}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
                         {activeSession.currentFollowUpStream ? (
                           <div
