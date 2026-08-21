@@ -84,6 +84,16 @@ AI-Diff-Tool
 
 ## 🚀 快速开始与安装指引
 
+### 0. 环境要求
+
+| 依赖 | 版本 | 校验命令 |
+| --- | --- | --- |
+| Node.js | **≥ 22.12**（`openai@7` 要求 ≥ 22，`vite@8` 要求 ≥ 22.12） | `node -v` |
+| Git | 任意近期版本，且 `git` 必须在 `PATH` 中 | `git --version` |
+
+> 后端的符号检索直接调用 `git grep` / `git ls-files`，**Git 不在 `PATH` 里智能体探查会失效**。
+> Windows 用户请安装 [Git for Windows](https://git-scm.com/download/win)，安装时选择「Git from the command line」。
+
 ### 1. 克隆代码仓库
 
 ```bash
@@ -102,7 +112,37 @@ npm install
 ```bash
 npm run dev
 ```
-> 该命令会使用 `concurrently` 同时启动前端开发服务器（`http://localhost:5173`）与后端 Express 引擎（`http://localhost:4000`，可用 `PORT` 环境变量覆盖）。
+> 该命令会使用 `concurrently` 同时启动前端开发服务器（`http://localhost:5173`）与后端 Express 引擎（`http://localhost:4000`）。
+> 浏览器只需打开 **`http://localhost:5173`**，`/api` 请求由 Vite 代理转发到后端，无需直接访问后端端口。
+
+若需分别启动（便于单独重启某一侧）：
+
+```bash
+npm run server   # 仅后端
+npm run client   # 仅前端
+```
+
+#### 🪟 Windows 启动说明
+
+上述命令在 **PowerShell、cmd 与 Git Bash** 下均可直接使用，无需额外适配。
+
+**修改端口**：不要用 `PORT=4001 npm run dev` —— 那是 POSIX 写法，在 cmd / PowerShell 下无效。
+请在项目根目录建 `.env` 文件（三种终端与三大平台行为一致，Vite 代理会自动跟随新端口）：
+
+```ini
+PORT=4001          # 后端端口
+CLIENT_PORT=5273   # 前端端口（可选）
+```
+
+**Windows 常见启动问题**：
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| `EADDRINUSE`，但用 `netstat` 查不到占用者 | Hyper-V / WSL / Docker 会预留端口段。用 `netsh interface ipv4 show excludedportrange protocol=tcp` 查看被保留的区间，然后在 `.env` 里换一个区间外的端口 |
+| PowerShell 报「无法加载文件 npm.ps1，禁止运行脚本」 | 执行策略限制。改用 `npm.cmd run dev`，或以管理员执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| 页面能开，但所有 `/api` 请求失败 | 后端没起来或端口不一致。先单独跑 `npm run server` 看报错；确认 `.env` 的 `PORT` 与后端日志里打印的端口一致 |
+| 仓库路径含空格或中文导致输入出错 | 点「打开仓库」使用**系统原生文件夹选择器**（该功能为 Windows 专属，底层调用 PowerShell 的 `FolderBrowserDialog`） |
+| 超长路径的仓库 `git` 报错 | 执行 `git config --system core.longpaths true` |
 
 ### 4. 生产打包
 
