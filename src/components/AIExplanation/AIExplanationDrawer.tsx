@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { marked } from 'marked';
 import {
   Sparkles,
@@ -141,18 +141,41 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const activeAbortsRef = useRef<Map<string, () => void>>(new Map());
   const timersRef = useRef<Map<string, any>>(new Map());
   const sessionsRef = useRef<ReviewSession[]>(sessions);
+  const saveTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     sessionsRef.current = sessions;
-    try {
-      if (sessions.length > 0) {
-        localStorage.setItem(STORAGE_SESSIONS_KEY, JSON.stringify(sessions));
-      } else {
-        localStorage.removeItem(STORAGE_SESSIONS_KEY);
-      }
-    } catch (e) {
-      console.warn('Failed to save sessions to localStorage:', e);
+
+    // Do NOT run blocking JSON.stringify and synchronous disk I/O while token chunks are streaming
+    if (sessions.some((s) => s.isStreaming)) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
     }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      try {
+        if (sessions.length > 0) {
+          const cleanSessions = sessions.map((s) => ({
+            ...s,
+            isStreaming: false,
+            currentFollowUpStream: '',
+            currentFollowUpReasoning: '',
+          }));
+          localStorage.setItem(STORAGE_SESSIONS_KEY, JSON.stringify(cleanSessions));
+        } else {
+          localStorage.removeItem(STORAGE_SESSIONS_KEY);
+        }
+      } catch (e) {
+        console.warn('Failed to save sessions to localStorage:', e);
+      }
+    }, 1000);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [sessions]);
 
   useEffect(() => {
@@ -166,6 +189,15 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   }, [activeSessionId]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || null;
+
+  const parsedInitialReport = useMemo(() => {
+    if (!activeSession?.initialReport) return '';
+    try {
+      return marked.parse(activeSession.initialReport) as string;
+    } catch {
+      return activeSession.initialReport;
+    }
+  }, [activeSession?.initialReport]);
 
   const getShortTitle = (s: ExplanationScope) => {
     if (s.batchInfo || s.commitHashes || s.title.includes('批量')) {
@@ -1014,10 +1046,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             )}
 
             {/* Primary Markdown Report Output */}
-            {activeSession.initialReport && (
+            {parsedInitialReport && (
               <div
                 className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed overflow-x-auto"
-                dangerouslySetInnerHTML={{ __html: marked.parse(activeSession.initialReport) }}
+                dangerouslySetInnerHTML={{ __html: parsedInitialReport }}
               />
             )}
 
