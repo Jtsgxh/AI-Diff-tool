@@ -59,12 +59,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     Record<string, { text: string; loading: boolean }>
   >({});
 
-  // Reset per-file UI states immediately when switching to a different file
+  // Reset per-file UI states immediately when switching to a different file or commit
   useEffect(() => {
     setSelectedHunkIds(new Set());
     setHunkPseudocodeSet(new Set());
     setExpandedNaturalHunkIds(new Set());
-  }, [file?.newPath]);
+  }, [file?.newPath, file?.oldPath, file?.diff]);
 
   const parsedDiff = useMemo(() => {
     if (!file || !file.diff) return null;
@@ -436,18 +436,30 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           )}
 
           {/* Global Pseudocode Toggle Button */}
-          <button
-            onClick={toggleGlobalPseudocode}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
-              hunkPseudocodeSet.size > 0
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-md shadow-purple-500/20'
-                : 'bg-[#1E202A] hover:bg-[#282A38] text-slate-300 border-white/10 hover:text-white'
-            }`}
-            title="将 Diff 改动代码直接替换为高度提炼概括的中文自然语言伪代码"
-          >
-            <Sparkles className={`w-3.5 h-3.5 shrink-0 ${hunkPseudocodeSet.size > 0 ? 'text-white' : 'text-purple-400'}`} />
-            <span>{hunkPseudocodeSet.size > 0 ? '🔤 伪代码 [开]' : '🔤 伪代码'}</span>
-          </button>
+          {(() => {
+            const isGlobalLoading = hunks.some((h) => hunkAiLineMap[h.id]?.loading);
+            const isAnyActive = hunkPseudocodeSet.size > 0;
+            return (
+              <button
+                onClick={toggleGlobalPseudocode}
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
+                  isAnyActive
+                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-md shadow-purple-500/20'
+                    : 'bg-[#1E202A] hover:bg-[#282A38] text-slate-300 border-white/10 hover:text-white'
+                }`}
+                title={isAnyActive ? "点击关闭全部伪代码，恢复显示原始代码" : "将 Diff 改动代码直接替换为高度提炼概括的中文自然语言伪代码"}
+              >
+                <Sparkles className={`w-3.5 h-3.5 shrink-0 ${isGlobalLoading ? 'animate-spin text-purple-300' : isAnyActive ? 'text-white' : 'text-purple-400'}`} />
+                <span>
+                  {isAnyActive
+                    ? isGlobalLoading
+                      ? 'AI 转换中...'
+                      : '🔤 伪代码 [开]'
+                    : '🔤 伪代码'}
+                </span>
+              </button>
+            );
+          })()}
 
           {/* Mode Selector Segmented Button in Toolbar */}
           <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
