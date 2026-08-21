@@ -8,6 +8,7 @@ import { exec } from 'child_process';
 import util from 'util';
 import { gitService } from './gitService';
 import { aiService } from './aiService';
+import { agentEngine } from './agentEngine';
 
 const execPromise = util.promisify(exec);
 
@@ -218,7 +219,7 @@ app.get('/api/repo/diff/working-tree', async (req, res) => {
   }
 });
 
-// 6. AI Semantic Explanation Streaming Endpoint
+// 6. Fast AI Semantic Explanation Streaming Endpoint
 app.post('/api/ai/explain/stream', async (req, res) => {
   try {
     const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } = req.body;
@@ -228,6 +229,37 @@ app.post('/api/ai/explain/stream', async (req, res) => {
 
     await aiService.streamExplainDiff(
       {
+        scopeType,
+        targetLine,
+        diff: diff || targetLine?.content || '',
+        filePath,
+        commitMessage,
+        userPrompt,
+        config,
+      },
+      res
+    );
+  } catch (err: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// 7. Agentic Deep Codebase Exploration Streaming Endpoint
+app.post('/api/ai/agent/explain/stream', async (req, res) => {
+  try {
+    const { repoPath, scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } =
+      req.body;
+    if (!diff && !targetLine) {
+      return res.status(400).json({ error: 'Diff content or targetLine is required' });
+    }
+
+    const resolvedRepo = resolvePath(repoPath);
+
+    await agentEngine.streamAgentExplain(
+      {
+        repoPath: resolvedRepo,
         scopeType,
         targetLine,
         diff: diff || targetLine?.content || '',

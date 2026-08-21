@@ -353,6 +353,7 @@ export const App: React.FC = () => {
         isOpen={isExplanationOpen}
         onClose={() => setIsExplanationOpen(false)}
         scope={explanationScope}
+        repoPath={repoInfo?.path || repoPath}
         aiConfig={aiConfig}
       />
 

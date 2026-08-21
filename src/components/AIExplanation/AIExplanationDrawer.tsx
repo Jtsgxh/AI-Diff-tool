@@ -10,14 +10,22 @@ import {
   Check,
   RefreshCw,
   AlertTriangle,
-  FileCode,
-  Layers,
   StopCircle,
-  HelpCircle,
-  MessageSquare,
+  Brain,
+  Zap,
+  Search,
+  FileText,
+  FolderSearch,
+  ChevronDown,
+  ChevronRight,
+  Terminal,
 } from 'lucide-react';
 import { AIProviderConfig } from '../../types';
-import { streamExplainDiff } from '../../services/api';
+import {
+  streamExplainDiff,
+  streamAgentExplainDiff,
+  AgentToolEvent,
+} from '../../services/api';
 
 export interface ExplanationScope {
   type: 'commit' | 'file' | 'hunk' | 'chunks' | 'compare' | 'line';
@@ -31,20 +39,24 @@ interface AIExplanationDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   scope: ExplanationScope | null;
+  repoPath: string;
   aiConfig: AIProviderConfig;
 }
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  toolEvents?: AgentToolEvent[];
 }
 
 export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   isOpen,
   onClose,
   scope,
+  repoPath,
   aiConfig,
 }) => {
+  const [engineMode, setEngineMode] = useState<'agent' | 'fast'>('agent');
   const [streamContent, setStreamContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -52,10 +64,15 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Agent tool calls and exploration trail
+  const [currentToolEvents, setCurrentToolEvents] = useState<AgentToolEvent[]>([]);
+  const [isTrailExpanded, setIsTrailExpanded] = useState<boolean>(true);
+  const [expandedToolIndex, setExpandedToolIndex] = useState<number | null>(null);
+
   const abortStreamRef = useRef<(() => void) | null>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
 
-  // Trigger initial explanation when scope changes
+  // Trigger initial explanation when scope changes or mode changes
   useEffect(() => {
     if (isOpen && scope) {
       handleStartExplanation();
@@ -64,12 +81,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         abortStreamRef.current();
       }
     }
-  }, [isOpen, scope]);
+  }, [isOpen, scope, engineMode]);
 
-  // Auto scroll to bottom
+  // Auto scroll to bottom during streaming
   useEffect(() => {
     contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [streamContent, chatHistory]);
+  }, [streamContent, currentToolEvents, chatHistory]);
 
   const handleStartExplanation = async (customPrompt?: string) => {
     if (!scope) return;
@@ -80,6 +97,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
     setError(null);
     setIsStreaming(true);
+    setCurrentToolEvents([]);
 
     if (!customPrompt) {
       setStreamContent('');
@@ -99,31 +117,78 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           ? 'line'
           : 'commit';
 
-      const cancel = await streamExplainDiff({
-        scopeType,
-        diff: scope.diff,
-        filePath: scope.filePath,
-        commitMessage: scope.commitMessage,
-        userPrompt: customPrompt,
-        config: aiConfig,
-        onChunk: (chunk) => {
-          setStreamContent((prev) => prev + chunk);
-        },
-        onComplete: () => {
-          setIsStreaming(false);
-          if (customPrompt) {
-            setChatHistory((prev) => [
-              ...prev,
-              { role: 'assistant', content: streamContent },
-            ]);
-            setStreamContent('');
-          }
-        },
-        onError: (err) => {
-          setIsStreaming(false);
-          setError(err.message);
-        },
-      });
+      let cancel: () => void;
+
+      if (engineMode === 'agent') {
+        // Agentic Autonomous Multi-File Exploration Mode
+        cancel = await streamAgentExplainDiff({
+          repoPath,
+          scopeType,
+          diff: scope.diff,
+          filePath: scope.filePath,
+          commitMessage: scope.commitMessage,
+          userPrompt: customPrompt,
+          config: aiConfig,
+          onToolEvent: (event) => {
+            setCurrentToolEvents((prev) => {
+              // Update existing tool_call with tool_result if matching
+              if (event.type === 'tool_result' && event.id) {
+                const idx = prev.findIndex((e) => e.id === event.id);
+                if (idx !== -1) {
+                  const copy = [...prev];
+                  copy[idx] = { ...copy[idx], ...event };
+                  return copy;
+                }
+              }
+              return [...prev, event];
+            });
+          },
+          onChunk: (chunk) => {
+            setStreamContent((prev) => prev + chunk);
+          },
+          onComplete: () => {
+            setIsStreaming(false);
+            if (customPrompt) {
+              setChatHistory((prev) => [
+                ...prev,
+                { role: 'assistant', content: streamContent, toolEvents: currentToolEvents },
+              ]);
+              setStreamContent('');
+            }
+          },
+          onError: (err) => {
+            setIsStreaming(false);
+            setError(err.message);
+          },
+        });
+      } else {
+        // Fast Diff Direct Stream Mode
+        cancel = await streamExplainDiff({
+          scopeType,
+          diff: scope.diff,
+          filePath: scope.filePath,
+          commitMessage: scope.commitMessage,
+          userPrompt: customPrompt,
+          config: aiConfig,
+          onChunk: (chunk) => {
+            setStreamContent((prev) => prev + chunk);
+          },
+          onComplete: () => {
+            setIsStreaming(false);
+            if (customPrompt) {
+              setChatHistory((prev) => [
+                ...prev,
+                { role: 'assistant', content: streamContent },
+              ]);
+              setStreamContent('');
+            }
+          },
+          onError: (err) => {
+            setIsStreaming(false);
+            setError(err.message);
+          },
+        });
+      }
 
       abortStreamRef.current = cancel;
     } catch (err: any) {
@@ -141,7 +206,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   };
 
   const handleCopy = () => {
-    const textToCopy = streamContent || chatHistory.map((m) => `${m.role === 'user' ? '问: ' : '答: '}${m.content}`).join('\n\n');
+    const textToCopy =
+      streamContent ||
+      chatHistory.map((m) => `${m.role === 'user' ? '问: ' : '答: '}${m.content}`).join('\n\n');
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -157,8 +224,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   if (!isOpen || !scope) return null;
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[540px] max-w-[90vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
-      {/* Header */}
+    <div className="fixed inset-y-0 right-0 w-[580px] max-w-[92vw] bg-[#15161D] border-l border-purple-500/20 shadow-2xl z-50 flex flex-col font-sans transition-all duration-300">
+      {/* Top Header */}
       <div className="h-14 px-4 bg-[#121319] border-b border-white/10 flex items-center justify-between select-none shrink-0">
         <div className="flex items-center space-x-2.5 min-w-0">
           <div className="w-7 h-7 rounded bg-gradient-to-tr from-purple-600 to-pink-600 flex items-center justify-center shadow-md shadow-purple-500/20 shrink-0">
@@ -167,7 +234,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           <div className="flex flex-col min-w-0">
             <div className="flex items-center space-x-1.5">
               <span className="font-semibold text-xs text-white truncate">
-                AI 语义解释与审查
+                AI 语义解释与全库审查
               </span>
               <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
                 {aiConfig.model || aiConfig.provider}
@@ -179,8 +246,38 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center space-x-1">
+        {/* Engine Mode Toggle & Actions */}
+        <div className="flex items-center space-x-2">
+          {/* Mode Switcher */}
+          <div className="flex items-center bg-[#1A1B24] border border-white/10 rounded-lg p-0.5 text-[11px]">
+            <button
+              onClick={() => setEngineMode('agent')}
+              disabled={isStreaming}
+              className={`flex items-center space-x-1 px-2 py-1 rounded-md transition font-medium ${
+                engineMode === 'agent'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="智能体自主探索：访问文件系统、全局搜索引用、多文件关联分析"
+            >
+              <Brain className="w-3.5 h-3.5 text-purple-300" />
+              <span>Agent 全库审查</span>
+            </button>
+            <button
+              onClick={() => setEngineMode('fast')}
+              disabled={isStreaming}
+              className={`flex items-center space-x-1 px-2 py-1 rounded-md transition font-medium ${
+                engineMode === 'fast'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="快速单 Diff 解析模式"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300" />
+              <span>快速 Diff</span>
+            </button>
+          </div>
+
           <button
             onClick={handleCopy}
             className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition"
@@ -200,14 +297,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition ml-1"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Main Content (Markdown Render Area) */}
+      {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs text-slate-200 leading-relaxed font-sans">
         {error && (
           <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-rose-300 flex items-start space-x-2">
@@ -222,20 +319,20 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             key={`chat-${i}`}
             className={`p-3 rounded-lg text-xs leading-relaxed ${
               msg.role === 'user'
-                ? 'bg-purple-950/40 border border-purple-500/20 text-purple-200 ml-4'
-                : 'bg-[#1A1B23] border border-white/5 text-slate-200 mr-2'
+                ? 'bg-purple-950/40 border border-purple-500/30 text-purple-200 ml-6'
+                : 'bg-[#1D1F2A] border border-white/5 text-slate-200 mr-2'
             }`}
           >
-            <div className="flex items-center space-x-1.5 mb-1.5 font-semibold text-[11px]">
+            <div className="flex items-center space-x-1.5 mb-1 text-[11px] font-semibold text-slate-400">
               {msg.role === 'user' ? (
                 <>
-                  <User className="w-3 h-3 text-purple-400" />
-                  <span className="text-purple-300">用户提问</span>
+                  <User className="w-3.5 h-3.5 text-purple-400" />
+                  <span>您的问题:</span>
                 </>
               ) : (
                 <>
-                  <Bot className="w-3 h-3 text-indigo-400" />
-                  <span className="text-indigo-300">AI 语义分析解答</span>
+                  <Bot className="w-3.5 h-3.5 text-purple-400" />
+                  <span>AI 架构分析:</span>
                 </>
               )}
             </div>
@@ -245,6 +342,102 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             />
           </div>
         ))}
+
+        {/* Live Agent Tool-Calling Action Trail */}
+        {currentToolEvents.length > 0 && (
+          <div className="bg-[#181924] border border-purple-500/30 rounded-xl overflow-hidden shadow-lg transition-all">
+            {/* Trail Header */}
+            <div
+              onClick={() => setIsTrailExpanded(!isTrailExpanded)}
+              className="px-3.5 py-2 bg-gradient-to-r from-purple-950/50 to-indigo-950/40 border-b border-purple-500/20 flex items-center justify-between cursor-pointer select-none"
+            >
+              <div className="flex items-center space-x-2">
+                <div className="w-5 h-5 rounded bg-purple-500/20 text-purple-300 flex items-center justify-center">
+                  <Brain className="w-3.5 h-3.5 animate-pulse" />
+                </div>
+                <div className="flex items-center space-x-1.5 text-xs font-semibold text-purple-200">
+                  <span>智能体代码库自主探索引擎</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-500/20 text-purple-300 font-mono">
+                    已执行 {currentToolEvents.length} 次动作
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-1 text-slate-400">
+                {isStreaming && !streamContent && (
+                  <span className="text-[10px] text-purple-400 animate-pulse mr-2">正在探查关联文件...</span>
+                )}
+                {isTrailExpanded ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+              </div>
+            </div>
+
+            {/* Trail Events List */}
+            {isTrailExpanded && (
+              <div className="p-2.5 space-y-1.5 max-h-60 overflow-y-auto bg-[#12131A] text-[11px] font-mono">
+                {currentToolEvents.map((evt, idx) => {
+                  const isExpanded = expandedToolIndex === idx;
+                  const isSearch = evt.name === 'search_code';
+                  const isRead = evt.name === 'read_file';
+                  const isFind = evt.name === 'find_files';
+
+                  return (
+                    <div
+                      key={idx}
+                      className="border border-white/5 rounded-lg bg-[#161720] overflow-hidden"
+                    >
+                      <div
+                        onClick={() => setExpandedToolIndex(isExpanded ? null : idx)}
+                        className="px-2.5 py-1.5 flex items-center justify-between cursor-pointer hover:bg-white/5 transition text-slate-300"
+                      >
+                        <div className="flex items-center space-x-2 truncate">
+                          {isSearch && <Search className="w-3 h-3 text-sky-400 shrink-0" />}
+                          {isRead && <FileText className="w-3 h-3 text-emerald-400 shrink-0" />}
+                          {isFind && <FolderSearch className="w-3 h-3 text-amber-400 shrink-0" />}
+                          {!isSearch && !isRead && !isFind && (
+                            <Terminal className="w-3 h-3 text-purple-400 shrink-0" />
+                          )}
+
+                          <span className="font-bold text-purple-300">{evt.name || 'action'}</span>
+                          <span className="text-slate-400 truncate">
+                            {evt.args
+                              ? JSON.stringify(evt.args).replace(/[{}"]/g, '')
+                              : evt.summary || ''}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center space-x-1.5 shrink-0 pl-2">
+                          {evt.output ? (
+                            <span className="text-[10px] text-emerald-400 flex items-center gap-0.5">
+                              <Check className="w-3 h-3" /> 已获取
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-400 animate-pulse">执行中...</span>
+                          )}
+                          {isExpanded ? (
+                            <ChevronDown className="w-3 h-3 text-slate-500" />
+                          ) : (
+                            <ChevronRight className="w-3 h-3 text-slate-500" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Tool Output Snippet */}
+                      {isExpanded && evt.output && (
+                        <div className="p-2 bg-[#0D0E14] border-t border-white/5 text-[10px] text-slate-400 max-h-40 overflow-y-auto whitespace-pre font-mono">
+                          {evt.output}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Live Streaming Content */}
         {streamContent && (
@@ -268,10 +461,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           </div>
         )}
 
-        {isStreaming && !streamContent && (
+        {isStreaming && !streamContent && currentToolEvents.length === 0 && (
           <div className="flex flex-col items-center justify-center p-8 space-y-3 text-slate-400">
             <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
-            <p className="text-xs">AI 正在深度解析代码差异上下文...</p>
+            <p className="text-xs">智能体正在分析 Diff 语义并决定是否探查外部代码库...</p>
           </div>
         )}
 
@@ -280,7 +473,6 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
       {/* Footer / Interactive Q&A Toolbar */}
       <div className="p-3 bg-[#121319] border-t border-white/10 shrink-0">
-        {/* Input Form */}
         <form onSubmit={handleSendQuestion} className="flex items-center space-x-2">
           <div className="relative flex-1">
             <input
@@ -288,7 +480,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               value={userQuestion}
               onChange={(e) => setUserQuestion(e.target.value)}
               disabled={isStreaming}
-              placeholder="针对此差异向 AI 提问 (例如: 解释这里的加锁机制)..."
+              placeholder="针对此差异向 AI 提问 (AI 将结合完整代码库进行深度解答)..."
               className="w-full bg-[#1A1B23] text-xs text-slate-200 pl-3 pr-8 py-2 rounded-lg border border-white/10 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500"
             />
             {isStreaming ? (

@@ -181,11 +181,124 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
     };
 
     read();
+    return () => abortController.abort();
   } catch (err: any) {
     if (err.name !== 'AbortError') {
       payload.onError(err);
     }
+    return () => {};
   }
+}
 
-  return () => abortController.abort();
+export interface AgentToolEvent {
+  type: 'tool_call' | 'tool_result' | 'thought';
+  id?: string;
+  name?: string;
+  args?: any;
+  summary?: string;
+  output?: string;
+  text?: string;
+}
+
+export interface StreamAgentExplainPayload {
+  repoPath: string;
+  scopeType?: 'line' | 'chunk' | 'file' | 'commit';
+  targetLine?: {
+    lineNumber?: number;
+    content: string;
+    type?: 'add' | 'delete' | 'normal';
+  };
+  diff: string;
+  filePath?: string;
+  commitMessage?: string;
+  userPrompt?: string;
+  config?: AIProviderConfig;
+  onToolEvent: (event: AgentToolEvent) => void;
+  onChunk: (chunk: string) => void;
+  onComplete: () => void;
+  onError: (err: Error) => void;
+}
+
+export async function streamAgentExplainDiff(
+  payload: StreamAgentExplainPayload
+): Promise<() => void> {
+  const abortController = new AbortController();
+
+  try {
+    const res = await fetch(`${API_BASE}/ai/agent/explain/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify({
+        repoPath: payload.repoPath,
+        scopeType: payload.scopeType,
+        targetLine: payload.targetLine,
+        diff: payload.diff,
+        filePath: payload.filePath,
+        commitMessage: payload.commitMessage,
+        userPrompt: payload.userPrompt,
+        config: payload.config,
+      }),
+      signal: abortController.signal,
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`AI Agent Request Failed (${res.status}): ${errText}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('Readable stream not supported');
+
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    const read = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data: ')) continue;
+            const dataStr = trimmed.slice(6);
+
+            try {
+              const event = JSON.parse(dataStr);
+              if (event.type === 'done') {
+                payload.onComplete();
+                return;
+              } else if (event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'thought') {
+                payload.onToolEvent(event);
+              } else if (event.type === 'chunk' && event.text) {
+                payload.onChunk(event.text);
+              }
+            } catch (e) {
+              // fallback
+            }
+          }
+        }
+        payload.onComplete();
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          payload.onError(err);
+        }
+      }
+    };
+
+    read();
+    return () => abortController.abort();
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      payload.onError(err);
+    }
+    return () => {};
+  }
 }
