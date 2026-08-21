@@ -175,12 +175,35 @@ export class CodexAgentEngine {
     }
 
     try {
-      // 3. Initialize OpenAI Client & OpenAIChatCompletionsModel Adapter
+      // 3. DeepSeek Reasoner & Thinking Mode Compatibility Layer
+      let accumulatedReasoningContent = '';
+
+      const customFetch: typeof fetch = async (input, init) => {
+        if (init && init.body && typeof init.body === 'string') {
+          try {
+            const parsedBody = JSON.parse(init.body);
+            if (Array.isArray(parsedBody.messages)) {
+              // Ensure all assistant messages have reasoning_content attached to satisfy DeepSeek Reasoner requirements
+              parsedBody.messages.forEach((msg: any) => {
+                if (msg.role === 'assistant') {
+                  if (msg.reasoning_content === undefined) {
+                    msg.reasoning_content = accumulatedReasoningContent || '';
+                  }
+                }
+              });
+              init.body = JSON.stringify(parsedBody);
+            }
+          } catch {}
+        }
+        return await fetch(input, init);
+      };
+
       const openaiClient = new OpenAI({
         apiKey: apiKey || 'dummy-key-for-ollama',
         baseURL: baseUrl,
         timeout: Math.max(10000, Math.min(120000, (config?.timeoutSeconds || 35) * 1000)),
         maxRetries: config?.maxRetries !== undefined ? Math.max(0, Math.min(5, config.maxRetries)) : 2,
+        fetch: customFetch,
       });
 
       const model = new OpenAIChatCompletionsModel(openaiClient, modelName || 'deepseek-chat');
@@ -263,9 +286,19 @@ export class CodexAgentEngine {
           }
         } else if (event.type === 'raw_model_stream_event') {
           if (isOpenAIChatCompletionsRawModelStreamEvent(event)) {
-            const deltaContent = event.data.event.choices?.[0]?.delta?.content || '';
-            if (deltaContent) {
-              res.write(`data: ${JSON.stringify({ type: 'chunk', text: deltaContent })}\n\n`);
+            const delta = event.data.event.choices?.[0]?.delta as any;
+            if (delta?.reasoning_content) {
+              accumulatedReasoningContent += delta.reasoning_content;
+              res.write(
+                `data: ${JSON.stringify({
+                  type: 'status',
+                  phase: 'thinking',
+                  message: `🧠 思考中: ${accumulatedReasoningContent.slice(-80).replace(/\n/g, ' ')}...`,
+                })}\n\n`
+              );
+            }
+            if (delta?.content) {
+              res.write(`data: ${JSON.stringify({ type: 'chunk', text: delta.content })}\n\n`);
             }
           }
         }
