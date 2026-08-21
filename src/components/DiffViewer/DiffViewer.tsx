@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
 import { parseAiPseudocodeLines } from '../../utils/pseudocodeConverter';
@@ -53,6 +53,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     Record<string, { dels: string[]; adds: string[]; loading: boolean }>
   >({});
 
+  // In-memory cache for generated pseudocode lines to prevent duplicate AI calls
+  const pseudocodeCacheRef = useRef<Map<string, { dels: string[]; adds: string[] }>>(new Map());
+
+  // Active abort controllers for in-flight requests per hunk
+  const activeAbortsRef = useRef<Map<string, () => void>>(new Map());
+
   // Inline Natural Language State per Hunk
   const [expandedNaturalHunkIds, setExpandedNaturalHunkIds] = useState<Set<string>>(new Set());
   const [hunkNaturalContent, setHunkNaturalContent] = useState<
@@ -61,6 +67,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   // Reset per-file UI states immediately when switching to a different file or commit
   useEffect(() => {
+    // Abort all in-flight AI requests when switching files
+    activeAbortsRef.current.forEach((abort) => abort());
+    activeAbortsRef.current.clear();
+
     setSelectedHunkIds(new Set());
     setHunkPseudocodeSet(new Set());
     setExpandedNaturalHunkIds(new Set());
@@ -114,18 +124,37 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       .join('\n');
   };
 
-  // Fetch AI-Driven Pseudocode for a specific Hunk and map lines in-place
-  const fetchAiPseudocode = (hunkId: string, hunk: DiffHunk) => {
+  // Fetch AI-Driven Pseudocode for a specific Hunk (with cache & duplicate request prevention)
+  const fetchAiPseudocode = async (hunkId: string, hunk: DiffHunk) => {
+    const hunkDiffText = getHunkDiffText(hunk);
+    const cacheKey = `${file.newPath}::${hunkId}::${hunkDiffText.length}`;
+
+    // 1. Check in-memory cache: if already translated, load instantly with 0 network calls
+    const cached = pseudocodeCacheRef.current.get(cacheKey);
+    if (cached) {
+      setHunkAiLineMap((prev) => ({
+        ...prev,
+        [hunkId]: { dels: cached.dels, adds: cached.adds, loading: false },
+      }));
+      return;
+    }
+
+    // 2. Abort any previous in-flight request for this hunk
+    if (activeAbortsRef.current.has(hunkId)) {
+      activeAbortsRef.current.get(hunkId)?.();
+      activeAbortsRef.current.delete(hunkId);
+    }
+
     setHunkAiLineMap((prev) => ({
       ...prev,
       [hunkId]: { dels: prev[hunkId]?.dels || [], adds: prev[hunkId]?.adds || [], loading: true },
     }));
 
-    const hunkDiffText = getHunkDiffText(hunk);
     const prompt = aiConfig.pseudocodePrompt?.trim() || DEFAULT_PROMPTS.pseudocodePrompt;
     let accumulatedText = '';
+    let lastRenderedLineCount = 0;
 
-    streamExplainDiff({
+    const cancelStream = await streamExplainDiff({
       scopeType: 'chunk',
       filePath: file.newPath,
       diff: hunkDiffText,
@@ -133,26 +162,37 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       config: aiConfig,
       onChunk: (chunk: string) => {
         accumulatedText += chunk;
-        const parsed = parseAiPseudocodeLines(accumulatedText);
-        setHunkAiLineMap((prev) => ({
-          ...prev,
-          [hunkId]: { dels: parsed.dels, adds: parsed.adds, loading: true },
-        }));
+        // Only trigger UI update on complete line boundaries to avoid token-by-token flickering
+        const lineCount = (accumulatedText.match(/\n/g) || []).length;
+        if (lineCount > lastRenderedLineCount) {
+          lastRenderedLineCount = lineCount;
+          const parsed = parseAiPseudocodeLines(accumulatedText);
+          setHunkAiLineMap((prev) => ({
+            ...prev,
+            [hunkId]: { dels: parsed.dels, adds: parsed.adds, loading: true },
+          }));
+        }
       },
       onComplete: () => {
+        activeAbortsRef.current.delete(hunkId);
         const parsed = parseAiPseudocodeLines(accumulatedText);
+        pseudocodeCacheRef.current.set(cacheKey, parsed);
         setHunkAiLineMap((prev) => ({
           ...prev,
           [hunkId]: { dels: parsed.dels, adds: parsed.adds, loading: false },
         }));
       },
-      onError: () => {
+      onError: (err: Error) => {
+        activeAbortsRef.current.delete(hunkId);
+        console.warn('AI pseudocode error:', err);
         setHunkAiLineMap((prev) => ({
           ...prev,
           [hunkId]: { dels: prev[hunkId]?.dels || [], adds: prev[hunkId]?.adds || [], loading: false },
         }));
       },
     });
+
+    activeAbortsRef.current.set(hunkId, cancelStream);
   };
 
   // Toggle Pseudocode for an individual Hunk (guaranteed 2-way on/off toggle + AI trigger)
@@ -161,11 +201,20 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       const next = new Set(prev);
       if (next.has(hunkId)) {
         next.delete(hunkId);
+        // Abort in-flight request if user turns off
+        if (activeAbortsRef.current.has(hunkId)) {
+          activeAbortsRef.current.get(hunkId)?.();
+          activeAbortsRef.current.delete(hunkId);
+        }
         return next;
       } else {
         next.add(hunkId);
-        if (hunk && !hunkAiLineMap[hunkId]?.loading && (!hunkAiLineMap[hunkId]?.dels.length && !hunkAiLineMap[hunkId]?.adds.length) && aiConfig.apiKey) {
-          fetchAiPseudocode(hunkId, hunk);
+        if (hunk && aiConfig.apiKey) {
+          const isAlreadyLoaded = (hunkAiLineMap[hunkId]?.dels?.length || 0) > 0 || (hunkAiLineMap[hunkId]?.adds?.length || 0) > 0;
+          const isLoading = hunkAiLineMap[hunkId]?.loading;
+          if (!isAlreadyLoaded && !isLoading) {
+            fetchAiPseudocode(hunkId, hunk);
+          }
         }
         return next;
       }
@@ -175,13 +224,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   // Global Toggle Pseudocode for all Hunks
   const toggleGlobalPseudocode = () => {
     if (hunkPseudocodeSet.size > 0) {
-      setHunkPseudocodeSet(new Set()); // Turn all off
+      // Turn all off & abort any in-flight requests
+      activeAbortsRef.current.forEach((abort) => abort());
+      activeAbortsRef.current.clear();
+      setHunkPseudocodeSet(new Set());
     } else {
       const newSet = new Set(hunks.map((h) => h.id));
       setHunkPseudocodeSet(newSet); // Turn all on
       if (aiConfig.apiKey) {
         hunks.forEach((h) => {
-          if (!hunkAiLineMap[h.id]?.loading && (!hunkAiLineMap[h.id]?.dels.length && !hunkAiLineMap[h.id]?.adds.length)) {
+          const isAlreadyLoaded = (hunkAiLineMap[h.id]?.dels?.length || 0) > 0 || (hunkAiLineMap[h.id]?.adds?.length || 0) > 0;
+          const isLoading = hunkAiLineMap[h.id]?.loading;
+          if (!isAlreadyLoaded && !isLoading) {
             fetchAiPseudocode(h.id, h);
           }
         });
