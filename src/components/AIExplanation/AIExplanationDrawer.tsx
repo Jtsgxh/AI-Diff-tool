@@ -43,6 +43,11 @@ export interface ExplanationScope {
   filePath?: string;
   commitMessage?: string;
   initialMode?: 'agent' | 'fast';
+  commitHashes?: string[];
+  batchInfo?: {
+    count: number;
+    messages: string[];
+  };
   targetLine?: {
     lineNumber?: number;
     content: string;
@@ -97,6 +102,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   // Active session tool trail & reasoning expansion
   const [isTrailExpanded, setIsTrailExpanded] = useState<boolean>(true);
   const [isThinkingExpanded, setIsThinkingExpanded] = useState<boolean>(true);
+  const [isBatchCommitsExpanded, setIsBatchCommitsExpanded] = useState<boolean>(true);
   const [expandedToolIndex, setExpandedToolIndex] = useState<number | null>(null);
 
   const contentEndRef = useRef<HTMLDivElement>(null);
@@ -106,6 +112,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || null;
 
   const getShortTitle = (s: ExplanationScope) => {
+    if (s.batchInfo || s.commitHashes || s.title.includes('批量')) {
+      const count = s.batchInfo?.count || s.commitHashes?.length || '';
+      return `📦 批量(${count ? `${count}个` : '合并'})`;
+    }
     if (s.filePath) {
       const fileName = s.filePath.replace(/\\/g, '/').split('/').pop() || s.filePath;
       if (s.type === 'hunk') return `${fileName}: 块`;
@@ -566,10 +576,16 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           <div className="flex items-center space-x-1 px-3 py-1.5 overflow-x-auto scrollbar-none bg-[#111218]">
             {sessions.map((sess) => {
               const isActive = sess.id === activeSessionId;
+              const tabTooltip =
+                sess.scope.batchInfo?.messages && sess.scope.batchInfo.messages.length > 0
+                  ? `【批量审查包含的 ${sess.scope.batchInfo.count} 个提交】:\n${sess.scope.batchInfo.messages.join('\n')}`
+                  : sess.title;
+
               return (
                 <div
                   key={sess.id}
                   onClick={() => setActiveSessionId(sess.id)}
+                  title={tabTooltip}
                   className={`flex items-center space-x-2 px-2.5 py-1 rounded-lg text-xs cursor-pointer select-none transition shrink-0 group border ${
                     isActive
                       ? 'bg-purple-600/25 border-purple-500/40 text-white font-medium shadow-sm'
@@ -689,6 +705,51 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           </div>
         ) : (
           <>
+            {/* 📦 Batch Commits Manifest (批量包含的提交清单) */}
+            {activeSession.scope.batchInfo &&
+              activeSession.scope.batchInfo.messages &&
+              activeSession.scope.batchInfo.messages.length > 0 && (
+                <div className="border border-indigo-500/30 bg-[#151624] rounded-xl overflow-hidden shadow-md">
+                  <div
+                    onClick={() => setIsBatchCommitsExpanded(!isBatchCommitsExpanded)}
+                    className="flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-indigo-950/70 to-purple-950/50 cursor-pointer select-none hover:bg-indigo-900/40 transition border-b border-white/5"
+                  >
+                    <div className="flex items-center space-x-2 text-xs font-semibold text-indigo-200">
+                      <Layers className="w-4 h-4 text-indigo-400" />
+                      <span>本次批量合并包含的提交清单</span>
+                      <span className="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px]">
+                        共 {activeSession.scope.batchInfo.count} 个提交
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-1.5 text-xs text-indigo-300">
+                      <span className="text-[10px] text-indigo-400 font-mono">
+                        {isBatchCommitsExpanded ? '收起' : '展开'}
+                      </span>
+                      {isBatchCommitsExpanded ? (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                  </div>
+
+                  {isBatchCommitsExpanded && (
+                    <div className="p-3 bg-[#0F1017] space-y-1.5 max-h-52 overflow-y-auto border-t border-white/5 text-xs font-mono">
+                      {activeSession.scope.batchInfo.messages.map((msg, i) => (
+                        <div
+                          key={i}
+                          className="flex items-start space-x-2 p-2 rounded-lg bg-white/[0.03] border border-white/5 text-slate-200 hover:border-indigo-500/30 transition leading-snug"
+                        >
+                          <span className="text-indigo-400 font-bold shrink-0">#{i + 1}</span>
+                          <span className="text-slate-200 select-text whitespace-pre-wrap">{msg}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
             {/* 🧠 AI 深度思维推理链 (Thinking Process Accordion) */}
             {activeSession.reasoningContent && (
               <div className="border border-purple-500/30 bg-[#161524] rounded-xl overflow-hidden shadow-md">

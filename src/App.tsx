@@ -246,9 +246,11 @@ export const App: React.FC = () => {
         const commitHistorySummary = res.batchInfo?.messages?.join('\n') || '';
         setExplanationScope({
           type: 'chunks',
-          title: `📦 批量合并审查: ${res.title}`,
+          title: res.title || `批量合并审查 (${hashes.length} 个提交)`,
           diff: `【整批提交演进历史】\n${commitHistorySummary}\n\n【合并最终生效的净代码变动 (Consolidated Net Diff)】\n${allDiff}`,
           commitMessage: res.title,
+          commitHashes: hashes,
+          batchInfo: res.batchInfo,
           initialMode: 'agent',
         });
         setIsExplanationOpen(true);
