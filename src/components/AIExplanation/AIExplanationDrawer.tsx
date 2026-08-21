@@ -83,6 +83,159 @@ export interface ReviewSession {
   abortStream?: () => void;
 }
 
+// ------------------ Memoized Subcomponents for 0ms Input & Rendering Performance ------------------
+
+const MarkdownRenderer = React.memo<{ content: string; className?: string }>(({ content, className }) => {
+  const html = useMemo(() => {
+    if (!content) return '';
+    try {
+      return marked.parse(content) as string;
+    } catch {
+      return content;
+    }
+  }, [content]);
+
+  return (
+    <div
+      className={className || 'prose prose-invert prose-xs max-w-none'}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+});
+
+const ChatMessageItem = React.memo<{ msg: ChatMessage; index: number }>(({ msg }) => {
+  return (
+    <div
+      className={`flex items-start space-x-2.5 ${
+        msg.role === 'user' ? 'justify-end' : 'justify-start'
+      }`}
+    >
+      {msg.role === 'assistant' && (
+        <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5">
+          <Bot className="w-3.5 h-3.5 text-purple-300" />
+        </div>
+      )}
+
+      <div
+        className={`p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed select-text ${
+          msg.role === 'user'
+            ? 'bg-purple-600 text-white shadow-md'
+            : 'bg-[#181924] border border-white/5 text-slate-200'
+        }`}
+      >
+        {/* Follow-up assistant message thinking chain accordion */}
+        {msg.role === 'assistant' && msg.reasoning && (
+          <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs">
+            <details className="group">
+              <summary className="flex items-center justify-between px-3 py-1.5 bg-purple-950/40 cursor-pointer select-none text-purple-300 hover:text-purple-200 hover:bg-purple-900/40 transition">
+                <div className="flex items-center space-x-1.5 font-medium text-[11px]">
+                  <Brain className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  <span>思考过程 ({msg.reasoning.length} 字符)</span>
+                </div>
+                <span className="text-[10px] text-purple-400 group-open:hidden">点击展开</span>
+              </summary>
+              <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0E0D17] text-[11px] font-mono text-slate-300 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
+                {msg.reasoning}
+              </div>
+            </details>
+          </div>
+        )}
+
+        {/* Follow-up assistant tool calling trace accordion */}
+        {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
+          <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs">
+            <details className="group">
+              <summary className="flex items-center justify-between px-3 py-1.5 bg-purple-950/40 cursor-pointer select-none text-purple-300 hover:text-purple-200 hover:bg-purple-900/40 transition">
+                <div className="flex items-center space-x-1.5 font-medium text-[11px]">
+                  <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span>代码库探查 ({msg.toolEvents.length} 次动作)</span>
+                </div>
+                <span className="text-[10px] text-purple-400 group-open:hidden">点击展开</span>
+              </summary>
+              <div className="p-2 space-y-1.5 bg-[#0E0D17] text-[11px] font-mono border-t border-white/5 max-h-48 overflow-y-auto">
+                {msg.toolEvents.map((evt, idx) => (
+                  <div key={idx} className="p-1.5 rounded bg-white/[0.03] border border-white/5">
+                    <div className="flex items-center space-x-1.5 text-purple-300 font-semibold">
+                      {evt.name?.includes('read') ? (
+                        <FileText className="w-3 h-3 text-sky-400 shrink-0" />
+                      ) : evt.name?.includes('search') ? (
+                        <Search className="w-3 h-3 text-emerald-400 shrink-0" />
+                      ) : (
+                        <FolderSearch className="w-3 h-3 text-amber-400 shrink-0" />
+                      )}
+                      <span>{evt.name}</span>
+                      <span className="text-slate-400 font-normal text-[10px] truncate">
+                        {evt.args ? JSON.stringify(evt.args) : ''}
+                      </span>
+                    </div>
+                    {evt.output && (
+                      <pre className="mt-1 p-1.5 rounded bg-black/60 text-slate-300 text-[10px] whitespace-pre-wrap max-h-32 overflow-x-auto">
+                        {evt.output}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
+        )}
+
+        <MarkdownRenderer content={msg.content} />
+      </div>
+
+      {msg.role === 'user' && (
+        <div className="w-6 h-6 rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center shrink-0 mt-0.5">
+          <User className="w-3.5 h-3.5 text-slate-300" />
+        </div>
+      )}
+    </div>
+  );
+});
+
+interface FollowUpInputProps {
+  disabled: boolean;
+  onSend: (text: string) => void;
+}
+
+const FollowUpInput = React.memo<FollowUpInputProps>(({ disabled, onSend }) => {
+  const [text, setText] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim() || disabled) return;
+    onSend(text.trim());
+    setText('');
+  };
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="p-3 border-t border-white/10 bg-[#161722] flex items-center space-x-2 shrink-0 select-text"
+    >
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        disabled={disabled}
+        placeholder={
+          disabled
+            ? 'AI 正在自主探查与生成中...'
+            : '追问 AI：例如“这个方法有潜在并发问题吗？”或“在哪些地方被调用了？”'
+        }
+        className="flex-1 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500 disabled:opacity-50 font-sans"
+      />
+
+      <button
+        type="submit"
+        disabled={!text.trim() || disabled}
+        className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white p-2 rounded-lg transition shrink-0"
+      >
+        <Send className="w-3.5 h-3.5" />
+      </button>
+    </form>
+  );
+});
+
 interface AIExplanationDrawerProps {
   isOpen: boolean;
   onClose: () => void;
@@ -129,7 +282,6 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     }
   });
 
-  const [userQuestion, setUserQuestion] = useState('');
   const [copied, setCopied] = useState(false);
 
   // Active session tool trail & reasoning expansion
@@ -652,12 +804,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     startOrActivateSession(activeSession.scope, newMode, false);
   };
 
-  const handleSendFollowUp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userQuestion.trim() || !activeSession || activeSession.isStreaming) return;
-
-    const q = userQuestion.trim();
-    setUserQuestion('');
+  const handleSendFollowUp = (q: string) => {
+    if (!q || !activeSession || activeSession.isStreaming) return;
 
     const nextChatHistory: ChatMessage[] = [
       ...activeSession.chatHistory,
@@ -668,6 +816,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       ...s,
       chatHistory: nextChatHistory,
       currentFollowUpStream: '',
+      currentFollowUpReasoning: '',
+      currentFollowUpToolEvents: [],
       isStreaming: true,
       error: null,
     }));
@@ -1086,94 +1236,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 </div>
 
                 {activeSession.chatHistory.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-start space-x-2.5 ${
-                      msg.role === 'user' ? 'justify-end' : 'justify-start'
-                    }`}
-                  >
-                    {msg.role === 'assistant' && (
-                      <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5">
-                        <Bot className="w-3.5 h-3.5 text-purple-300" />
-                      </div>
-                    )}
-
-                    <div
-                      className={`p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed select-text ${
-                        msg.role === 'user'
-                          ? 'bg-purple-600 text-white shadow-md'
-                          : 'bg-[#181924] border border-white/5 text-slate-200'
-                      }`}
-                    >
-                      {/* Follow-up assistant message thinking chain accordion */}
-                      {msg.role === 'assistant' && msg.reasoning && (
-                        <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs">
-                          <details className="group">
-                            <summary className="flex items-center justify-between px-3 py-1.5 bg-purple-950/40 cursor-pointer select-none text-purple-300 hover:text-purple-200 hover:bg-purple-900/40 transition">
-                              <div className="flex items-center space-x-1.5 font-medium text-[11px]">
-                                <Brain className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                                <span>思考过程 ({msg.reasoning.length} 字符)</span>
-                              </div>
-                              <span className="text-[10px] text-purple-400 group-open:hidden">点击展开</span>
-                            </summary>
-                            <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0E0D17] text-[11px] font-mono text-slate-300 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
-                              {msg.reasoning}
-                            </div>
-                          </details>
-                        </div>
-                      )}
-
-                      {/* Follow-up assistant tool calling trace accordion */}
-                      {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
-                        <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs">
-                          <details className="group">
-                            <summary className="flex items-center justify-between px-3 py-1.5 bg-purple-950/40 cursor-pointer select-none text-purple-300 hover:text-purple-200 hover:bg-purple-900/40 transition">
-                              <div className="flex items-center space-x-1.5 font-medium text-[11px]">
-                                <Terminal className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                                <span>代码库探查 ({msg.toolEvents.length} 次动作)</span>
-                              </div>
-                              <span className="text-[10px] text-purple-400 group-open:hidden">点击展开</span>
-                            </summary>
-                            <div className="p-2 space-y-1.5 bg-[#0E0D17] text-[11px] font-mono border-t border-white/5 max-h-48 overflow-y-auto">
-                              {msg.toolEvents.map((evt, idx) => (
-                                <div key={idx} className="p-1.5 rounded bg-white/[0.03] border border-white/5">
-                                  <div className="flex items-center space-x-1.5 text-purple-300 font-semibold">
-                                    {evt.name?.includes('read') ? (
-                                      <FileText className="w-3 h-3 text-sky-400 shrink-0" />
-                                    ) : evt.name?.includes('search') ? (
-                                      <Search className="w-3 h-3 text-emerald-400 shrink-0" />
-                                    ) : (
-                                      <FolderSearch className="w-3 h-3 text-amber-400 shrink-0" />
-                                    )}
-                                    <span>{evt.name}</span>
-                                    <span className="text-slate-400 font-normal text-[10px] truncate">
-                                      {evt.args ? JSON.stringify(evt.args) : ''}
-                                    </span>
-                                  </div>
-                                  {evt.output && (
-                                    <pre className="mt-1 p-1.5 rounded bg-black/60 text-slate-300 text-[10px] whitespace-pre-wrap max-h-32 overflow-x-auto">
-                                      {evt.output}
-                                    </pre>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        </div>
-                      )}
-
-                      <div
-                        className="prose prose-invert prose-xs max-w-none"
-                        dangerouslySetInnerHTML={{ __html: marked.parse(msg.content) }}
-                      />
-                    </div>
-
-                    {msg.role === 'user' && (
-                      <div className="w-6 h-6 rounded-full bg-slate-700/50 border border-white/10 flex items-center justify-center shrink-0 mt-0.5">
-                        <User className="w-3.5 h-3.5 text-slate-300" />
-                      </div>
-                    )}
-                  </div>
+                  <ChatMessageItem key={i} msg={msg} index={i} />
                 ))}
 
                 {/* Active Streaming Follow-Up Bubble */}
@@ -1230,12 +1293,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                           )}
 
                         {activeSession.currentFollowUpStream ? (
-                          <div
-                            className="prose prose-invert prose-xs max-w-none"
-                            dangerouslySetInnerHTML={{
-                              __html: marked.parse(activeSession.currentFollowUpStream),
-                            }}
-                          />
+                          <MarkdownRenderer content={activeSession.currentFollowUpStream} />
                         ) : (
                           <div className="flex items-center space-x-2 text-purple-400 text-xs py-1">
                             <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
@@ -1255,31 +1313,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
       {/* 3. Follow-Up Chat Input */}
       {activeSession && (
-        <form
-          onSubmit={handleSendFollowUp}
-          className="p-3 border-t border-white/10 bg-[#161722] flex items-center space-x-2"
-        >
-          <input
-            type="text"
-            value={userQuestion}
-            onChange={(e) => setUserQuestion(e.target.value)}
-            disabled={activeSession.isStreaming}
-            placeholder={
-              activeSession.isStreaming
-                ? 'AI 正在分析生成中...'
-                : '追问 AI：例如“这个方法有潜在并发问题吗？”'
-            }
-            className="flex-1 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500 disabled:opacity-50"
-          />
-
-          <button
-            type="submit"
-            disabled={!userQuestion.trim() || activeSession.isStreaming}
-            className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white p-2 rounded-lg transition shrink-0"
-          >
-            <Send className="w-3.5 h-3.5" />
-          </button>
-        </form>
+        <FollowUpInput
+          disabled={Boolean(activeSession.isStreaming)}
+          onSend={handleSendFollowUp}
+        />
       )}
     </div>
   );
