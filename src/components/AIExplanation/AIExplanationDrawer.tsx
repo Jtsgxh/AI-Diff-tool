@@ -367,14 +367,15 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     return s.title.slice(0, 16);
   };
 
-  // Launch or switch to review session when scope prop changes
+  // Launch or switch to review session only when scope prop actually changes (not on drawer open/close)
+  const prevScopeRef = useRef<ExplanationScope | null>(null);
+
   useEffect(() => {
-    if (isOpen && scope) {
+    if (scope && scope !== prevScopeRef.current) {
+      prevScopeRef.current = scope;
       startOrActivateSession(scope, scope.initialMode || 'agent', false);
     }
-  }, [isOpen, scope]);
-
-
+  }, [scope]);
 
   const updateSession = (id: string, updater: (prev: ReviewSession) => ReviewSession) => {
     setSessions((prev) => prev.map((s) => (s.id === id ? updater(s) : s)));
@@ -389,7 +390,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       targetScope.diff.length
     }_${mode}`;
 
-    const existing = sessions.find((s) => s.id === sessionId);
+    const existing = sessionsRef.current.find((s) => s.id === sessionId);
     if (existing && !forceRefresh) {
       setActiveSessionId(sessionId);
       return;

@@ -374,6 +374,25 @@ ${userPrompt?.trim()}
                   output: outputStr.slice(0, 450) + (outputStr.length > 450 ? '...' : ''),
                 })}\n\n`
               );
+            } else if (
+              (itemEvent.name as string) === 'message_output_created' ||
+              (itemEvent.name as string) === 'message_output' ||
+              item?.type === 'message' ||
+              item?.role === 'assistant'
+            ) {
+              const msgContent =
+                typeof item.content === 'string'
+                  ? item.content
+                  : typeof item.formatted?.content === 'string'
+                  ? item.formatted.content
+                  : Array.isArray(item.content)
+                  ? item.content.map((c: any) => c.text || '').join('')
+                  : '';
+
+              if (msgContent && !accumulatedContent.includes(msgContent)) {
+                accumulatedContent += msgContent;
+                res.write(`data: ${JSON.stringify({ type: 'chunk', text: msgContent })}\n\n`);
+              }
             }
           } else if (event.type === 'raw_model_stream_event') {
             if (isOpenAIChatCompletionsRawModelStreamEvent(event)) {
@@ -417,17 +436,16 @@ ${userPrompt?.trim()}
       }
 
       // 6. Guaranteed Synthesis Phase if substantial report was not delivered
-      const hasSubstantialReport =
-        accumulatedContent.length > 300 ||
-        (accumulatedContent.includes('###') && accumulatedContent.length > 150) ||
-        (accumulatedContent.includes('**') && accumulatedContent.length > 200);
+      const hasSubstantialReport = accumulatedContent.trim().length > 50;
 
       if (!hasSubstantialReport) {
         res.write(
           `data: ${JSON.stringify({
             type: 'status',
             phase: 'reporting',
-            message: `Codex 探查收敛完成 (共获取 ${explorationLog.length} 处关键上下文)，正在实时流式输出深度审查报告...`,
+            message: isFollowUp
+              ? `Codex 探查收敛完成 (共获取 ${explorationLog.length} 处关键上下文)，正在实时流式输出追问解答...`
+              : `Codex 探查收敛完成 (共获取 ${explorationLog.length} 处关键上下文)，正在实时流式输出深度审查报告...`,
           })}\n\n`
         );
 
@@ -444,15 +462,22 @@ ${userPrompt?.trim()}
             )
             .join('\n\n');
 
+          const promptText = isFollowUp
+            ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`
+            : `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`;
+
           synthesisMessages.push({
             role: 'user',
-            content: `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`,
+            content: promptText,
           });
         } else {
+          const promptText = isFollowUp
+            ? `【用户追问】:\n${userPrompt?.trim()}\n\n请直接针对用户的追问给出精准、专业、详尽的 Markdown 解答。`
+            : '【探查阶段已结束】请根据上述代码修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。';
+
           synthesisMessages.push({
             role: 'user',
-            content:
-              '【探查阶段已结束】请根据上述代码修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。',
+            content: promptText,
           });
         }
 
