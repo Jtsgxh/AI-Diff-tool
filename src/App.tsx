@@ -369,7 +369,7 @@ export const App: React.FC = () => {
   }) || null;
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#181920] text-slate-100 overflow-hidden select-none font-sans">
+    <div className="flex flex-col h-screen w-screen bg-[#181920] text-slate-100 overflow-hidden font-sans">
       {/* Top Header */}
       <Header
         repoInfo={repoInfo}

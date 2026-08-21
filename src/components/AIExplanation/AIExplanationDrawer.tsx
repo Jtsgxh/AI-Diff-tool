@@ -870,7 +870,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       </div>
 
       {/* 2. Main Content Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-slate-200">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-slate-200 select-text">
         {!activeSession ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs space-y-2">
             <Brain className="w-10 h-10 text-slate-600 stroke-1" />
@@ -1048,7 +1048,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             {/* Primary Markdown Report Output */}
             {parsedInitialReport && (
               <div
-                className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed overflow-x-auto"
+                className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed overflow-x-auto select-text"
                 dangerouslySetInnerHTML={{ __html: parsedInitialReport }}
               />
             )}
@@ -1077,7 +1077,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                     )}
 
                     <div
-                      className={`p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed ${
+                      className={`p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed select-text ${
                         msg.role === 'user'
                           ? 'bg-purple-600 text-white shadow-md'
                           : 'bg-[#181924] border border-white/5 text-slate-200'
