@@ -9,7 +9,14 @@ const KEEPALIVE_INTERVAL_MS = 8000;
  * per endpoint:
  *  - a keep-alive comment so proxies do not drop an idle stream;
  *  - an `AbortSignal` that fires when the browser goes away, which callers pass
- *    to their upstream `fetch` so a closed drawer stops paying for tokens.
+ *    to their upstream `fetch`.
+ *
+ * The signal tracks the HTTP connection, not the UI. A review whose drawer is
+ * closed keeps streaming, because the drawer is hidden by transform rather than
+ * unmounted and never aborts its fetch. The signal fires only when the client
+ * really does drop the request — a review tab closed, a re-run superseding an
+ * earlier one, or the page unloading — where the response would otherwise go on
+ * pulling provider tokens into a dead socket.
  */
 export class SseStream {
   private readonly res: Response;

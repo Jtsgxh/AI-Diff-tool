@@ -48,8 +48,11 @@ export class AIService {
           ],
           stream: true,
         }),
-        // Closing the drawer aborts the upstream request instead of paying for
-        // tokens nobody will read.
+        // Stop pulling tokens once the browser is gone. Closing the drawer
+        // does NOT do this — the drawer stays mounted and its reviews keep
+        // streaming in the background. This fires when the client itself
+        // aborts: a review tab closed, a re-run superseding this request, or
+        // the page navigating away.
         signal: stream.signal,
       });
 
