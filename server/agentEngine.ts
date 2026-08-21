@@ -216,8 +216,11 @@ export class CodexAgentEngine {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-    // Phase 1: Exploration Phase (up to 6 exploration turns)
-    const maxExplorationTurns = 6;
+    // Dynamic Runtime Controls from User Configuration
+    const maxExplorationTurns = Math.max(1, Math.min(15, config?.maxExplorationTurns || 5));
+    const timeoutMs = Math.max(10000, Math.min(120000, (config?.timeoutSeconds || 35) * 1000));
+    const maxRetries = config?.maxRetries !== undefined ? Math.max(0, Math.min(5, config.maxRetries)) : 2;
+
     let explorationTurn = 0;
     let finalReportText = '';
 
@@ -233,12 +236,12 @@ export class CodexAgentEngine {
             message:
               explorationTurn === 1
                 ? '第 1 轮探查：正在分析 Diff 语义特征与外部引用...'
-                : `第 ${explorationTurn} 轮探查：已获取关联代码，Codex 正在推理...`,
+                : `第 ${explorationTurn}/${maxExplorationTurns} 轮探查：已获取关联代码，Codex 正在推理...`,
             step: explorationTurn,
           })}\n\n`
         );
 
-        // Call LLM
+        // Call LLM with user-configured timeout and retry
         const response = await fetchWithRetry(
           url,
           {
@@ -252,14 +255,14 @@ export class CodexAgentEngine {
               stream: false,
             }),
           },
-          35000,
-          2,
+          timeoutMs,
+          maxRetries,
           (attempt, errorMsg) => {
             res.write(
               `data: ${JSON.stringify({
                 type: 'status',
                 phase: 'thinking',
-                message: `⚠️ 网络/模型响应较慢 (${errorMsg})，正在进行第 ${attempt}/2 次自动重试...`,
+                message: `⚠️ 网络/模型响应较慢 (${errorMsg})，正在进行第 ${attempt}/${maxRetries} 次自动重试...`,
                 step: explorationTurn,
               })}\n\n`
             );

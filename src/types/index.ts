@@ -47,6 +47,12 @@ export interface AIProviderConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
+  // Codex Agent Runtime Controls
+  maxExplorationTurns?: number;
+  timeoutSeconds?: number;
+  maxRetries?: number;
+  maxReadFileLines?: number;
+  maxSearchResults?: number;
 }
 
 export interface SelectionState {

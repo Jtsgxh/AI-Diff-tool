@@ -5,6 +5,11 @@ export interface AIProviderConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  maxExplorationTurns?: number;
+  timeoutSeconds?: number;
+  maxRetries?: number;
+  maxReadFileLines?: number;
+  maxSearchResults?: number;
 }
 
 export interface TargetLineInfo {
