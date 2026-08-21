@@ -442,7 +442,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           </div>
 
           {/* Code Content (In-place translated purely by AI when pseudocode is on) */}
-          <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0">
+          <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-hidden min-w-0">
             {displayContent}
           </div>
         </div>
@@ -492,7 +492,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             <div className="w-5 shrink-0 text-center font-bold select-none text-rose-400">
               {leftIsDelete ? '-' : ''}
             </div>
-            <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
+            <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-hidden min-w-0">
               {leftContent}
             </div>
           </div>
@@ -509,7 +509,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-400">
               {rightIsAdd ? '+' : ''}
             </div>
-            <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
+            <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-hidden min-w-0">
               {rightContent}
             </div>
           </div>
