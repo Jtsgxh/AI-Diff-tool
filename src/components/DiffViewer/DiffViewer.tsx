@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
-import { convertCodeLineToPseudocode, parseAiPseudocodeLines } from '../../utils/pseudocodeConverter';
+import { parseAiPseudocodeLines } from '../../utils/pseudocodeConverter';
 import { streamExplainDiff } from '../../services/api';
 import { DEFAULT_PROMPTS } from '../../constants/defaultPrompts';
 import {
@@ -277,15 +277,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       const currentDelIdx = isDelete ? delCounter++ : -1;
       const currentAddIdx = isAdd ? addCounter++ : -1;
 
+      const aiDelText = isDelete && aiMap?.dels && currentDelIdx < aiMap.dels.length ? aiMap.dels[currentDelIdx] : null;
+      const aiAddText = isAdd && aiMap?.adds && currentAddIdx < aiMap.adds.length ? aiMap.adds[currentAddIdx] : null;
+
       const displayContent =
         isHunkPseudocode && (isAdd || isDelete)
-          ? (isDelete
-              ? (aiMap?.dels && currentDelIdx < aiMap.dels.length && aiMap.dels[currentDelIdx]
-                  ? aiMap.dels[currentDelIdx]
-                  : convertCodeLineToPseudocode(line.content))
-              : (aiMap?.adds && currentAddIdx < aiMap.adds.length && aiMap.adds[currentAddIdx]
-                  ? aiMap.adds[currentAddIdx]
-                  : convertCodeLineToPseudocode(line.content)))
+          ? (aiDelText || aiAddText || line.content)
           : line.content;
 
       return (
@@ -318,7 +315,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             {isAdd ? '+' : isDelete ? '-' : ' '}
           </div>
 
-          {/* Code Content (In-place translated when pseudocode is on) */}
+          {/* Code Content (In-place translated purely by AI when pseudocode is on) */}
           <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0">
             {displayContent}
           </div>
@@ -339,18 +336,17 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       const currentDelIdx = leftIsDelete ? delCounter++ : -1;
       const currentAddIdx = rightIsAdd ? addCounter++ : -1;
 
+      const aiDelText = leftIsDelete && aiMap?.dels && currentDelIdx < aiMap.dels.length ? aiMap.dels[currentDelIdx] : null;
+      const aiAddText = rightIsAdd && aiMap?.adds && currentAddIdx < aiMap.adds.length ? aiMap.adds[currentAddIdx] : null;
+
       const leftContent =
         isHunkPseudocode && leftIsDelete && row.left?.content
-          ? (aiMap?.dels && currentDelIdx < aiMap.dels.length && aiMap.dels[currentDelIdx]
-              ? aiMap.dels[currentDelIdx]
-              : convertCodeLineToPseudocode(row.left.content))
+          ? (aiDelText || row.left.content)
           : row.left?.content || '';
 
       const rightContent =
         isHunkPseudocode && rightIsAdd && row.right?.content
-          ? (aiMap?.adds && currentAddIdx < aiMap.adds.length && aiMap.adds[currentAddIdx]
-              ? aiMap.adds[currentAddIdx]
-              : convertCodeLineToPseudocode(row.right.content))
+          ? (aiAddText || row.right.content)
           : row.right?.content || '';
 
       return (
