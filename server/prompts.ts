@@ -1,4 +1,9 @@
-import type { PartialAIProviderConfig, ScopeType, TargetLineInfo } from '../shared/types';
+import type {
+  ExplainTask,
+  PartialAIProviderConfig,
+  ScopeType,
+  TargetLineInfo,
+} from '../shared/types';
 
 /** Upper bounds on how much diff text is forwarded to the model, by context. */
 export const DIFF_LIMITS = {
@@ -17,6 +22,7 @@ export interface PromptContext {
   filePath?: string;
   commitMessage?: string;
   userPrompt?: string;
+  task?: ExplainTask;
   config?: PartialAIProviderConfig;
 }
 
@@ -35,7 +41,8 @@ const REVIEW_FORMAT_GUIDE = `### 🔄 核心改动前后对比 (Before vs After)
  * questions: they must become the system prompt verbatim so the model's output
  * shape stays parseable by `parseAiPseudocodeLines`.
  */
-function isFormattingPreset(userPrompt: string): boolean {
+function isFormattingPreset(userPrompt: string, task?: ExplainTask): boolean {
+  if (task === 'pseudocode' || task === 'natural_language') return true;
   return (
     userPrompt.includes('伪代码') ||
     userPrompt.includes('自然语言') ||
@@ -56,18 +63,22 @@ function focusedLineBlock(targetLine: TargetLineInfo): string {
 // ------------------------------ Fast diff engine ------------------------------
 
 export function buildFastPrompts(ctx: PromptContext): { system: string; user: string } {
-  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } = ctx;
+  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } = ctx;
   const file = filePath || '当前文件';
   const message = commitMessage || '无';
 
   if (userPrompt && userPrompt.trim()) {
-    if (isFormattingPreset(userPrompt)) {
+    if (isFormattingPreset(userPrompt, task)) {
+      const constraint =
+        task === 'pseudocode'
+          ? '\n\n【输出约束】只输出以 `-` 或 `+` 开头的伪代码行，不要 Markdown 标题、不要开场白、不要代码围栏。'
+          : '';
       return {
         system: userPrompt.trim(),
         user: `【待处理 Git Diff 差异】\n文件: ${file}\n提交信息: ${message}\n${diffBlock(
           diff,
           diff.length
-        )}`,
+        )}${constraint}`,
       };
     }
 

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AIProviderConfig, DiffFile } from '../../../types';
 import type { DiffHunk } from '../../../utils/diffParser';
-import { parseAiPseudocodeLines } from '../../../utils/pseudocodeConverter';
+import {
+  isParsedPseudocodeUseful,
+  parseAiPseudocodeLines,
+} from '../../../utils/pseudocodeConverter';
 import { streamExplainDiff } from '../../../services/api';
 import { aiCache } from '../../../services/aiCache';
 import { DEFAULT_PROMPTS } from '../../../constants/defaultPrompts';
@@ -10,6 +13,7 @@ export interface PseudocodeLines {
   dels: string[];
   adds: string[];
   loading: boolean;
+  error?: string;
 }
 
 export interface NaturalLanguageEntry {
@@ -74,7 +78,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       });
 
       const memoHit = translationCacheRef.current.get(memoKey);
-      if (memoHit) {
+      if (memoHit && isParsedPseudocodeUseful(memoHit)) {
         setPseudocodeLines((prev) => ({ ...prev, [hunkId]: { ...memoHit, loading: false } }));
         return;
       }
@@ -82,9 +86,12 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       const persisted = aiCache.get(persistentKey);
       if (persisted?.report) {
         const parsed = parseAiPseudocodeLines(persisted.report);
-        translationCacheRef.current.set(memoKey, parsed);
-        setPseudocodeLines((prev) => ({ ...prev, [hunkId]: { ...parsed, loading: false } }));
-        return;
+        if (isParsedPseudocodeUseful(parsed)) {
+          translationCacheRef.current.set(memoKey, parsed);
+          setPseudocodeLines((prev) => ({ ...prev, [hunkId]: { ...parsed, loading: false } }));
+          return;
+        }
+        // Ignore cached error text / unparseable replies so a retry can succeed.
       }
 
       abortsRef.current.get(hunkId)?.();
@@ -101,6 +108,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       const cancel = await streamExplainDiff({
         sessionId: `hunk_pseudocode_${hunkId}`,
         scopeType: 'chunk',
+        task: 'pseudocode',
         filePath,
         diff: hunk.text,
         userPrompt: config.pseudocodePrompt?.trim() || DEFAULT_PROMPTS.pseudocodePrompt,
@@ -114,18 +122,36 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
 
           renderedLineCount = lineCount;
           const parsed = parseAiPseudocodeLines(accumulated);
-          setPseudocodeLines((prev) => ({ ...prev, [hunkId]: { ...parsed, loading: true } }));
+          setPseudocodeLines((prev) => ({
+            ...prev,
+            [hunkId]: { ...parsed, loading: true },
+          }));
         },
         onComplete: () => {
           abortsRef.current.delete(hunkId);
           const parsed = parseAiPseudocodeLines(accumulated);
-          translationCacheRef.current.set(memoKey, parsed);
-          aiCache.set(persistentKey, {
-            report: accumulated,
-            model: config.model,
-            provider: config.provider,
-          });
-          setPseudocodeLines((prev) => ({ ...prev, [hunkId]: { ...parsed, loading: false } }));
+          if (isParsedPseudocodeUseful(parsed)) {
+            translationCacheRef.current.set(memoKey, parsed);
+            aiCache.set(persistentKey, {
+              report: accumulated,
+              model: config.model,
+              provider: config.provider,
+            });
+            setPseudocodeLines((prev) => ({
+              ...prev,
+              [hunkId]: { ...parsed, loading: false },
+            }));
+            return;
+          }
+          setPseudocodeLines((prev) => ({
+            ...prev,
+            [hunkId]: {
+              dels: prev[hunkId]?.dels || [],
+              adds: prev[hunkId]?.adds || [],
+              loading: false,
+              error: describePseudocodeFailure(accumulated),
+            },
+          }));
         },
         onError: (err) => {
           abortsRef.current.delete(hunkId);
@@ -136,6 +162,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
               dels: prev[hunkId]?.dels || [],
               adds: prev[hunkId]?.adds || [],
               loading: false,
+              error: describePseudocodeFailure('', err.message),
             },
           }));
         },
@@ -148,9 +175,20 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
 
   const ensurePseudocode = useCallback(
     (hunk: DiffHunk) => {
-      if (!isAiEnabled()) return;
+      if (!isAiEnabled()) {
+        setPseudocodeLines((prev) => ({
+          ...prev,
+          [hunk.id]: {
+            dels: prev[hunk.id]?.dels || [],
+            adds: prev[hunk.id]?.adds || [],
+            loading: false,
+            error: '未配置 API Key。请在右上角「⚙️ AI 引擎配置」中填写后重试。',
+          },
+        }));
+        return;
+      }
       const existing = pseudocodeLines[hunk.id];
-      const alreadyLoaded = (existing?.dels.length || 0) > 0 || (existing?.adds.length || 0) > 0;
+      const alreadyLoaded = isParsedPseudocodeUseful(existing || { dels: [], adds: [] });
       if (alreadyLoaded || existing?.loading) return;
       fetchPseudocode(hunk);
     },
@@ -160,27 +198,28 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
   const togglePseudocode = useCallback(
     (hunk: DiffHunk) => {
       const hunkId = hunk.id;
-      let turningOn = false;
+      const isOn = pseudocodeHunkIds.has(hunkId);
 
-      setPseudocodeHunkIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(hunkId)) {
+      if (isOn && pseudocodeLines[hunkId]?.error) {
+        fetchPseudocode(hunk);
+        return;
+      }
+
+      if (isOn) {
+        setPseudocodeHunkIds((prev) => {
+          const next = new Set(prev);
           next.delete(hunkId);
-        } else {
-          next.add(hunkId);
-          turningOn = true;
-        }
-        return next;
-      });
-
-      if (turningOn) {
-        ensurePseudocode(hunk);
-      } else {
+          return next;
+        });
         abortsRef.current.get(hunkId)?.();
         abortsRef.current.delete(hunkId);
+        return;
       }
+
+      setPseudocodeHunkIds((prev) => new Set(prev).add(hunkId));
+      ensurePseudocode(hunk);
     },
-    [ensurePseudocode]
+    [ensurePseudocode, fetchPseudocode, pseudocodeHunkIds, pseudocodeLines]
   );
 
   const toggleAllPseudocode = useCallback(
@@ -241,6 +280,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
         scopeType: 'chunk',
         filePath,
         diff: hunk.text,
+        task: 'natural_language',
         userPrompt: config.naturalLanguagePrompt?.trim() || DEFAULT_PROMPTS.naturalLanguagePrompt,
         config,
         onChunk: (chunk) => {
@@ -294,4 +334,22 @@ function countNewlines(text: string): number {
     if (text.charCodeAt(i) === 10) count++;
   }
   return count;
+}
+
+function describePseudocodeFailure(raw: string, networkError?: string): string {
+  if (networkError) {
+    if (/Failed to fetch|ECONNREFUSED|NetworkError/i.test(networkError)) {
+      return '后端未连接。请确认已运行 npm run dev，且 4000 端口的 API 服务已启动。';
+    }
+    return `伪代码生成失败：${networkError}`;
+  }
+  const text = raw.replace(/[#*`]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return '伪代码生成失败：未收到模型输出。';
+  if (text.includes('未检测到 API Key')) {
+    return '未配置 API Key。请在右上角「⚙️ AI 引擎配置」中填写后重试。';
+  }
+  if (text.includes('大模型接口请求失败') || text.includes('请求连接失败')) {
+    return text.slice(0, 240);
+  }
+  return '模型没有按 -/+ 伪代码格式输出，无法替换到 Diff 行上。请重试，或在设置里检查「概括伪代码」提示词。';
 }

@@ -4,6 +4,7 @@ import type {
   AIProviderConfig,
   CommitNode,
   DiffResult,
+  ExplainTask,
   RepoInfo,
   ScopeType,
   TargetLineInfo,
@@ -136,6 +137,7 @@ interface BaseStreamPayload {
   filePath?: string;
   commitMessage?: string;
   userPrompt?: string;
+  task?: ExplainTask;
   config?: AIProviderConfig;
   onReasoning?: (chunk: string) => void;
   onChunk: (chunk: string) => void;
@@ -165,10 +167,10 @@ function describeFastSession(payload: StreamExplainPayload): {
 } {
   const fileName = payload.filePath ? payload.filePath.split('/').pop() : undefined;
 
-  if (payload.userPrompt?.includes('伪代码')) {
+  if (payload.task === 'pseudocode' || payload.userPrompt?.includes('伪代码')) {
     return { type: 'pseudocode', title: `🤖 原位伪代码转译 (${fileName || 'Diff'})` };
   }
-  if (payload.userPrompt?.includes('自然语言')) {
+  if (payload.task === 'natural_language' || payload.userPrompt?.includes('自然语言')) {
     return { type: 'natural_language', title: `📖 自然语言改动直读 (${fileName || 'Diff'})` };
   }
   if (payload.scopeType === 'line') {
@@ -279,6 +281,7 @@ export async function streamExplainDiff(
       filePath: payload.filePath,
       commitMessage: payload.commitMessage,
       userPrompt: payload.userPrompt,
+      task: payload.task,
       config: payload.config,
     },
     logSession: describeFastSession(payload),

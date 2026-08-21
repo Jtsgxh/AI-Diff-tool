@@ -9,7 +9,8 @@ export const aiRouter = Router();
 
 /** Both engines accept the same body; only the agent one needs a repo root. */
 function readExplainRequest(body: any): ExplainRequest {
-  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } = body ?? {};
+  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } =
+    body ?? {};
 
   if (!diff && !targetLine) {
     throw badRequest('Diff content or targetLine is required');
@@ -22,6 +23,7 @@ function readExplainRequest(body: any): ExplainRequest {
     filePath,
     commitMessage,
     userPrompt,
+    task,
     config,
   };
 }

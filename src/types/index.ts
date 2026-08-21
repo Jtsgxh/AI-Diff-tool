@@ -15,6 +15,7 @@ export type {
   DiffFile,
   DiffResult,
   DiffSummary,
+  ExplainTask,
   RepoInfo,
   ScopeType,
   TargetLineInfo,

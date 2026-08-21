@@ -96,7 +96,9 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             }`}
             title={
               showPseudocode
-                ? '点击关闭伪代码，恢复显示原始代码'
+                ? pseudocode?.error
+                  ? '生成失败，点击重试'
+                  : '点击关闭伪代码，恢复显示原始代码'
                 : '点击通过 AI 将本块 Diff 改动行原位转译为伪代码'
             }
           >
@@ -105,7 +107,9 @@ export const HunkBlock = React.memo<HunkBlockProps>(
               {showPseudocode
                 ? pseudocode?.loading
                   ? 'AI 伪代码 (生成中...)'
-                  : 'AI 伪代码 [开]'
+                  : pseudocode?.error
+                    ? 'AI 伪代码 [失败·点击重试]'
+                    : 'AI 伪代码 [开]'
                 : '🤖 AI 伪代码'}
             </span>
           </button>
@@ -156,6 +160,22 @@ export const HunkBlock = React.memo<HunkBlockProps>(
                 </span>
               )}
               <span className="text-[11px] text-slate-500 font-sans">块 #{hunk.index}</span>
+            </div>
+          </div>
+        )}
+
+        {showPseudocode && pseudocode?.error && (
+          <div className="bg-rose-950/40 border-y border-rose-500/30 px-5 py-2.5 text-xs text-rose-100 flex items-start space-x-2">
+            <span className="shrink-0 mt-0.5">⚠️</span>
+            <div className="flex-1 min-w-0">
+              <p className="leading-relaxed">{pseudocode.error}</p>
+              <button
+                type="button"
+                onClick={() => onTogglePseudocode(hunk)}
+                className="mt-1.5 text-[11px] text-rose-200 hover:text-white underline underline-offset-2"
+              >
+                点击重试
+              </button>
             </div>
           </div>
         )}
