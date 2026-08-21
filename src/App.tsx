@@ -69,11 +69,23 @@ export const App: React.FC = () => {
 
   // Modals
   const [isOpenRepoModal, setIsOpenRepoModal] = useState<boolean>(false);
-  const [isExplanationOpen, setIsExplanationOpen] = useState<boolean>(false);
+  const [isExplanationOpen, setIsExplanationOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('git_ai_explanation_open') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [explanationScope, setExplanationScope] = useState<ExplanationScope | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isAIInspectorOpen, setIsAIInspectorOpen] = useState<boolean>(false);
   const [aiSessions, setAiSessions] = useState(() => aiLogger.getSessions());
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('git_ai_explanation_open', String(isExplanationOpen));
+    } catch {}
+  }, [isExplanationOpen]);
 
   useEffect(() => {
     return aiLogger.subscribe((updated) => {
@@ -372,6 +384,8 @@ export const App: React.FC = () => {
         isLoading={isLoadingRepo || isLoadingDiff}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={handleToggleSidebar}
+        isExplanationOpen={isExplanationOpen}
+        onToggleExplanation={() => setIsExplanationOpen(!isExplanationOpen)}
       />
 
       {/* Repo Load Error Banner if any */}

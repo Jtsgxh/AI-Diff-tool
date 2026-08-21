@@ -97,8 +97,37 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   repoPath,
   aiConfig,
 }) => {
-  const [sessions, setSessions] = useState<ReviewSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const STORAGE_SESSIONS_KEY = 'git_ai_active_sessions';
+  const STORAGE_ACTIVE_ID_KEY = 'git_ai_active_session_id';
+
+  const [sessions, setSessions] = useState<ReviewSession[]>(() => {
+    try {
+      const saved = localStorage.getItem('git_ai_active_sessions');
+      if (saved) {
+        const parsed: ReviewSession[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((s) => ({
+            ...s,
+            isStreaming: false,
+            currentFollowUpStream: '',
+            currentFollowUpReasoning: '',
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to hydrate sessions from localStorage:', e);
+    }
+    return [];
+  });
+
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('git_ai_active_session_id') || null;
+    } catch {
+      return null;
+    }
+  });
+
   const [userQuestion, setUserQuestion] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -115,7 +144,26 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
   useEffect(() => {
     sessionsRef.current = sessions;
+    try {
+      if (sessions.length > 0) {
+        localStorage.setItem(STORAGE_SESSIONS_KEY, JSON.stringify(sessions));
+      } else {
+        localStorage.removeItem(STORAGE_SESSIONS_KEY);
+      }
+    } catch (e) {
+      console.warn('Failed to save sessions to localStorage:', e);
+    }
   }, [sessions]);
+
+  useEffect(() => {
+    try {
+      if (activeSessionId) {
+        localStorage.setItem(STORAGE_ACTIVE_ID_KEY, activeSessionId);
+      } else {
+        localStorage.removeItem(STORAGE_ACTIVE_ID_KEY);
+      }
+    } catch {}
+  }, [activeSessionId]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0] || null;
 

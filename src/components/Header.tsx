@@ -28,6 +28,8 @@ interface HeaderProps {
   isLoading: boolean;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  isExplanationOpen?: boolean;
+  onToggleExplanation?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -42,6 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   isLoading,
   isSidebarCollapsed,
   onToggleSidebar,
+  isExplanationOpen,
+  onToggleExplanation,
 }) => {
   const [sessions, setSessions] = useState(() => aiLogger.getSessions());
 
@@ -167,6 +171,22 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Right: Actions, AI Console & Settings */}
       <div className="flex items-center space-x-2">
+        {/* AI Explanation Workspace Drawer Button */}
+        {onToggleExplanation && (
+          <button
+            onClick={onToggleExplanation}
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${
+              isExplanationOpen
+                ? 'bg-purple-600/30 text-white border-purple-500/50 shadow-purple-500/20'
+                : 'bg-[#1E2029] hover:bg-[#252834] text-slate-300 hover:text-white border-white/10 hover:border-purple-500/30'
+            }`}
+            title="打开/收起 AI 深度审查工作台 (查看所有审查标签页与多轮追问对话)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            <span className="font-semibold">AI 审查工作台</span>
+          </button>
+        )}
+
         {/* AI Call Live Inspector Console Button */}
         <button
           onClick={onOpenAIInspector}
