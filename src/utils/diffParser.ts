@@ -28,6 +28,12 @@ export interface DiffHunk {
   newStart: number;
   additions: number;
   deletions: number;
+  /**
+   * The hunk re-serialized as a unified diff. Precomputed here because the
+   * viewer needs it for every hunk on every render (AI payloads, cache keys);
+   * rebuilding it per render turned an O(lines) join into a per-frame cost.
+   */
+  text: string;
 }
 
 export interface ParsedFileDiff {
@@ -47,14 +53,28 @@ export function parseRawDiff(rawDiff: string): ParsedFileDiff {
 
   const finalizeHunk = (hunk: DiffHunk) => {
     hunk.splitRows = computeSplitRows(hunk.lines);
+
     let adds = 0;
     let dels = 0;
+    const serialized: string[] = [];
+
     for (const l of hunk.lines) {
-      if (l.type === 'add') adds++;
-      if (l.type === 'delete') dels++;
+      if (l.type === 'add') {
+        adds++;
+        serialized.push(`+${l.content}`);
+      } else if (l.type === 'delete') {
+        dels++;
+        serialized.push(`-${l.content}`);
+      } else {
+        // Context lines and the `@@` header both render with a leading space,
+        // matching the unified-diff text the AI endpoints have always received.
+        serialized.push(` ${l.content}`);
+      }
     }
+
     hunk.additions = adds;
     hunk.deletions = dels;
+    hunk.text = serialized.join('\n');
     hunks.push(hunk);
   };
 
@@ -88,6 +108,7 @@ export function parseRawDiff(rawDiff: string): ParsedFileDiff {
         newStart,
         additions: 0,
         deletions: 0,
+        text: '',
       };
       continue;
     }

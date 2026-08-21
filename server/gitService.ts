@@ -15,9 +15,12 @@ export type { CommitNode, DiffFile, DiffResult, RepoInfo } from '../shared/types
 /** The empty-tree object, used as the base when diffing a root commit. */
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
+/** Separators git writes into the stream, and the characters they produce. */
 const FIELD_SEP = '\x00';
 const RECORD_SEP = '\x01';
-const COMMIT_FORMAT = `%H${FIELD_SEP}%h${FIELD_SEP}%P${FIELD_SEP}%an${FIELD_SEP}%ae${FIELD_SEP}%ad${FIELD_SEP}%s${FIELD_SEP}%D${RECORD_SEP}`;
+// `%x00` / `%x01` are git's own escapes: the format string itself must stay
+// free of control characters, since Node rejects argv entries containing them.
+const COMMIT_FORMAT = '%H%x00%h%x00%P%x00%an%x00%ae%x00%ad%x00%s%x00%D%x01';
 
 const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
 

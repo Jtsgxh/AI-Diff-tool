@@ -38,13 +38,12 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
 
   const outputScrollRef = useRef<HTMLDivElement>(null);
 
-  // Subscribe to live AI logger events
+  // Subscribe only while the console is on screen. A permanent subscription
+  // kept this modal re-rendering on every streamed token even when closed.
   useEffect(() => {
-    const unsubscribe = aiLogger.subscribe((updatedSessions) => {
-      setSessions(updatedSessions);
-    });
-    return unsubscribe;
-  }, []);
+    if (!isOpen) return;
+    return aiLogger.subscribe(setSessions);
+  }, [isOpen]);
 
   // Auto select the first / newest session when modal opens or if selected is null
   useEffect(() => {

@@ -1,15 +1,12 @@
 ﻿import React, { useState, useMemo, useRef } from 'react';
 import { CommitNode, SelectionState } from '../../types';
-import { computeGraphLayout, BRANCH_COLORS } from '../../utils/graphLayout';
+import { computeGraphLayout } from '../../utils/graphLayout';
 import {
   GitCommit,
   GitBranch,
   Tag,
   Search,
   ArrowRightLeft,
-  Calendar,
-  User,
-  Hash,
   Sparkles,
   PanelLeftClose,
   CheckSquare,
@@ -35,7 +32,11 @@ const ROW_HEIGHT = 44;
 const LANE_WIDTH = 18;
 const DOT_RADIUS = 5;
 
-export const CommitGraph: React.FC<CommitGraphProps> = ({
+/**
+ * Git DAG with lane layout. Memoized because it is the most expensive panel to
+ * re-render and its inputs are unrelated to AI streaming state.
+ */
+export const CommitGraph = React.memo<CommitGraphProps>(({
   commits,
   selection,
   onSelectCommit,
@@ -473,4 +474,6 @@ export const CommitGraph: React.FC<CommitGraphProps> = ({
       </div>
     </div>
   );
-};
+});
+
+CommitGraph.displayName = 'CommitGraph';

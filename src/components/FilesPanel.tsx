@@ -36,7 +36,11 @@ interface TreeNode {
   deletions: number;
 }
 
-export const FilesPanel: React.FC<FilesPanelProps> = ({
+/**
+ * Changed-file tree. Memoized: it depends only on the diff result and the
+ * selected path, neither of which changes while an AI review streams.
+ */
+export const FilesPanel = React.memo<FilesPanelProps>(({
   diffResult,
   selectedFilePath,
   onSelectFile,
@@ -396,4 +400,6 @@ export const FilesPanel: React.FC<FilesPanelProps> = ({
       </div>
     </div>
   );
-};
+});
+
+FilesPanel.displayName = 'FilesPanel';

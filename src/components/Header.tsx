@@ -32,7 +32,11 @@ interface HeaderProps {
   onToggleExplanation?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+/**
+ * Top chrome. Memoized so a streaming review, which re-renders App's tree,
+ * does not repaint the header on every flush.
+ */
+export const Header = React.memo<HeaderProps>(({
   repoInfo,
   repoPath,
   onOpenRepoModal,
@@ -229,4 +233,6 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
     </header>
   );
-};
+});
+
+Header.displayName = 'Header';
