@@ -281,14 +281,16 @@ app.get('/api/repo/diff/working-tree', async (req, res) => {
 // 6. AI Semantic Explanation Streaming Endpoint
 app.post('/api/ai/explain/stream', async (req, res) => {
   try {
-    const { diff, filePath, commitMessage, userPrompt, config } = req.body;
-    if (!diff) {
-      return res.status(400).json({ error: 'Diff content is required' });
+    const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } = req.body;
+    if (!diff && !targetLine) {
+      return res.status(400).json({ error: 'Diff content or targetLine is required' });
     }
 
     await aiService.streamExplainDiff(
       {
-        diff,
+        scopeType,
+        targetLine,
+        diff: diff || targetLine?.content || '',
         filePath,
         commitMessage,
         userPrompt,

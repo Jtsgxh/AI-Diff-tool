@@ -93,6 +93,12 @@ export async function fetchWorkingTreeDiff(path: string): Promise<DiffResult> {
 }
 
 export interface StreamExplainPayload {
+  scopeType?: 'line' | 'chunk' | 'file' | 'commit';
+  targetLine?: {
+    lineNumber?: number;
+    content: string;
+    type?: 'add' | 'delete' | 'normal';
+  };
   diff: string;
   filePath?: string;
   commitMessage?: string;
@@ -114,6 +120,8 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
         Accept: 'text/event-stream',
       },
       body: JSON.stringify({
+        scopeType: payload.scopeType,
+        targetLine: payload.targetLine,
         diff: payload.diff,
         filePath: payload.filePath,
         commitMessage: payload.commitMessage,

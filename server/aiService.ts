@@ -7,7 +7,15 @@ export interface AIProviderConfig {
   model?: string;
 }
 
+export interface TargetLineInfo {
+  lineNumber?: number;
+  content: string;
+  type?: 'add' | 'delete' | 'normal';
+}
+
 export interface ExplainOptions {
+  scopeType?: 'line' | 'chunk' | 'file' | 'commit';
+  targetLine?: TargetLineInfo;
   diff: string;
   filePath?: string;
   commitMessage?: string;
@@ -17,7 +25,7 @@ export interface ExplainOptions {
 
 export class AIService {
   async streamExplainDiff(options: ExplainOptions, res: Response): Promise<void> {
-    const { diff, filePath, commitMessage, userPrompt, config } = options;
+    const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } = options;
 
     const provider = config?.provider || (config?.apiKey ? 'custom' : 'demo');
     const apiKey = config?.apiKey || process.env.AI_API_KEY || '';
@@ -31,7 +39,7 @@ export class AIService {
     res.flushHeaders?.();
 
     if (provider === 'demo' || !apiKey) {
-      await this.streamMockExplanation(res, diff, filePath, commitMessage, userPrompt);
+      await this.streamMockExplanation(res, scopeType, targetLine, diff, filePath, commitMessage, userPrompt);
       return;
     }
 
@@ -53,7 +61,21 @@ export class AIService {
     }
 
     try {
-      const systemPrompt = `你是一位资深架构师和代码审查专家。你的任务是对给定的 Git Diff 进行深度语义分析。
+      let systemPrompt = '';
+
+      if (scopeType === 'line' && targetLine) {
+        systemPrompt = `你是一位代码审查专家。用户点击了 Git Diff 中的具体某一行代码进行针对性深度解释。
+请精练、专业地使用 Markdown 结构输出：
+### 💡 改动释义
+一句话说明这行代码具体修改了什么（例如修改命名空间、重命名函数、调整边界条件、增加校验等）。
+
+### 🎯 动机与上下文分析
+结合上下文 Diff 和文件语义，解释为什么要在此处做这行修改。
+
+### ⚠️ 潜在影响与风险
+分析此改动对该文件及其调用方是否存在副作用（如引用破坏、命名冲突、异常逃逸等）。`;
+      } else {
+        systemPrompt = `你是一位资深架构师和代码审查专家。你的任务是对给定的 Git Diff 进行深度语义分析。
 请使用结构清晰的 Markdown 格式输出，包含以下维度：
 ### 📌 变更核心概述 (Executive Summary)
 一到两句话精炼概括本次改动的核心目的。
@@ -65,20 +87,22 @@ export class AIService {
 分点列出关键算法、状态流转、并发控制或接口调用的具体变更。
 
 ### ⚠️ 潜在隐患与风险雷达 (Risk Radar)
-检查是否存在：
-- 空指针/未捕获异常
-- 并发竞态/死锁/锁竞争
-- 内存泄漏/连接未关闭
-- 跨版本兼容性/Breaking Change
-- 性能瓶颈
-若无明显风险，请明确说明评估结论。
+检查是否存在并发安全、内存泄漏、兼容性 Breaking Changes 等风险。
 
 ### 💡 优化与重构建议 (Optimization Suggestions)
 提出针对代码健壮性、可读性或测试用例的建议。`;
+      }
 
-      const userContent = userPrompt
-        ? `【上下文 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${commitMessage || '无'}\n\`\`\`diff\n${diff.slice(0, 8000)}\n\`\`\`\n\n【用户问题】: ${userPrompt}`
-        : `【请分析以下 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${commitMessage || '无'}\n\`\`\`diff\n${diff.slice(0, 8000)}\n\`\`\``;
+      let userContent = '';
+      if (scopeType === 'line' && targetLine) {
+        userContent = userPrompt
+          ? `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '} ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\n【用户问题】: ${userPrompt}`
+          : `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '} ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(0, 4000)}\n\`\`\`\n\n请针对该聚焦行进行专业解释。`;
+      } else {
+        userContent = userPrompt
+          ? `【上下文 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${commitMessage || '无'}\n\`\`\`diff\n${diff.slice(0, 8000)}\n\`\`\`\n\n【用户问题】: ${userPrompt}`
+          : `【请分析以下 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${commitMessage || '无'}\n\`\`\`diff\n${diff.slice(0, 8000)}\n\`\`\``;
+      }
 
       const url = baseUrl.endsWith('/') ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;
 
@@ -135,7 +159,7 @@ export class AIService {
               res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
             }
           } catch (e) {
-            // Ignore parse errors on heartbeats
+            // Ignore parse errors
           }
         }
       }
@@ -151,7 +175,9 @@ export class AIService {
 
   private async streamMockExplanation(
     res: Response,
-    diff: string,
+    scopeType?: 'line' | 'chunk' | 'file' | 'commit',
+    targetLine?: TargetLineInfo,
+    diff?: string,
     filePath?: string,
     commitMessage?: string,
     userPrompt?: string
@@ -159,8 +185,55 @@ export class AIService {
     let markdown = '';
 
     if (userPrompt) {
-      markdown = `### 💬 针对问题的 AI 语义解答\n\n**关于您的问题：“${userPrompt}”**\n\n针对当前代码变更（${filePath || '选中的代码段'}）：\n1. **设计意图**：此次重构主要将原有的简单逻辑升级为具备生命周期管理与异步安全的高阶实现。\n2. **逻辑支撑**：在代码行中可以看到引入了细粒度状态校验与异常兜底，避免了异步竞争（Race Condition）导致的数据不一致。\n3. **调用方影响**：对外暴露的接口入参保持了向后兼容，但内部逻辑执行时具备更优的吞吐量与故障自愈能力。`;
-    } else if (diff.includes('AsyncMutex') || diff.includes('lockRead') || diff.includes('lruCache')) {
+      markdown = `### 💬 针对问题的 AI 语义解答\n\n**关于您的问题：“${userPrompt}”**\n\n针对当前改动（${filePath || '聚焦代码段'}）：\n1. **设计意图**：此次重构主要将原有的简单逻辑升级为具备生命周期管理与异步安全的高阶实现。\n2. **逻辑支撑**：在代码行中可以看到引入了细粒度状态校验与异常兜底，避免了异步竞争（Race Condition）导致的数据不一致。\n3. **调用方影响**：对外暴露的接口入参保持了向后兼容，但内部逻辑执行时具备更优的吞吐量与故障自愈能力。`;
+    } else if (scopeType === 'line' && targetLine) {
+      const lineContent = targetLine.content.trim();
+      const lineNum = targetLine.lineNumber ? `第 ${targetLine.lineNumber} 行` : '该行';
+      const isDelete = targetLine.type === 'delete';
+      const isAdd = targetLine.type === 'add';
+
+      if (lineContent.includes('namespace')) {
+        markdown = `### 💡 改动释义 (${lineNum})
+${isDelete ? '❌ **移除旧命名空间**' : '✨ **引入新命名空间**'}：\`${lineContent}\`
+
+### 🎯 动机与上下文分析
+- 本次改动涉及项目架构或模块命名空间的标准化迁移。
+- 将所属模块由旧包路径隔离/重构至统一的工程目录结构，以符合领域驱动设计 (DDD) 或微服务拆分规范。
+
+### ⚠️ 潜在影响与风险
+- 🟡 **引用破坏风险**：需确保外部引用该命名空间的源文件已同步更新 \`using / import\` 声明，否则将导致编译期 \`CS0246 (The type or namespace name could not be found)\` 错误。`;
+      } else if (lineContent.includes('using') || lineContent.includes('import')) {
+        markdown = `### 💡 改动释义 (${lineNum})
+${isDelete ? '❌ **移除依赖引用**' : '✨ **导入外部依赖**'}：\`${lineContent}\`
+
+### 🎯 动机与上下文分析
+- 为当前文件引入或清理所需的命名空间依赖，支持本模块新功能的调用或减少未引用的死代码。
+
+### ⚠️ 潜在影响与风险
+- 🟢 **安全无副作用**：未检测到命名冲突，只要对应程序集/包依赖已安装即可正常解析。`;
+      } else if (lineContent.includes('rwMutex') || lineContent.includes('lock') || lineContent.includes('Mutex')) {
+        markdown = `### 💡 改动释义 (${lineNum})
+🔒 **并发锁机制变更**：\`${lineContent}\`
+
+### 🎯 动机与上下文分析
+- 升级并发同步原语，使用细粒度读写互斥锁替换粗粒度锁或非原子标记，允许高频并发读取同时保证独占写入。
+
+### ⚠️ 潜在影响与风险
+- 🟢 **安全性高**：配合 \`try...finally\` 可有效防范死锁风险。`;
+      } else {
+        markdown = `### 💡 改动释义 (${lineNum})
+${isDelete ? '❌ **删除代码行**' : isAdd ? '✨ **新增代码行**' : '🔍 **当前代码行**'}：
+\`\`\`
+${isDelete ? '-' : isAdd ? '+' : ' '} ${lineContent}
+\`\`\`
+
+### 🎯 动机与上下文分析
+- 属于 **${filePath || '当前文件'}** 的核心逻辑变更的一部分，负责调整数据流转与状态判断。
+
+### ⚠️ 潜在影响与风险
+- 🟢 **评估结论**：改动意图明确，建议结合文件整体 Diff 进行联动验证。`;
+      }
+    } else if (diff && (diff.includes('AsyncMutex') || diff.includes('lockRead') || diff.includes('lruCache'))) {
       markdown = `### 📌 变更核心概述 (Executive Summary)
 本次提交针对 **LRU 缓存系统** 进行了并发安全性重构，引入 **读写互斥锁 (Read-Write Mutex)** 取代原有的简单布尔标记，彻底消除了高并发读写竞争导致的数据踩踏与死锁隐患。
 
@@ -183,27 +256,8 @@ export class AIService {
 
 ### 💡 优化与重构建议 (Optimization Suggestions)
 > [!TIP]
-> 1. **锁降级支持**：可在淘汰机制中增加超时控制（如 \`lockWrite({ timeoutMs: 500 })\`），防止极端情况下的写阻塞。
-> 2. **单元测试补充**：建议使用 \`Promise.all()\` 编写 1000 次并发读写压力测试用例以验证极端边界。`;
-    } else if (diff.includes('JwksClient') || diff.includes('RS256') || diff.includes('auth')) {
-      markdown = `### 📌 变更核心概述 (Executive Summary)
-将 JWT 认证体系由原先的**静态对称密钥 (HS256)** 升级为基于 **JWKS (JSON Web Key Set) 的非对称密钥 (RS256)**，支持私钥自动轮换与密钥标识符 (\`kid\`) 动态解析。
-
-### 🎯 架构与业务意图 (Intent & Architecture Impact)
-- **安全架构合规**：消除硬编码或环境变量中的共享静态 Secret，符合零信任（Zero-Trust）安全标准。
-- **微服务解耦**：授权中心持有私钥签发 Token，本服务作为资源服务器只需通过公开的 JWKS 端点拉取公钥验签即可。
-
-### 🔍 核心逻辑改动拆解 (Logic Breakdown)
-1. **JWKS 客户端配置**：集成 \`JwksClient\`，开启 24 小时公钥本地缓存与每分钟 10 次的限流保护，避免 JWKS 端点遭受 DDoS。
-2. **动态 KeyId (\`kid\`) 提取**：在验签前预先解码 JWT Header 提取 \`kid\`，精准获取匹配的公钥。
-3. **算法白名单限制**：在 \`jwt.verify()\` 中严格锁定 \`algorithms: ['RS256']\`，彻底防止“None 算法漏洞”与算法混淆攻击。
-
-### ⚠️ 潜在隐患与风险雷达 (Risk Radar)
-- **网络延迟与降级**：首次获取未知 \`kid\` 时会发起 HTTP 请求获取公钥，需确认 JWKS 服务的可用性与超时熔断配置。
-- **Header 校验**：已在代码中增加 \`decodedHeader.header.kid\` 判空，有效防范畸形 Token。
-
-### 💡 优化与重构建议 (Optimization Suggestions)
-建议在网关层配合公钥预热（Key Pre-fetching），进一步降低冷启动时的首包握手延迟。`;
+> 1. **锁降级支持**：可在淘汰机制中增加超时控制，防止极端情况下的写阻塞。
+> 2. **单元测试补充**：建议使用 \`Promise.all()\` 编写并发读写压力测试用例以验证极端边界。`;
     } else {
       markdown = `### 📌 变更核心概述 (Executive Summary)
 针对 **${filePath || '当前模块'}** 进行了功能增强与代码优化，提升了模块的响应健壮性与可维护性。

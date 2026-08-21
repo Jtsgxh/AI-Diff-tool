@@ -300,7 +300,7 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* Right Column: Code Diff Viewer (Remaining 40%+) */}
+        {/* Right Column: Code Diff Viewer */}
         <div className="flex-1 h-full flex flex-col min-w-0">
           <DiffViewer
             file={selectedFile}
@@ -308,6 +308,7 @@ export const App: React.FC = () => {
             onToggleViewMode={setViewMode}
             onExplainHunk={handleExplainHunk}
             onExplainFile={handleExplainFile}
+            aiConfig={aiConfig}
           />
         </div>
       </div>
