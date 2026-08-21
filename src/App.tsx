@@ -1,34 +1,22 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  RepoInfo,
-  CommitNode,
-  DiffResult,
-  DiffFile,
-  DiffViewMode,
-  SelectionState,
-  AIProviderConfig,
-} from './types';
-import {
-  fetchRepoInfo,
-  fetchCommits,
-  fetchCommitDiff,
-  fetchCompareDiff,
-  fetchWorkingTreeDiff,
-  fetchBatchCommitsDiff,
-} from './services/api';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, PanelLeftOpen, Terminal } from 'lucide-react';
+import type { AIProviderConfig, DiffFile } from './types';
+import { fetchBatchCommitsDiff, fetchCommitDiff } from './services/api';
+import { aiLogger, type AILoggerSummary } from './services/aiLogger';
+import { STORAGE_KEYS, storage } from './constants/storage';
+import { useRepository } from './hooks/useRepository';
 import { Header } from './components/Header';
 import { CommitGraph } from './components/CommitGraph/CommitGraph';
 import { FilesPanel } from './components/FilesPanel';
 import { DiffViewer } from './components/DiffViewer/DiffViewer';
 import {
   AIExplanationDrawer,
-  ExplanationScope,
+  type ExplanationScope,
 } from './components/AIExplanation/AIExplanationDrawer';
 import { SettingsModal } from './components/SettingsModal';
 import { OpenRepoModal } from './components/OpenRepoModal';
 import { AICallInspectorModal } from './components/AICallInspector/AICallInspectorModal';
-import { aiLogger } from './services/aiLogger';
-import { AlertCircle, PanelLeftOpen, Terminal } from 'lucide-react';
+import type { DiffHunk } from './utils/diffParser';
 
 const DEFAULT_AI_CONFIG: AIProviderConfig = {
   provider: 'deepseek',
@@ -37,340 +25,218 @@ const DEFAULT_AI_CONFIG: AIProviderConfig = {
   model: 'deepseek-chat',
 };
 
+/** Normalizes Windows separators before comparing repository-relative paths. */
+const normalizePath = (p?: string | null) => (p || '').replace(/\\/g, '/');
+
 export const App: React.FC = () => {
-  // State: Default to 'current' local repository!
-  const [repoPath, setRepoPath] = useState<string>(() => {
-    return localStorage.getItem('git_last_repo_path') || 'current';
-  });
-  const [recentRepos, setRecentRepos] = useState<string[]>(() => {
-    const saved = localStorage.getItem('git_recent_repos');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [];
-  });
+  const {
+    repoPath,
+    setRepoPath,
+    recentRepos,
+    removeRecentRepo,
+    repoInfo,
+    commits,
+    selection,
+    setSelection,
+    diffResult,
+    isLoadingRepo,
+    isLoadingDiff,
+    repoError,
+    refresh,
+  } = useRepository();
 
-  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
-  const [commits, setCommits] = useState<CommitNode[]>([]);
-  const [selection, setSelection] = useState<SelectionState>({
-    type: 'commit',
-    commitHash: '',
-  });
-
-  const [diffResult, setDiffResult] = useState<DiffResult | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<DiffViewMode>('split');
+  const [viewMode, setViewMode] = useState<'split' | 'unified' | 'natural'>('split');
 
-  const [isLoadingRepo, setIsLoadingRepo] = useState<boolean>(false);
-  const [isLoadingDiff, setIsLoadingDiff] = useState<boolean>(false);
-  const [repoError, setRepoError] = useState<string | null>(null);
-
-  // Modals
-  const [isOpenRepoModal, setIsOpenRepoModal] = useState<boolean>(false);
-  const [isExplanationOpen, setIsExplanationOpen] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('git_ai_explanation_open') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [isOpenRepoModal, setIsOpenRepoModal] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAIInspectorOpen, setIsAIInspectorOpen] = useState(false);
   const [explanationScope, setExplanationScope] = useState<ExplanationScope | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [isAIInspectorOpen, setIsAIInspectorOpen] = useState<boolean>(false);
-  const [aiSessions, setAiSessions] = useState(() => aiLogger.getSessions());
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('git_ai_explanation_open', String(isExplanationOpen));
-    } catch {}
-  }, [isExplanationOpen]);
-
-  useEffect(() => {
-    return aiLogger.subscribe((updated) => {
-      setAiSessions(updated);
-    });
-  }, []);
-
-  const isAIRunning = aiSessions.some((s) => s.status === 'running');
-
-  // Collapsible Git Commit Graph Panel
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    return localStorage.getItem('git_sidebar_collapsed') === 'true';
-  });
-
-  const handleToggleSidebar = () => {
-    setIsSidebarCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem('git_sidebar_collapsed', String(next));
-      return next;
-    });
-  };
-
-  // AI Config
-  const [aiConfig, setAiConfig] = useState<AIProviderConfig>(() => {
-    const saved = localStorage.getItem('git_ai_config');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return DEFAULT_AI_CONFIG;
-  });
-
-  const handleSaveConfig = (newConfig: AIProviderConfig) => {
-    setAiConfig(newConfig);
-    localStorage.setItem('git_ai_config', JSON.stringify(newConfig));
-  };
-
-  // Add to recent repositories
-  const addRecentRepo = useCallback((pathToAdd: string) => {
-    if (pathToAdd === 'demo' || pathToAdd === 'current') return;
-    setRecentRepos((prev) => {
-      const filtered = prev.filter((p) => p !== pathToAdd);
-      const updated = [pathToAdd, ...filtered].slice(0, 10);
-      localStorage.setItem('git_recent_repos', JSON.stringify(updated));
-      return updated;
-    });
-  }, []);
-
-  const handleRemoveRecentRepo = (pathToRemove: string) => {
-    setRecentRepos((prev) => {
-      const updated = prev.filter((p) => p !== pathToRemove);
-      localStorage.setItem('git_recent_repos', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  // Load Repository & Commits
-  const loadRepo = useCallback(
-    async (path: string) => {
-      setIsLoadingRepo(true);
-      setRepoError(null);
-      try {
-        const [info, commitData] = await Promise.all([
-          fetchRepoInfo(path),
-          fetchCommits(path),
-        ]);
-        setRepoInfo(info);
-        setCommits(commitData.commits);
-
-        // Save last active repo
-        localStorage.setItem('git_last_repo_path', path);
-        if (info.path && info.path !== 'demo') {
-          addRecentRepo(info.path);
-        }
-
-        // Default select the first commit or working tree
-        if (commitData.commits.length > 0) {
-          const firstHash = commitData.commits[0].hash;
-          setSelection({ type: 'commit', commitHash: firstHash });
-        } else {
-          setSelection({ type: 'working-tree' });
-        }
-      } catch (err: any) {
-        console.error(err);
-        setRepoError(err.message || '无法加载该 Git 仓库');
-      } finally {
-        setIsLoadingRepo(false);
-      }
-    },
-    [addRecentRepo]
+  const [isExplanationOpen, setIsExplanationOpen] = useState(
+    () => storage.get(STORAGE_KEYS.explanationOpen) === 'true'
+  );
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    () => storage.get(STORAGE_KEYS.sidebarCollapsed) === 'true'
   );
 
+  const [aiConfig, setAiConfig] = useState<AIProviderConfig>(() =>
+    storage.getJson<AIProviderConfig>(STORAGE_KEYS.aiConfig, DEFAULT_AI_CONFIG)
+  );
+
+  /**
+   * Only the counts are needed here. Subscribing to the full session list would
+   * re-render the entire workspace on every streamed token.
+   */
+  const [aiSummary, setAiSummary] = useState<AILoggerSummary>(() => aiLogger.getSummary());
+  useEffect(() => aiLogger.subscribeSummary(setAiSummary), []);
+
   useEffect(() => {
-    loadRepo(repoPath);
-  }, [repoPath, loadRepo]);
+    storage.set(STORAGE_KEYS.explanationOpen, String(isExplanationOpen));
+  }, [isExplanationOpen]);
 
-  // Load Diff based on selection state
-  useEffect(() => {
-    const loadDiff = async () => {
-      setIsLoadingDiff(true);
-      try {
-        let res: DiffResult | null = null;
-        if (selection.type === 'commit' && selection.commitHash) {
-          res = await fetchCommitDiff(repoPath, selection.commitHash);
-        } else if (selection.type === 'compare' && selection.baseHash && selection.targetHash) {
-          res = await fetchCompareDiff(repoPath, selection.baseHash, selection.targetHash);
-        } else if (selection.type === 'working-tree') {
-          res = await fetchWorkingTreeDiff(repoPath);
-        } else if (
-          selection.type === 'batch' &&
-          selection.commitHashes &&
-          selection.commitHashes.length > 0
-        ) {
-          res = await fetchBatchCommitsDiff(repoPath, selection.commitHashes);
-        }
-
-        setDiffResult(res);
-        if (res && res.files.length > 0) {
-          setSelectedFilePath(res.files[0].newPath);
-        } else {
-          setSelectedFilePath(null);
-        }
-      } catch (err: any) {
-        console.error(err);
-      } finally {
-        setIsLoadingDiff(false);
-      }
-    };
-
-    if (
-      selection.commitHash ||
-      (selection.baseHash && selection.targetHash) ||
-      selection.type === 'working-tree' ||
-      (selection.type === 'batch' && selection.commitHashes && selection.commitHashes.length > 0)
-    ) {
-      loadDiff();
-    }
-  }, [selection, repoPath]);
-
-  // Handler: Select single commit
-  const handleSelectCommit = (hash: string) => {
-    setSelection({ type: 'commit', commitHash: hash });
-  };
-
-  // Handler: Compare two commits
-  const handleCompareCommits = (baseHash: string, targetHash: string) => {
-    setSelection({ type: 'compare', baseHash, targetHash });
-  };
-
-  // Handler: Select working tree
-  const handleSelectWorkingTree = () => {
-    setSelection({ type: 'working-tree' });
-  };
-
-  // Handler: Select batch commits (consolidated net diff)
-  const handleSelectBatchCommits = (hashes: string[]) => {
-    setSelection({
-      type: 'batch',
-      commitHashes: hashes,
-      batchTitle: `批量合并 [${hashes.length} 个提交]`,
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      storage.set(STORAGE_KEYS.sidebarCollapsed, String(!prev));
+      return !prev;
     });
-  };
+  }, []);
 
-  // Handler: Explain batch commits overall outcome with AI
-  const handleExplainBatchCommits = (hashes: string[], batchTitle: string) => {
-    fetchBatchCommitsDiff(repoPath, hashes)
-      .then((res: DiffResult) => {
-        const allDiff = res.files.map((f: DiffFile) => f.diff).join('\n\n');
-        const commitHistorySummary = res.batchInfo?.messages?.join('\n') || '';
-        setExplanationScope({
-          type: 'chunks',
-          title: res.title || `批量合并审查 (${hashes.length} 个提交)`,
-          diff: `【整批提交演进历史】\n${commitHistorySummary}\n\n【合并最终生效的净代码变动 (Consolidated Net Diff)】\n${allDiff}`,
-          commitMessage: res.title,
-          commitHashes: hashes,
-          batchInfo: res.batchInfo,
-          initialMode: 'agent',
-        });
-        setIsExplanationOpen(true);
-      })
-      .catch((err: any) => {
-        console.error(err);
-      });
-  };
+  const handleSaveConfig = useCallback((newConfig: AIProviderConfig) => {
+    setAiConfig(newConfig);
+    storage.setJson(STORAGE_KEYS.aiConfig, newConfig);
+  }, []);
 
-  // Handlers: AI Explanations
-  const handleExplainAll = () => {
+  // Auto-select the first changed file whenever a new diff arrives.
+  useEffect(() => {
+    setSelectedFilePath(diffResult?.files.length ? diffResult.files[0].newPath : null);
+  }, [diffResult]);
+
+  // ---------------------------- selection handlers ----------------------------
+
+  const handleSelectCommit = useCallback(
+    (hash: string) => setSelection({ type: 'commit', commitHash: hash }),
+    [setSelection]
+  );
+
+  const handleCompareCommits = useCallback(
+    (baseHash: string, targetHash: string) =>
+      setSelection({ type: 'compare', baseHash, targetHash }),
+    [setSelection]
+  );
+
+  const handleSelectWorkingTree = useCallback(
+    () => setSelection({ type: 'working-tree' }),
+    [setSelection]
+  );
+
+  const handleSelectBatchCommits = useCallback(
+    (hashes: string[]) =>
+      setSelection({
+        type: 'batch',
+        commitHashes: hashes,
+        batchTitle: `批量合并 [${hashes.length} 个提交]`,
+      }),
+    [setSelection]
+  );
+
+  // ---------------------------- explanation handlers ----------------------------
+
+  const openExplanation = useCallback((scope: ExplanationScope) => {
+    setExplanationScope(scope);
+    setIsExplanationOpen(true);
+  }, []);
+
+  const handleExplainBatchCommits = useCallback(
+    (hashes: string[]) => {
+      fetchBatchCommitsDiff(repoPath, hashes)
+        .then((res) => {
+          const allDiff = res.files.map((f) => f.diff).join('\n\n');
+          const history = res.batchInfo?.messages?.join('\n') || '';
+          openExplanation({
+            type: 'chunks',
+            title: res.title || `批量合并审查 (${hashes.length} 个提交)`,
+            diff: `【整批提交演进历史】\n${history}\n\n【合并最终生效的净代码变动 (Consolidated Net Diff)】\n${allDiff}`,
+            commitMessage: res.title,
+            commitHashes: hashes,
+            batchInfo: res.batchInfo,
+            initialMode: 'agent',
+          });
+        })
+        .catch(console.error);
+    },
+    [openExplanation, repoPath]
+  );
+
+  const handleExplainAll = useCallback(() => {
     if (!diffResult) return;
-    const allDiff = diffResult.files.map((f) => f.diff).join('\n\n');
-    setExplanationScope({
+    openExplanation({
       type: selection.type === 'compare' ? 'compare' : 'commit',
       title: diffResult.title || '本次全量变更 (Full Diff)',
-      diff: allDiff,
+      diff: diffResult.files.map((f) => f.diff).join('\n\n'),
       commitMessage: diffResult.title,
     });
-    setIsExplanationOpen(true);
-  };
+  }, [diffResult, openExplanation, selection.type]);
 
-  const handleExplainFile = (file: DiffFile, mode: 'agent' | 'fast' = 'agent') => {
-    setExplanationScope({
-      type: 'file',
-      title: `文件差异: ${file.newPath}`,
-      filePath: file.newPath,
-      diff: file.diff,
-      commitMessage: diffResult?.title,
-      initialMode: mode,
-    });
-    setIsExplanationOpen(true);
-  };
-
-  const handleExplainHunk = (
-    hunkHeader: string,
-    hunkDiff: string,
-    hunkIndex?: number,
-    mode: 'agent' | 'fast' = 'agent'
-  ) => {
-    setExplanationScope({
-      type: 'hunk',
-      title: `改动块${hunkIndex ? ` #${hunkIndex}` : ''}: ${hunkHeader}`,
-      filePath: selectedFilePath || undefined,
-      diff: hunkDiff,
-      commitMessage: diffResult?.title,
-      initialMode: mode,
-    });
-    setIsExplanationOpen(true);
-  };
-
-  const handleExplainMultipleHunks = (
-    selectedHunks: any[],
-    file: DiffFile,
-    mode: 'agent' | 'fast' = 'agent'
-  ) => {
-    const hunkIndices = selectedHunks.map((h) => `#${h.index}`).join(', ');
-    const combinedDiff = selectedHunks
-      .map(
-        (h) =>
-          `// ==========================================\n// 改动块 #${h.index} (${h.header}) (+${h.additions} -${h.deletions})\n// ==========================================\n` +
-          h.lines
-            .map((l: any) =>
-              l.type === 'add' ? `+${l.content}` : l.type === 'delete' ? `-${l.content}` : ` ${l.content}`
-            )
-            .join('\n')
-      )
-      .join('\n\n');
-
-    setExplanationScope({
-      type: 'chunks',
-      title: `联合解释选中的 ${selectedHunks.length} 个改动块 (${file.newPath}: 块 ${hunkIndices})`,
-      filePath: file.newPath,
-      diff: combinedDiff,
-      commitMessage: diffResult?.title,
-      initialMode: mode,
-    });
-    setIsExplanationOpen(true);
-  };
-
-  const handleExplainCommit = (hash: string, message: string) => {
-    fetchCommitDiff(repoPath, hash)
-      .then((res) => {
-        const allDiff = res.files.map((f) => f.diff).join('\n\n');
-        setExplanationScope({
-          type: 'commit',
-          title: `提交 [${hash.slice(0, 7)}]: ${message}`,
-          diff: allDiff,
-          commitMessage: message,
-        });
-        setIsExplanationOpen(true);
-      })
-      .catch((err) => {
-        console.error(err);
+  const handleExplainFile = useCallback(
+    (file: DiffFile, mode: 'agent' | 'fast' = 'agent') => {
+      openExplanation({
+        type: 'file',
+        title: `文件差异: ${file.newPath}`,
+        filePath: file.newPath,
+        diff: file.diff,
+        commitMessage: diffResult?.title,
+        initialMode: mode,
       });
-  };
+    },
+    [diffResult?.title, openExplanation]
+  );
 
-  const selectedFile = diffResult?.files.find((f) => {
-    if (!selectedFilePath) return false;
-    const cleanSel = selectedFilePath.replace(/\\/g, '/');
-    const cleanNew = (f.newPath || '').replace(/\\/g, '/');
-    const cleanOld = (f.oldPath || '').replace(/\\/g, '/');
-    return cleanNew === cleanSel || cleanOld === cleanSel;
-  }) || null;
+  const handleExplainHunk = useCallback(
+    (hunkHeader: string, hunkDiff: string, hunkIndex?: number, mode: 'agent' | 'fast' = 'agent') => {
+      openExplanation({
+        type: 'hunk',
+        title: `改动块${hunkIndex ? ` #${hunkIndex}` : ''}: ${hunkHeader}`,
+        filePath: selectedFilePath || undefined,
+        diff: hunkDiff,
+        commitMessage: diffResult?.title,
+        initialMode: mode,
+      });
+    },
+    [diffResult?.title, openExplanation, selectedFilePath]
+  );
+
+  const handleExplainMultipleHunks = useCallback(
+    (selectedHunks: DiffHunk[], file: DiffFile, mode: 'agent' | 'fast' = 'agent') => {
+      const hunkIndices = selectedHunks.map((h) => `#${h.index}`).join(', ');
+      const combinedDiff = selectedHunks
+        .map(
+          (h) =>
+            `// ==========================================\n// 改动块 #${h.index} (${h.header}) (+${h.additions} -${h.deletions})\n// ==========================================\n${h.text}`
+        )
+        .join('\n\n');
+
+      openExplanation({
+        type: 'chunks',
+        title: `联合解释选中的 ${selectedHunks.length} 个改动块 (${file.newPath}: 块 ${hunkIndices})`,
+        filePath: file.newPath,
+        diff: combinedDiff,
+        commitMessage: diffResult?.title,
+        initialMode: mode,
+      });
+    },
+    [diffResult?.title, openExplanation]
+  );
+
+  const handleExplainCommit = useCallback(
+    (hash: string, message: string) => {
+      fetchCommitDiff(repoPath, hash)
+        .then((res) => {
+          openExplanation({
+            type: 'commit',
+            title: `提交 [${hash.slice(0, 7)}]: ${message}`,
+            diff: res.files.map((f) => f.diff).join('\n\n'),
+            commitMessage: message,
+          });
+        })
+        .catch(console.error);
+    },
+    [openExplanation, repoPath]
+  );
+
+  const selectedFile = useMemo(() => {
+    if (!diffResult || !selectedFilePath) return null;
+    const target = normalizePath(selectedFilePath);
+    return (
+      diffResult.files.find(
+        (f) => normalizePath(f.newPath) === target || normalizePath(f.oldPath) === target
+      ) || null
+    );
+  }, [diffResult, selectedFilePath]);
+
+  const isAIRunning = aiSummary.running > 0;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#181920] text-slate-100 overflow-hidden font-sans">
-      {/* Top Header */}
       <Header
         repoInfo={repoInfo}
         repoPath={repoPath}
@@ -378,17 +244,16 @@ export const App: React.FC = () => {
         onOpenRepoModal={() => setIsOpenRepoModal(true)}
         selection={selection}
         onSelectWorkingTree={handleSelectWorkingTree}
-        onRefresh={() => loadRepo(repoPath)}
+        onRefresh={refresh}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAIInspector={() => setIsAIInspectorOpen(true)}
         isLoading={isLoadingRepo || isLoadingDiff}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={handleToggleSidebar}
         isExplanationOpen={isExplanationOpen}
-        onToggleExplanation={() => setIsExplanationOpen(!isExplanationOpen)}
+        onToggleExplanation={() => setIsExplanationOpen((v) => !v)}
       />
 
-      {/* Repo Load Error Banner if any */}
       {repoError && (
         <div className="bg-rose-500/15 border-b border-rose-500/30 px-4 py-2 text-xs text-rose-300 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -404,9 +269,8 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Main 3-Column Workspace Layout (Fork-Style) */}
+      {/* Three-column workspace: DAG · files · diff */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Column: Commit Graph DAG (Expanded) */}
         {!isSidebarCollapsed && (
           <div className="w-[42%] min-w-[360px] max-w-[700px] h-full flex flex-col transition-all duration-200">
             <CommitGraph
@@ -422,7 +286,6 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Collapsed Left Sidebar Strip */}
         {isSidebarCollapsed && (
           <div
             onClick={handleToggleSidebar}
@@ -443,7 +306,6 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Middle Column: Files Panel */}
         <div
           className={`${
             isSidebarCollapsed
@@ -461,7 +323,6 @@ export const App: React.FC = () => {
           />
         </div>
 
-        {/* Right Column: Code Diff Viewer */}
         <div className="flex-1 h-full flex flex-col min-w-0">
           <DiffViewer
             file={selectedFile}
@@ -475,7 +336,7 @@ export const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Floating Bottom-Right AI Console Trigger Pill */}
+      {/* Floating AI console trigger */}
       <button
         onClick={() => setIsAIInspectorOpen(true)}
         className={`fixed bottom-4 right-4 z-40 flex items-center space-x-2 px-3 py-2 rounded-full border shadow-xl transition transform active:scale-95 ${
@@ -489,24 +350,22 @@ export const App: React.FC = () => {
         <span className="text-xs font-semibold">
           {isAIRunning ? 'AI 流式输出中...' : 'AI 控制台'}
         </span>
-        {aiSessions.length > 0 && !isAIRunning && (
+        {aiSummary.total > 0 && !isAIRunning && (
           <span className="bg-purple-500/30 text-purple-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-            {aiSessions.length}
+            {aiSummary.total}
           </span>
         )}
       </button>
 
-      {/* Open Repo Modal */}
       <OpenRepoModal
         isOpen={isOpenRepoModal}
         onClose={() => setIsOpenRepoModal(false)}
         currentPath={repoInfo?.path || repoPath}
         onSelectRepo={setRepoPath}
         recentRepos={recentRepos}
-        onRemoveRecentRepo={handleRemoveRecentRepo}
+        onRemoveRecentRepo={removeRecentRepo}
       />
 
-      {/* AI Explanation Slide-over Panel */}
       <AIExplanationDrawer
         isOpen={isExplanationOpen}
         onClose={() => setIsExplanationOpen(false)}
@@ -515,7 +374,6 @@ export const App: React.FC = () => {
         aiConfig={aiConfig}
       />
 
-      {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -523,7 +381,6 @@ export const App: React.FC = () => {
         onSaveConfig={handleSaveConfig}
       />
 
-      {/* AI Call Inspector Modal */}
       <AICallInspectorModal
         isOpen={isAIInspectorOpen}
         onClose={() => setIsAIInspectorOpen(false)}

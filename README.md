@@ -1,4 +1,4 @@
-﻿# AI-Diff-Tool 🚀
+# AI-Diff-Tool 🚀
 
 > **基于自主 ReAct 智能体引擎与 Git 原生索引的高性能语义代码审查与可视化工作台**  
 > *AI-Powered Semantic Git Diff & Multi-File Code Review Workbench with Autonomous Agent Engine*
@@ -51,17 +51,33 @@
 
 ```
 AI-Diff-Tool
-├── Frontend (React 19 + TypeScript + Vite + TailwindCSS v4)
-│   ├── CommitGraph: Topologically-sorted Git DAG with canvas/SVG links
-│   ├── DiffViewer: Split / Unified line-by-line Diff with hunk capsules
-│   ├── AIExplanationDrawer: Live SSE reader & dynamic Action Trail HUD
-│   └── SettingsModal: Config-driven Agent runtime & Prompt editor
+├── shared/types.ts ................ 前后端共用的唯一类型契约（Git 领域 + AI 配置 + SSE 事件）
 │
-└── Backend (Node.js + Express + Simple-Git)
-    ├── agentEngine: Autonomous ReAct loop with true SSE token streaming
-    ├── agentTools: Git-indexed high-speed symbol & file locator
-    ├── aiService: Direct fast diff review stream
-    └── gitService: Local repository inspect, branches & commit DAG generator
+├── src/ (React 19 + TypeScript + Vite + TailwindCSS v4)
+│   ├── hooks/
+│   │   ├── useRepository ............ 仓库元信息、提交列表、选区与 Diff 加载（含竞态防护）
+│   │   └── useDeferredMount ......... 视口驱动的延迟挂载，用于超大 Diff
+│   ├── services/
+│   │   ├── sseClient ................ 统一的 SSE 传输层（两个流式端点共用）
+│   │   ├── api ...................... REST + 流式接口封装与请求去重
+│   │   ├── aiCache .................. 惰性水合的多级持久化缓存
+│   │   └── aiLogger ................. 批量通知的 AI 调用记录中心
+│   └── components/
+│       ├── CommitGraph .............. 拓扑排序 Git DAG 与 SVG 分支连线
+│       ├── DiffViewer ............... 工具栏 / HunkBlock / HunkRows 分层，逐块记忆化
+│       ├── AIExplanation ............ 抽屉视图 + useReviewSessions 会话状态机
+│       └── SettingsModal ............ 配置驱动的引擎运行参数与提示词编辑器
+│
+└── server/ (Node.js + Express + Simple-Git)
+    ├── routes/ ...................... system / repo / ai 三组路由
+    ├── http/ ........................ SseStream（含客户端断连传播）与统一错误中间件
+    ├── config/providers ............. 各模型服务商的默认端点与模型解析
+    ├── prompts ...................... 全部提示词与 Diff 截断上限
+    ├── agentEngine .................. 自主 ReAct 循环与真实 SSE Token 流
+    ├── agentTools ................... Git 索引高速符号与文件检索沙箱
+    ├── aiService .................... 直接 Diff 快速审查流
+    ├── gitService ................... 仓库检视、提交 DAG 与带缓存的 Diff 计算
+    └── cache/lru .................... 不可变提交 Diff 的有界缓存
 ```
 
 ---
@@ -86,7 +102,7 @@ npm install
 ```bash
 npm run dev
 ```
-> 该命令会使用 `concurrently` 同时启动前端开发服务器（`http://localhost:5173`）与后端 Express 引擎（`http://localhost:3001`）。
+> 该命令会使用 `concurrently` 同时启动前端开发服务器（`http://localhost:5173`）与后端 Express 引擎（`http://localhost:4000`，可用 `PORT` 环境变量覆盖）。
 
 ### 4. 生产打包
 

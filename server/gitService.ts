@@ -1,61 +1,70 @@
-import simpleGit, { SimpleGit, DefaultLogFields } from 'simple-git';
+import simpleGit, { SimpleGit } from 'simple-git';
 import path from 'path';
 import fs from 'fs';
+import { LruCache } from './cache/lru';
+import type {
+  BatchInfo,
+  CommitNode,
+  DiffFile,
+  DiffResult,
+  RepoInfo,
+} from '../shared/types';
 
-export interface CommitNode {
-  hash: string;
-  shortHash: string;
-  parents: string[];
-  author: string;
-  authorEmail: string;
-  date: string;
-  message: string;
-  refs: string[];
-}
+export type { CommitNode, DiffFile, DiffResult, RepoInfo } from '../shared/types';
 
-export interface DiffFile {
-  oldPath: string;
-  newPath: string;
-  status: 'added' | 'modified' | 'deleted' | 'renamed';
-  additions: number;
-  deletions: number;
-  diff: string;
-}
+/** The empty-tree object, used as the base when diffing a root commit. */
+const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
-export interface DiffResult {
-  title: string;
-  summary: {
-    filesChanged: number;
-    insertions: number;
-    deletions: number;
-  };
-  files: DiffFile[];
-}
+/** Separators git writes into the stream, and the characters they produce. */
+const FIELD_SEP = '\x00';
+const RECORD_SEP = '\x01';
+// `%x00` / `%x01` are git's own escapes: the format string itself must stay
+// free of control characters, since Node rejects argv entries containing them.
+const COMMIT_FORMAT = '%H%x00%h%x00%P%x00%an%x00%ae%x00%ad%x00%s%x00%D%x01';
+
+const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+
+/**
+ * Diffs of a given commit (or of an immutable SHA range) never change, so they
+ * are worth holding on to: re-selecting a commit in the graph then becomes a
+ * map lookup instead of two `git` subprocesses plus a full re-parse.
+ */
+const diffCache = new LruCache<DiffResult>(64);
+/** Per-repository `SimpleGit` instances; constructing one is not free. */
+const gitInstances = new Map<string, SimpleGit>();
 
 export class GitService {
   private getGit(repoPath: string): SimpleGit {
+    const cached = gitInstances.get(repoPath);
+    if (cached) return cached;
+
     if (!fs.existsSync(repoPath)) {
       throw new Error(`Repository path does not exist: ${repoPath}`);
     }
-    return simpleGit(repoPath);
+    const git = simpleGit(repoPath);
+    gitInstances.set(repoPath, git);
+    return git;
   }
 
-  async getRepoInfo(repoPath: string) {
+  async getRepoInfo(repoPath: string): Promise<RepoInfo & { remotes: unknown }> {
     const git = this.getGit(repoPath);
     const isRepo = await git.checkIsRepo();
     if (!isRepo) {
       throw new Error(`Path is not a valid git repository: ${repoPath}`);
     }
 
-    const status = await git.status();
-    const branchSummary = await git.branchLocal();
-    const remoteSummary = await git.getRemotes(true);
+    // Independent reads — issue them concurrently instead of serially.
+    const [status, branchSummary, remoteSummary] = await Promise.all([
+      git.status(),
+      git.branchLocal(),
+      git.getRemotes(true),
+    ]);
 
     return {
       path: repoPath,
       name: path.basename(repoPath),
-      currentBranch: status.current,
-      tracking: status.tracking,
+      currentBranch: status.current || '',
+      tracking: status.tracking || undefined,
       ahead: status.ahead,
       behind: status.behind,
       isClean: status.isClean(),
@@ -68,81 +77,72 @@ export class GitService {
   async getCommits(repoPath: string, limit: number = 100): Promise<CommitNode[]> {
     const git = this.getGit(repoPath);
 
-    // Get branches and tags for ref decorations
-    const branchSummary = await git.branch(['-a']);
-    const tagSummary = await git.tags();
-
-    // Raw log format with parent hashes
+    // Ref decorations already come back through `%D`, so no extra
+    // `git branch -a` / `git tag` round-trips are needed here.
     const logResult = await git.raw([
       'log',
       `-${limit}`,
       '--all',
       '--date-order',
-      '--pretty=format:%H%x00%h%x00%P%x00%an%x00%ae%x00%ad%x00%s%x00%D%x01',
+      `--pretty=format:${COMMIT_FORMAT}`,
     ]);
 
-    if (!logResult.trim()) {
-      return [];
-    }
-
-    const commits: CommitNode[] = [];
-    const entries = logResult.split('\x01').filter(e => e.trim().length > 0);
-
-    for (const entry of entries) {
-      const parts = entry.split('\x00');
-      if (parts.length >= 7) {
-        const hash = parts[0].trim();
-        const shortHash = parts[1].trim();
-        const parents = parts[2].trim() ? parts[2].trim().split(' ') : [];
-        const author = parts[3].trim();
-        const authorEmail = parts[4].trim();
-        const date = parts[5].trim();
-        const message = parts[6].trim();
-        const refStr = parts[7] ? parts[7].trim() : '';
-
-        const refs: string[] = refStr
-          ? refStr.split(',').map(r => r.trim()).filter(Boolean)
-          : [];
-
-        commits.push({
-          hash,
-          shortHash,
-          parents,
-          author,
-          authorEmail,
-          date,
-          message,
-          refs,
-        });
-      }
-    }
-
-    return commits;
+    return parseCommitRecords(logResult);
   }
 
   async getCommitDiff(repoPath: string, hash: string): Promise<DiffResult> {
+    const cacheKey = `commit::${repoPath}::${hash}`;
+    if (FULL_SHA_RE.test(hash)) {
+      const hit = diffCache.get(cacheKey);
+      if (hit) return hit;
+    }
+
     const git = this.getGit(repoPath);
 
-    const showRaw = await git.raw(['show', '--pretty=format:%H%n%s%n%b', '--stat', '-p', hash]);
-    const numstat = await git.raw(['show', '--numstat', '--format=', hash]);
+    // `--format=` suppresses the commit header and the previous `--stat` block:
+    // both were parsed away, so producing them was pure I/O waste on big commits.
+    const [showRaw, numstat] = await Promise.all([
+      git.raw(['show', '--format=', '-p', hash]),
+      git.raw(['show', '--numstat', '--format=', hash]),
+    ]);
 
-    return this.parseDiffOutput(`Commit ${hash.slice(0, 7)}`, showRaw, numstat);
+    const result = this.parseDiffOutput(`Commit ${hash.slice(0, 7)}`, showRaw, numstat);
+    if (FULL_SHA_RE.test(hash)) {
+      diffCache.set(cacheKey, result);
+    }
+    return result;
   }
 
   async getCompareDiff(repoPath: string, base: string, target: string): Promise<DiffResult> {
+    // Only cacheable when both endpoints are immutable SHAs — branch names move.
+    const isImmutable = FULL_SHA_RE.test(base) && FULL_SHA_RE.test(target);
+    const cacheKey = `compare::${repoPath}::${base}...${target}`;
+    if (isImmutable) {
+      const hit = diffCache.get(cacheKey);
+      if (hit) return hit;
+    }
+
     const git = this.getGit(repoPath);
+    const [diffRaw, numstat] = await Promise.all([
+      git.raw(['diff', `${base}...${target}`]),
+      git.raw(['diff', '--numstat', `${base}...${target}`]),
+    ]);
 
-    const diffRaw = await git.raw(['diff', `${base}...${target}`]);
-    const numstat = await git.raw(['diff', '--numstat', `${base}...${target}`]);
-
-    return this.parseDiffOutput(`Compare ${base.slice(0, 7)}...${target.slice(0, 7)}`, diffRaw, numstat);
+    const result = this.parseDiffOutput(
+      `Compare ${base.slice(0, 7)}...${target.slice(0, 7)}`,
+      diffRaw,
+      numstat
+    );
+    if (isImmutable) {
+      diffCache.set(cacheKey, result);
+    }
+    return result;
   }
 
   async getBatchCommitsDiff(
     repoPath: string,
     hashes: string[]
-  ): Promise<DiffResult & { batchInfo: { count: number; messages: string[] } }> {
-    const git = this.getGit(repoPath);
+  ): Promise<DiffResult & { batchInfo: BatchInfo }> {
     if (!hashes || hashes.length === 0) {
       return {
         title: '未选择提交',
@@ -152,9 +152,19 @@ export class GitService {
       };
     }
 
-    // 1. Get topological log to sort the selected hashes in chronological DAG order
-    const allCommits = await this.getCommits(repoPath, 1000);
-    const selectedCommits = allCommits.filter((c: CommitNode) => hashes.includes(c.hash));
+    const cacheKey = `batch::${repoPath}::${[...hashes].sort().join(',')}`;
+    const allImmutable = hashes.every((h) => FULL_SHA_RE.test(h));
+    if (allImmutable) {
+      const hit = diffCache.get(cacheKey) as (DiffResult & { batchInfo: BatchInfo }) | undefined;
+      if (hit?.batchInfo) return hit;
+    }
+
+    const git = this.getGit(repoPath);
+
+    // Order only the selected commits. The previous implementation walked the
+    // whole history (`getCommits(repoPath, 1000)`) and filtered it down, which
+    // cost a 1000-commit log + parse just to sort a handful of hashes.
+    const selectedCommits = await this.describeCommits(git, hashes);
 
     if (selectedCommits.length === 0) {
       return {
@@ -167,52 +177,70 @@ export class GitService {
 
     if (selectedCommits.length === 1) {
       const single = await this.getCommitDiff(repoPath, selectedCommits[0].hash);
-      return {
+      const result = {
         ...single,
         batchInfo: {
           count: 1,
-          messages: [
-            `• [${selectedCommits[0].shortHash}] ${selectedCommits[0].message} (${selectedCommits[0].author})`,
-          ],
+          messages: [formatBatchMessage(selectedCommits[0], false)],
         },
       };
+      if (allImmutable) diffCache.set(cacheKey, result);
+      return result;
     }
 
-    // DAG order: index 0 is newest, last index is oldest
+    // DAG order: index 0 is newest, last index is oldest.
     const newestCommit = selectedCommits[0];
     const oldestCommit = selectedCommits[selectedCommits.length - 1];
+    const oldestParent = oldestCommit.parents[0] || EMPTY_TREE_HASH;
 
-    const oldestParent =
-      oldestCommit.parents && oldestCommit.parents.length > 0
-        ? oldestCommit.parents[0]
-        : '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
-
-    // Compute consolidated net diff between oldestParent and newestCommit
-    const diffRaw = await git.raw(['diff', `${oldestParent}..${newestCommit.hash}`]);
-    const numstat = await git.raw(['diff', '--numstat', `${oldestParent}..${newestCommit.hash}`]);
+    const range = `${oldestParent}..${newestCommit.hash}`;
+    const [diffRaw, numstat] = await Promise.all([
+      git.raw(['diff', range]),
+      git.raw(['diff', '--numstat', range]),
+    ]);
 
     const title = `批量合并改动 [${selectedCommits.length} 个提交: ${oldestCommit.shortHash} ➔ ${newestCommit.shortHash}]`;
     const parsed = this.parseDiffOutput(title, diffRaw, numstat);
 
-    return {
+    const result = {
       ...parsed,
       batchInfo: {
         count: selectedCommits.length,
-        messages: selectedCommits.map(
-          (c: CommitNode) => `• [${c.shortHash}] ${c.message} (${c.author} · ${c.date})`
-        ),
+        messages: selectedCommits.map((c) => formatBatchMessage(c, true)),
       },
     };
+    if (allImmutable) diffCache.set(cacheKey, result);
+    return result;
   }
 
   async getWorkingTreeDiff(repoPath: string): Promise<DiffResult> {
     const git = this.getGit(repoPath);
 
-    // Staged & unstaged changes
-    const diffRaw = await git.raw(['diff', 'HEAD']);
-    const numstat = await git.raw(['diff', '--numstat', 'HEAD']);
+    // Staged & unstaged changes. Never cached: the working tree is live.
+    const [diffRaw, numstat] = await Promise.all([
+      git.raw(['diff', 'HEAD']),
+      git.raw(['diff', '--numstat', 'HEAD']),
+    ]);
 
     return this.parseDiffOutput('Uncommitted Changes (Working Tree)', diffRaw, numstat);
+  }
+
+  /**
+   * Resolves metadata for exactly the given hashes, newest first, in a single
+   * `git rev-list` call. `--no-walk=sorted` skips ancestor traversal entirely.
+   */
+  private async describeCommits(git: SimpleGit, hashes: string[]): Promise<CommitNode[]> {
+    try {
+      const raw = await git.raw([
+        'rev-list',
+        '--no-walk=sorted',
+        `--format=${COMMIT_FORMAT}`,
+        ...hashes,
+      ]);
+      return parseCommitRecords(raw);
+    } catch {
+      return [];
+    }
   }
 
   private parseDiffOutput(title: string, rawDiff: string, numstatRaw: string): DiffResult {
@@ -222,51 +250,53 @@ export class GitService {
     let totalInsertions = 0;
     let totalDeletions = 0;
 
-    // Parse numstat
-    const numstatLines = numstatRaw.split('\n');
-    for (const line of numstatLines) {
+    for (const line of numstatRaw.split('\n')) {
       const parts = line.split('\t');
-      if (parts.length >= 3) {
-        const adds = parts[0] === '-' ? 0 : parseInt(parts[0], 10) || 0;
-        const dels = parts[1] === '-' ? 0 : parseInt(parts[1], 10) || 0;
-        const filePath = parts[2].trim();
-        statsMap.set(filePath, { additions: adds, deletions: dels });
-        totalInsertions += adds;
-        totalDeletions += dels;
-      }
+      if (parts.length < 3) continue;
+
+      const adds = parts[0] === '-' ? 0 : parseInt(parts[0], 10) || 0;
+      const dels = parts[1] === '-' ? 0 : parseInt(parts[1], 10) || 0;
+      statsMap.set(parts[2].trim(), { additions: adds, deletions: dels });
+      totalInsertions += adds;
+      totalDeletions += dels;
     }
 
-    // Split diff chunks by 'diff --git'
     const chunks = rawDiff.split(/^diff --git /m);
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
 
-      const firstLine = chunk.split('\n')[0];
+      const firstLineEnd = chunk.indexOf('\n');
+      const firstLine = firstLineEnd === -1 ? chunk : chunk.slice(0, firstLineEnd);
       const match = firstLine.match(/a\/(.*?)\s+b\/(.*)/);
       if (!match) continue;
 
       const oldPath = match[1];
       const newPath = match[2];
 
+      // Only the metadata block (before the first hunk) can carry these
+      // markers, so scan that slice rather than the whole file body.
+      const firstHunkAt = chunk.indexOf('\n@@');
+      const meta = firstHunkAt === -1 ? chunk : chunk.slice(0, firstHunkAt);
+
       let status: DiffFile['status'] = 'modified';
-      if (chunk.includes('new file mode')) {
+      if (meta.includes('new file mode')) {
         status = 'added';
-      } else if (chunk.includes('deleted file mode')) {
+      } else if (meta.includes('deleted file mode')) {
         status = 'deleted';
-      } else if (chunk.includes('similarity index') || oldPath !== newPath) {
+      } else if (meta.includes('similarity index') || oldPath !== newPath) {
         status = 'renamed';
       }
 
-      const stat = statsMap.get(newPath) || statsMap.get(oldPath) || { additions: 0, deletions: 0 };
+      const stat = statsMap.get(newPath) || statsMap.get(oldPath);
+      let adds = stat?.additions ?? 0;
+      let dels = stat?.deletions ?? 0;
 
-      // Calculate additions/deletions from diff if not found in numstat
-      let adds = stat.additions;
-      let dels = stat.deletions;
+      // Binary files and renames without content changes are absent from
+      // numstat; fall back to counting the patch body itself.
       if (adds === 0 && dels === 0) {
-        const lines = chunk.split('\n');
-        for (const l of lines) {
-          if (l.startsWith('+') && !l.startsWith('+++')) adds++;
-          if (l.startsWith('-') && !l.startsWith('---')) dels++;
+        for (const l of chunk.split('\n')) {
+          if (l.charCodeAt(0) === 43 /* + */ && !l.startsWith('+++')) adds++;
+          else if (l.charCodeAt(0) === 45 /* - */ && !l.startsWith('---')) dels++;
         }
       }
 
@@ -290,6 +320,45 @@ export class GitService {
       files,
     };
   }
+}
+
+/**
+ * Parses the `COMMIT_FORMAT` record stream produced by `git log` or
+ * `git rev-list --format=`. The latter prefixes each record with a
+ * `commit <sha>` line, which is stripped here.
+ */
+function parseCommitRecords(raw: string): CommitNode[] {
+  if (!raw || !raw.trim()) return [];
+
+  const commits: CommitNode[] = [];
+
+  for (const rawEntry of raw.split(RECORD_SEP)) {
+    const entry = rawEntry.replace(/^\s*commit [0-9a-f]{4,40}\n/, '').trim();
+    if (!entry) continue;
+
+    const parts = entry.split(FIELD_SEP);
+    if (parts.length < 7) continue;
+
+    const refStr = parts[7] ? parts[7].trim() : '';
+
+    commits.push({
+      hash: parts[0].trim(),
+      shortHash: parts[1].trim(),
+      parents: parts[2].trim() ? parts[2].trim().split(' ') : [],
+      author: parts[3].trim(),
+      authorEmail: parts[4].trim(),
+      date: parts[5].trim(),
+      message: parts[6].trim(),
+      refs: refStr ? refStr.split(',').map((r) => r.trim()).filter(Boolean) : [],
+    });
+  }
+
+  return commits;
+}
+
+function formatBatchMessage(commit: CommitNode, withDate: boolean): string {
+  const suffix = withDate ? `${commit.author} · ${commit.date}` : commit.author;
+  return `• [${commit.shortHash}] ${commit.message} (${suffix})`;
 }
 
 export const gitService = new GitService();

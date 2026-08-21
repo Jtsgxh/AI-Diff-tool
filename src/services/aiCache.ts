@@ -1,8 +1,9 @@
-/**
- * AI Multi-Level Persistent Caching Service (多级智能持久化缓存系统)
- * Provides instant 0ms recall for Codex reviews, Fast Diff explanations, and pseudocode.
- */
+import { STORAGE_KEYS, storage } from '../constants/storage';
 
+/**
+ * Persistent cache for AI output (Codex reviews, fast-diff explanations,
+ * pseudocode, natural-language readings) so revisiting a hunk is instant.
+ */
 export interface CachedReviewItem {
   key: string;
   timestamp: number;
@@ -16,16 +17,31 @@ export interface CachedReviewItem {
   wordCount?: number;
 }
 
+/** Entries beyond this are dropped from the index, oldest first. */
+const MAX_ENTRIES = 100;
+/** How many entries a quota-exceeded prune reclaims in one pass. */
+const PRUNE_BATCH = 15;
+/** Delay before the key index is rewritten, to coalesce bursts of writes. */
+const INDEX_PERSIST_DEBOUNCE_MS = 300;
+
 class AICacheService {
-  private memoryCache = new Map<string, CachedReviewItem>();
-  private readonly STORAGE_PREFIX = 'git_ai_cache_';
-  private readonly INDEX_KEY = 'git_ai_cache_index';
+  /** Values actually parsed so far. Populated lazily. */
+  private readonly memoryCache = new Map<string, CachedReviewItem>();
+  /** Every key known to be on disk, newest first. */
+  private index: string[] = [];
+  private readonly indexSet = new Set<string>();
+  private persistHandle: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    this.hydrateFromStorage();
+    // Only the key list is read at startup. Deserializing every cached report
+    // here used to block the first paint with up to 100 JSON.parse calls over
+    // multi-kilobyte markdown documents.
+    this.index = storage.getJson<string[]>(STORAGE_KEYS.aiCacheIndex, []);
+    if (!Array.isArray(this.index)) this.index = [];
+    this.index.forEach((k) => this.indexSet.add(k));
   }
 
-  // Simple string hash function for cache key generation
+  /** Stable 32-bit hash of the request shape; identical inputs reuse an entry. */
   generateKey(params: {
     type?: string;
     filePath?: string;
@@ -38,54 +54,39 @@ class AICacheService {
     const raw = `${params.engineMode || ''}::${params.type || ''}::${params.filePath || ''}::${
       params.targetLine || ''
     }::${params.userPrompt || ''}::${params.diff || ''}::${params.model || ''}`;
-    
+
     let hash = 0;
     for (let i = 0; i < raw.length; i++) {
-      const char = raw.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash |= 0; // Convert to 32bit integer
+      hash = (hash << 5) - hash + raw.charCodeAt(i);
+      hash |= 0; // Force 32-bit integer arithmetic.
     }
     return `cache_${Math.abs(hash).toString(36)}_${raw.length}`;
   }
 
-  private hydrateFromStorage() {
-    try {
-      const indexRaw = localStorage.getItem(this.INDEX_KEY);
-      if (!indexRaw) return;
-      const keys: string[] = JSON.parse(indexRaw);
-
-      keys.forEach((k) => {
-        const itemRaw = localStorage.getItem(this.STORAGE_PREFIX + k);
-        if (itemRaw) {
-          try {
-            const item: CachedReviewItem = JSON.parse(itemRaw);
-            this.memoryCache.set(k, item);
-          } catch {}
-        }
-      });
-    } catch (e) {
-      console.warn('Failed to hydrate AI cache from localStorage:', e);
-    }
-  }
-
-  private persistKeys() {
-    try {
-      const keys = Array.from(this.memoryCache.keys()).slice(0, 100);
-      localStorage.setItem(this.INDEX_KEY, JSON.stringify(keys));
-    } catch {}
-  }
-
   get(key: string): CachedReviewItem | null {
-    const item = this.memoryCache.get(key);
-    if (!item) return null;
+    const memoryHit = this.memoryCache.get(key);
+    if (memoryHit) return memoryHit;
+    if (!this.indexSet.has(key)) return null;
+
+    // Deferred deserialization: pay the parse cost only for entries actually read.
+    const item = storage.getJson<CachedReviewItem | null>(
+      STORAGE_KEYS.aiCachePrefix + key,
+      null
+    );
+    if (!item) {
+      this.dropFromIndex(key);
+      return null;
+    }
+
+    this.memoryCache.set(key, item);
     return item;
   }
 
   has(key: string): boolean {
-    return this.memoryCache.has(key);
+    return this.memoryCache.has(key) || this.indexSet.has(key);
   }
 
-  set(key: string, item: Omit<CachedReviewItem, 'key' | 'timestamp'>) {
+  set(key: string, item: Omit<CachedReviewItem, 'key' | 'timestamp'>): void {
     const fullItem: CachedReviewItem = {
       ...item,
       key,
@@ -94,47 +95,78 @@ class AICacheService {
     };
 
     this.memoryCache.set(key, fullItem);
+    this.addToIndex(key);
 
-    try {
-      localStorage.setItem(this.STORAGE_PREFIX + key, JSON.stringify(fullItem));
-      this.persistKeys();
-    } catch (e) {
-      // If quota exceeded, clear older entries
+    if (!storage.setJson(STORAGE_KEYS.aiCachePrefix + key, fullItem)) {
+      // Quota exhausted — reclaim space and retry once.
       this.pruneStorage();
+      storage.setJson(STORAGE_KEYS.aiCachePrefix + key, fullItem);
     }
+    this.schedulePersistIndex();
   }
 
-  remove(key: string) {
+  remove(key: string): void {
     this.memoryCache.delete(key);
-    try {
-      localStorage.removeItem(this.STORAGE_PREFIX + key);
-      this.persistKeys();
-    } catch {}
+    this.dropFromIndex(key);
+    storage.remove(STORAGE_KEYS.aiCachePrefix + key);
+    this.schedulePersistIndex();
   }
 
-  clear() {
+  clear(): void {
     this.memoryCache.clear();
-    try {
-      const indexRaw = localStorage.getItem(this.INDEX_KEY);
-      if (indexRaw) {
-        const keys: string[] = JSON.parse(indexRaw);
-        keys.forEach((k) => localStorage.removeItem(this.STORAGE_PREFIX + k));
-      }
-      localStorage.removeItem(this.INDEX_KEY);
-    } catch {}
-  }
-
-  private pruneStorage() {
-    const entries = Array.from(this.memoryCache.entries());
-    if (entries.length > 30) {
-      const sorted = entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
-      const toRemove = sorted.slice(0, 15);
-      toRemove.forEach(([k]) => this.remove(k));
-    }
+    this.index.forEach((k) => storage.remove(STORAGE_KEYS.aiCachePrefix + k));
+    this.index = [];
+    this.indexSet.clear();
+    storage.remove(STORAGE_KEYS.aiCacheIndex);
   }
 
   getCount(): number {
-    return this.memoryCache.size;
+    return this.indexSet.size;
+  }
+
+  private addToIndex(key: string): void {
+    if (this.indexSet.has(key)) {
+      this.index = this.index.filter((k) => k !== key);
+    }
+    this.index.unshift(key);
+    this.indexSet.add(key);
+
+    while (this.index.length > MAX_ENTRIES) {
+      const evicted = this.index.pop();
+      if (evicted === undefined) break;
+      this.indexSet.delete(evicted);
+      this.memoryCache.delete(evicted);
+      storage.remove(STORAGE_KEYS.aiCachePrefix + evicted);
+    }
+  }
+
+  private dropFromIndex(key: string): void {
+    if (!this.indexSet.delete(key)) return;
+    this.index = this.index.filter((k) => k !== key);
+  }
+
+  /** Drops the oldest entries; the index is newest-first, so that is the tail. */
+  private pruneStorage(): void {
+    const victims = this.index.slice(-PRUNE_BATCH);
+    victims.forEach((k) => {
+      this.indexSet.delete(k);
+      this.memoryCache.delete(k);
+      storage.remove(STORAGE_KEYS.aiCachePrefix + k);
+    });
+    this.index = this.index.slice(0, Math.max(0, this.index.length - victims.length));
+    this.persistIndex();
+  }
+
+  private schedulePersistIndex(): void {
+    if (this.persistHandle !== null) return;
+    this.persistHandle = setTimeout(() => {
+      this.persistHandle = null;
+      this.persistIndex();
+    }, INDEX_PERSIST_DEBOUNCE_MS);
+  }
+
+  private persistIndex(): void {
+    storage.setJson(STORAGE_KEYS.aiCacheIndex, this.index);
   }
 }
 
