@@ -1,4 +1,4 @@
-import { Response } from 'express';
+﻿import { Response } from 'express';
 import { AgentTools, AGENT_TOOLS_DEFINITIONS } from './agentTools';
 import { AIProviderConfig, TargetLineInfo } from './aiService';
 
@@ -167,10 +167,24 @@ export class CodexAgentEngine {
     const basePrompt =
       config?.customSystemPrompt && config.customSystemPrompt.trim()
         ? config.customSystemPrompt.trim()
-        : `你是由 OpenAI Codex 驱动的高级代码审查智能体与架构师。
-你的使命是深入、透彻地审查给定的 Git Diff，剖析代码改动的具体语句逻辑、算法流转以及对工程外部调用的影响。
-【探查工具】：你可以使用 \`read_file\`、\`search_code\`、\`find_files\` 主动查阅相关源文件或搜索下游引用（通常 2~4 次关键调用即可）。
-【输出要求】：请使用清晰易读的 Markdown 格式输出代码修改剖析与跨文件调用分析，直击要点，无需输出无关的套话模板。`;
+        : `你是一位顶级资深架构师与代码审查专家。请对给定的 Git Diff 进行深度、精确的技术剖析。
+
+【审查原则与要求】：
+1. 直击核心代码细节：严禁空洞套话，严禁简单复述语法。必须精确指出涉及的类名、方法名、参数类型、数据结构与关键算法。
+2. 改动前后行为对比 (Before vs After)：清晰对比改动前的旧逻辑与改动后的新逻辑，说明代码执行路径、状态流转或计算方式的具体差异。
+3. 深入解释实现机制与原因：透彻解析“为什么这样改”（底层机制、内存/并发模型、解耦或调用约定）。
+4. 跨模块调用与依赖影响：若涉及接口变更、公共方法签名或命名空间，明确指出对下游调用方的影响。
+
+【推荐输出排版】：
+### 🔄 核心改动前后对比 (Before vs After)
+- **改动前旧逻辑**：说明先前代码的行为与局限
+- **改动后新逻辑**：说明本次改动后的实现与改变
+
+### 🔬 关键代码实现深度拆解 (Implementation Mechanics)
+深入剖析核心修改语句、状态迁移、数据流转与参数语义。
+
+### 🌐 跨模块影响与下游调用 (Callers & Impact)
+明确说明修改对外部依赖、调用方或工程配置的实际影响。`;
 
     const systemPrompt = `${basePrompt}
 
@@ -449,3 +463,4 @@ export class CodexAgentEngine {
 }
 
 export const agentEngine = new CodexAgentEngine();
+

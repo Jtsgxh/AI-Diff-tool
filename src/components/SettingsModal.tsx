@@ -32,52 +32,69 @@ interface SettingsModalProps {
 
 const PROMPT_PRESETS = [
   {
-    id: 'clean_direct',
-    title: '📝 纯粹代码改动直解 (极简·推荐)',
+    id: 'expert_deep',
+    title: '🎯 深度代码剖析与前后对比 (专家级·默认推荐)',
     icon: Code2,
-    desc: '直接对代码改动进行详实的逐行与逻辑剖析，说明改动原因与影响，彻底摒弃模板套话与泛泛之词。',
-    prompt:
-      '你是一位资深代码审查专家。请直接对选定或提交的代码改动进行详实、深入的逐行与逻辑剖析，清晰解释核心语句含义、参数调整与为何这样改动。如涉及外部调用请说明影响。直击要点，无需输出无关的套话模板，无需输出泛泛的风险与建议。',
+    desc: '清晰对比改动前后行为差异（Before vs After），深入剖析核心语句实现机制、参数语义与跨模块调用。',
+    prompt: `你是一位顶级资深架构师与代码审查专家。请对给定的 Git Diff 进行深度、精确的技术剖析。
+
+【审查原则与要求】：
+1. 直击核心代码细节：严禁空洞套话，严禁简单复述语法。必须精确指出涉及的类名、方法名、参数类型、数据结构与关键算法。
+2. 改动前后行为对比 (Before vs After)：清晰对比改动前的旧逻辑与改动后的新逻辑，说明代码执行路径、状态流转或计算方式的具体差异。
+3. 深入解释实现机制与原因：透彻解析“为什么这样改”（底层机制、内存/并发模型、解耦或调用约定）。
+4. 跨模块调用与依赖影响：若涉及接口变更、公共方法签名或命名空间，明确指出对下游调用方的影响。
+
+【输出排版参考】：
+### 🔄 核心改动前后对比 (Before vs After)
+- **改动前旧逻辑**：说明先前代码的行为与局限
+- **改动后新逻辑**：说明本次改动后的实现与改变
+
+### 🔬 关键代码实现深度拆解 (Implementation Mechanics)
+深入剖析每一处核心修改语句、状态迁移、数据流转与参数语义。
+
+### 🌐 跨模块影响与下游调用 (Callers & Impact)
+明确说明修改对外部依赖、调用方或工程配置的实际影响（若无则简要说明）。`,
   },
   {
-    id: 'full_architecture',
-    title: '🌐 架构与跨模块全景审查',
-    icon: ShieldCheck,
-    desc: '深入分析代码改动的具体逻辑、外部源文件关联、下游调用方破坏性及工程架构目的。',
-    prompt:
-      '你是由 OpenAI Codex 驱动的资深架构师。请深入剖析本次代码修改的核心语句逻辑，并结合代码库关联文件分析跨模块依赖、下游调用方影响与工程架构目的。',
-  },
-  {
-    id: 'performance',
-    title: '⚡ 性能优化与内存 GC 审查',
+    id: 'concise_tech',
+    title: '⚡ 极简技术直解 (纯逻辑·极速干练)',
     icon: Zap,
-    desc: '重点排查高频循环分配、GC 垃圾回收压力、锁竞争及算法复杂度。',
-    prompt:
-      '请以性能优化专家的视角进行审查。重点关注：1. 是否存在高频循环内的堆内存分配或装箱拆箱（GC 压力）；2. 锁竞争、死锁与线程安全；3. 算法时间/空间复杂度优化空间；4. 异步/协程生命周期管理。',
+    desc: '直奔技术主题，用最干练精辟的语言直解每行改动逻辑与实际影响，零套话。',
+    prompt: `你是一位顶级代码专家。请直接对代码改动进行详实、紧凑的技术解析：
+1. 深入拆解核心语句、方法调用与参数变更的具体逻辑；
+2. 清晰对比改动前后的行为差异；
+3. 说明对外部调用方的实际影响。
+文字干练精辟，直击技术要害，零套话。`,
   },
   {
-    id: 'testing',
-    title: '🧪 边界条件与单元测试推演',
-    icon: TestTube,
-    desc: '深度推演空指针、越界、溢出等边界异常，并给出对应单元测试建议。',
-    prompt:
-      '请重点以测试专家的视角审查：1. 深入推演所有边界条件（Null、空集合、数值溢出、并发交错）；2. 检查异常捕获是否恰当；3. 为本次修改的代码编写具体的单元测试用例（Given-When-Then 格式）。',
-  },
-  {
-    id: 'cleancode',
-    title: '🧼 Clean Code 与代码规范',
-    icon: Flame,
-    desc: '严格检查代码可读性、函数职责单一性（SRP）、设计模式与命名语义。',
-    prompt:
-      '请以 Clean Code 专家的视角审查：1. 函数是否符合单一职责原则（SRP）；2. 命名是否具有自解释性，是否存在代码坏味道（Code Smells）；3. 架构解耦与设计模式重构建议。',
-  },
-  {
-    id: 'gamedev',
-    title: '🎮 游戏逻辑与状态机安全',
+    id: 'gamedev_unity',
+    title: '🎮 游戏与实时系统审查 (Unity / C# / 后端)',
     icon: Gamepad2,
-    desc: '关注帧率平稳度、状态流转完整性、Update 轮询开销及网络同步一致性。',
-    prompt:
-      '请以游戏核心开发者的视角审查：1. 状态机切换逻辑是否闭环无死态；2. 每帧 Update/Tick 是否有不必要开销；3. 数据同步协议一致性与客户端容错；4. 对象池生命周期回收。',
+    desc: '聚焦帧率性能、高频 GC 内存分配、状态机闭环、Update 轮询开销及网络同步协议。',
+    prompt: `你是一位资深游戏引擎与高并发系统架构师。请针对 Diff 进行代码审查：
+1. 深入拆解核心语句与状态迁移逻辑；
+2. 严格排查 GC 内存分配（避免每帧堆分配/装箱）、协程生命周期、Update 轮询开销；
+3. 检查状态机切换闭环、网络同步数据协议一致性与对象生命周期管理。`,
+  },
+  {
+    id: 'testing_edge_cases',
+    title: '🧪 缺陷推演与单元测试用例',
+    icon: TestTube,
+    desc: '深度推演 Null、越界、并发竞态等边界隐患，并输出针对性的 Given-When-Then 测试代码。',
+    prompt: `你是一位资深质量架构师与测试专家。请深入审查：
+1. 深入剖析修改代码的实现逻辑与关键状态流转；
+2. 深度推演所有边界条件与潜在缺陷（空指针 Null、集合越界、数值溢出、并发交错）；
+3. 为修改的代码编写具体的单元测试用例（Given-When-Then 格式与测试代码样例）。`,
+  },
+  {
+    id: 'cleancode_refactor',
+    title: '🧼 Clean Code 与重构治理',
+    icon: Flame,
+    desc: '把关单一职责（SRP）、开闭原则（OCP）、设计模式应用、命名语义与代码坏味道。',
+    prompt: `你是一位 Clean Code 专家与重构大师。请针对 Diff 审查：
+1. 剖析代码核心改动；
+2. 检查函数是否符合单一职责原则（SRP）、抽象与解耦程度；
+3. 检查命名自解释性，指出代码坏味道（Code Smells）与重构优化方案。`,
   },
 ];
 
@@ -89,7 +106,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [form, setForm] = useState<AIProviderConfig>({
     ...config,
-    customSystemPrompt: config.customSystemPrompt || '',
+    customSystemPrompt: config.customSystemPrompt || PROMPT_PRESETS[0].prompt,
     maxExplorationTurns: config.maxExplorationTurns || 5,
     timeoutSeconds: config.timeoutSeconds || 35,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
@@ -168,7 +185,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div>
               <h2 className="text-sm font-bold text-white">AI 引擎与审查定制配置</h2>
               <p className="text-[11px] text-slate-400">
-                配置模型连接、自定义审查提示词与 Codex 智能体运行参数
+                配置模型连接、专业级审查提示词与 Codex 智能体运行参数
               </p>
             </div>
           </div>
@@ -313,10 +330,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="p-3 bg-purple-950/25 border border-purple-500/30 rounded-lg text-slate-300 text-xs">
                 <div className="flex items-center space-x-2 font-semibold text-purple-200 mb-1">
                   <Sparkles className="w-4 h-4 text-purple-400" />
-                  <span>全局自定义审查指令 (Prompt Presets & Editor)</span>
+                  <span>专家级审查指令 (Prompt Presets & Editor)</span>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  点击下方预设可一键套用推荐指令，或在下方文本框中自由修改/编写任意专属审查规则。
+                  点击下方预设可一键加载专业审查模板，或在下方文本框中自由调整为您的专属提示词。
                 </p>
               </div>
 
@@ -375,19 +392,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onClick={() => setForm({ ...form, customSystemPrompt: '' })}
                       className="text-[10px] text-slate-500 hover:text-rose-400 transition"
                     >
-                      清空指令 (恢复默认纯净模式)
+                      清空自定义指令
                     </button>
                   )}
                 </div>
                 <textarea
-                  rows={4}
+                  rows={6}
                   value={form.customSystemPrompt}
                   onChange={(e) => setForm({ ...form, customSystemPrompt: e.target.value })}
-                  placeholder="例如：请直接对代码改动进行逐行剖析，解释修改原因与外部调用影响，无需输出套话..."
+                  placeholder="可在此手写任意审查指令..."
                   className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
                 />
                 <p className="text-[10px] text-slate-500">
-                  后台代码不会硬编码任何固定的风险或建议模板，所有审查行为完全由您配置的这段 Prompt 决定。
+                  后台代码不会强塞任何固化死板的套话，所有审查行为 100% 由上方这段 Prompt 决定。
                 </p>
               </div>
             </div>
