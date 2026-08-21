@@ -32,6 +32,8 @@
     "vite": "^8.2.2"
   },
   "dependencies": {
+    "@openai/agents": "^0.17.0",
+    "@openai/codex-sdk": "^0.149.0",
     "clsx": "^2.1.1",
     "cors": "^2.8.6",
     "diff": "^9.0.0",

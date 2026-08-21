@@ -13,7 +13,7 @@ export interface AgentExplainOptions {
   config?: AIProviderConfig;
 }
 
-export class AgentEngine {
+export class CodexAgentEngine {
   async streamAgentExplain(options: AgentExplainOptions, res: Response): Promise<void> {
     const { repoPath, scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } =
       options;
@@ -33,7 +33,7 @@ export class AgentEngine {
       res.write(
         `data: ${JSON.stringify({
           type: 'chunk',
-          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenAI, Gemini 等）以启用全库智能体自主审查。`,
+          text: `### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenAI, Gemini 等）以启用 Codex 智能体自主全库审查。`,
         })}\n\n`
       );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -59,30 +59,31 @@ export class AgentEngine {
 
     const tools = new AgentTools(repoPath);
 
-    const systemPrompt = `你是一位顶尖的代码架构师与智能体代码审查专家。你拥有对当前完整代码库的只读探查能力。
-你可以自主调用工具去阅读跨文件的类定义、搜索关键词/引用方、或查找关联测试用例，从而克服仅看孤立 Diff 的局限性。
+    const systemPrompt = `你是由 OpenAI Codex 与智能体架构驱动的资深软件架构师。你拥有对当前完整代码库的文件系统访问与符号检索工具。
+在审查 Git Diff 时，切勿只看表面增删文本。请自主调用工具深入探查关联文件与调用方，完成架构级、跨模块的深度审查。
 
 【你可以调用的工具】：
-1. \`read_file\`: 阅读仓库中任意文件的完整内容或指定行范围（例如查看被修改类的基类定义、接口签名或被调用的下游函数）。
-2. \`search_code\`: 全局搜索某个符号、命名空间或函数调用的所有出现位置（用于分析 Breaking Change 影响范围）。
-3. \`find_files\`: 模糊搜索文件名。
+1. \`read_file\`: 阅读仓库中任意源文件的完整实现或指定行范围（例如查看被修改类所继承的基类、接口签名或被调用的外部函数）。
+2. \`search_code\`: 全局搜索某个类名、命名空间、函数签名或变量的所有调用位置（用于评估下游引用是否破坏）。
+3. \`find_files\`: 模糊搜索文件名，定位单元测试、契约接口或配置文件。
 
-【你的工作流程】：
-1. 首先评估给定的 Git Diff：是否存在跨文件影响？是否引用了未知的类/命名空间/接口？是否可能破坏外部调用？
-2. 若需要更多上下文，**果断调用工具**检索相关文件或全局引用。
-3. 收集完上下文后，生成一份**跨模块、架构级、全面透彻的深度审查报告**。
+【智能体审查流程】：
+1. 首先评估 Diff：是否涉及外部类定义、接口签名变更、命名空间迁移或配置调整？
+2. 如果存在不确定或跨文件影响，**果断调用工具探查相关文件和调用方**。
+3. 收集充足证据后，生成一份结构清晰、论据扎实的**跨模块深度审查报告**。
 
 【最终审查报告结构 (Markdown)】：
-### 🌐 全局架构与改动意图 (Cross-Module Context & Intent)
-结合你探查到的外部文件与工程结构，说明本次改动的宏观目的。
+### 🌐 全局架构与改动意图 (Cross-Module Intent)
+结合你探查到的外部源文件与工程目录，说明本次改动的宏观架构目的。
 
 ### 🔍 跨文件影响与关键依赖分析 (Impact & Callers Analysis)
-分析此次修改涉及哪些下游文件/模块，是否存在调用方破坏或命名空间引用缺失。
+列出此次修改涉及的下游模块与文件，说明是否存在调用方破坏、命名空间缺失或类型不兼容。
 
 ### ⚠️ 深度风险雷达与边界隐患 (Risk Radar)
-检查并发安全性、内存泄漏、空异常、类型转换、Breaking Changes 等。
+检查并发安全性（竞态/死锁）、内存泄漏、空异常、异常逃逸、Breaking Changes 等。
 
-### 💡 架构重构与测试建议 (Actionable Suggestions)`;
+### 💡 架构重构与测试建议 (Actionable Suggestions)
+提出针对代码健壮性、可读性或测试用例的建议。`;
 
     let initialUserMsg = '';
     if (scopeType === 'line' && targetLine) {
@@ -128,7 +129,7 @@ export class AgentEngine {
             messages,
             tools: AGENT_TOOLS_DEFINITIONS,
             tool_choice: iteration === maxIterations ? 'none' : 'auto',
-            stream: false, // Use non-stream for decision turns, stream on final output or send chunks
+            stream: false,
           }),
         });
 
@@ -137,7 +138,7 @@ export class AgentEngine {
           res.write(
             `data: ${JSON.stringify({
               type: 'chunk',
-              text: `⚠️ **模型接口调用失败 (${response.status})**: ${errText}`,
+              text: `⚠️ **Codex Agent 接口调用失败 (${response.status})**: ${errText}`,
             })}\n\n`
           );
           break;
@@ -213,7 +214,7 @@ export class AgentEngine {
       res.write(
         `data: ${JSON.stringify({
           type: 'chunk',
-          text: `\n\n❌ **Agent 执行出错**: ${err.message}`,
+          text: `\n\n❌ **Codex Agent 执行出错**: ${err.message}`,
         })}\n\n`
       );
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -222,4 +223,4 @@ export class AgentEngine {
   }
 }
 
-export const agentEngine = new AgentEngine();
+export const agentEngine = new CodexAgentEngine();
