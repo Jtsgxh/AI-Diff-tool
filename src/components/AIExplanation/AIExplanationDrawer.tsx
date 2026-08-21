@@ -64,6 +64,7 @@ export interface ReviewSession {
   engineMode: 'agent' | 'fast';
   isStreaming: boolean;
   streamContent: string;
+  reasoningContent?: string;
   currentToolEvents: AgentToolEvent[];
   agentStatus: AgentStatusEvent | null;
   chatHistory: ChatMessage[];
@@ -93,8 +94,9 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const [userQuestion, setUserQuestion] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Active session tool trail expansion & tool preview
+  // Active session tool trail & reasoning expansion
   const [isTrailExpanded, setIsTrailExpanded] = useState<boolean>(true);
+  const [isThinkingExpanded, setIsThinkingExpanded] = useState<boolean>(true);
   const [expandedToolIndex, setExpandedToolIndex] = useState<number | null>(null);
 
   const contentEndRef = useRef<HTMLDivElement>(null);
@@ -176,6 +178,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           engineMode: mode,
           isStreaming: false,
           streamContent: cached.report,
+          reasoningContent: cached.reasoning || '',
           currentToolEvents: cached.toolEvents || [],
           agentStatus: {
             type: 'status',
@@ -215,6 +218,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       engineMode: mode,
       isStreaming: true,
       streamContent: '',
+      reasoningContent: '',
       currentToolEvents: [],
       agentStatus: {
         type: 'status',
@@ -263,6 +267,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         : 'commit';
 
     let accumulatedStream = '';
+    let accumulatedReasoning = '';
     let accumulatedToolEvents: AgentToolEvent[] = [];
 
     const onCompleteCleanup = () => {
@@ -277,6 +282,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         aiCache.set(cacheKey, {
           report: accumulatedStream,
           toolEvents: accumulatedToolEvents,
+          reasoning: accumulatedReasoning,
           model: aiConfig.model,
           provider: aiConfig.provider,
         });
@@ -298,6 +304,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           config: aiConfig,
           onStatusUpdate: (status) => {
             updateSession(sessionId, (s) => ({ ...s, agentStatus: status }));
+          },
+          onReasoning: (chunk) => {
+            accumulatedReasoning += chunk;
+            updateSession(sessionId, (s) => ({
+              ...s,
+              reasoningContent: (s.reasoningContent || '') + chunk,
+            }));
           },
           onToolEvent: (event) => {
             updateSession(sessionId, (s) => {
@@ -364,6 +377,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           commitMessage: targetScope.commitMessage,
           userPrompt: customPrompt,
           config: aiConfig,
+          onReasoning: (chunk) => {
+            accumulatedReasoning += chunk;
+            updateSession(sessionId, (s) => ({
+              ...s,
+              reasoningContent: (s.reasoningContent || '') + chunk,
+            }));
+          },
           onChunk: (chunk) => {
             accumulatedStream += chunk;
             updateSession(sessionId, (s) => ({
@@ -669,6 +689,46 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           </div>
         ) : (
           <>
+            {/* 🧠 AI 深度思维推理链 (Thinking Process Accordion) */}
+            {activeSession.reasoningContent && (
+              <div className="border border-purple-500/30 bg-[#161524] rounded-xl overflow-hidden shadow-md">
+                <div
+                  onClick={() => setIsThinkingExpanded(!isThinkingExpanded)}
+                  className="flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-purple-950/60 to-indigo-950/40 cursor-pointer select-none hover:bg-purple-900/40 transition border-b border-white/5"
+                >
+                  <div className="flex items-center space-x-2 text-xs font-semibold text-purple-200">
+                    <Brain
+                      className={`w-4 h-4 text-amber-300 ${
+                        activeSession.isStreaming && !activeSession.streamContent
+                          ? 'animate-pulse'
+                          : ''
+                      }`}
+                    />
+                    <span>AI 深度思维推理链 (Thinking Process)</span>
+                    <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px]">
+                      {activeSession.reasoningContent.length} 字符
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-1.5 text-xs text-purple-300">
+                    <span className="text-[10px] text-purple-400 font-mono">
+                      {isThinkingExpanded ? '收起' : '展开'}
+                    </span>
+                    {isThinkingExpanded ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                  </div>
+                </div>
+
+                {isThinkingExpanded && (
+                  <div className="p-3.5 max-h-72 overflow-y-auto bg-[#101018] text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap selection:bg-purple-500/30 border-t border-white/5">
+                    {activeSession.reasoningContent}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Codex Agent Tool Calling Trace (Foldable Accordion) */}
             {activeSession.engineMode === 'agent' && activeSession.currentToolEvents.length > 0 && (
               <div className="border border-purple-500/20 bg-purple-950/20 rounded-xl overflow-hidden shadow-inner">

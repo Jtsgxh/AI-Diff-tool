@@ -188,7 +188,17 @@ export class AIService {
 
           try {
             const parsed = JSON.parse(dataStr);
-            const delta = parsed.choices?.[0]?.delta?.content || '';
+            const deltaObj = parsed.choices?.[0]?.delta as any;
+            const reasoning =
+              deltaObj?.reasoning_content ||
+              deltaObj?.reasoning ||
+              deltaObj?.thought ||
+              deltaObj?.thinking ||
+              '';
+            if (reasoning) {
+              res.write(`data: ${JSON.stringify({ reasoning })}\n\n`);
+            }
+            const delta = deltaObj?.content || '';
             if (delta) {
               res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
             }

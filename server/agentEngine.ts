@@ -348,13 +348,23 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
           } else if (event.type === 'raw_model_stream_event') {
             if (isOpenAIChatCompletionsRawModelStreamEvent(event)) {
               const delta = event.data.event.choices?.[0]?.delta as any;
-              if (delta?.reasoning_content) {
-                accumulatedReasoningContent += delta.reasoning_content;
+              const reasoningChunk =
+                delta?.reasoning_content ||
+                delta?.reasoning ||
+                delta?.thought ||
+                delta?.thinking ||
+                '';
+
+              if (reasoningChunk) {
+                accumulatedReasoningContent += reasoningChunk;
+                res.write(
+                  `data: ${JSON.stringify({ type: 'thought', text: reasoningChunk })}\n\n`
+                );
                 res.write(
                   `data: ${JSON.stringify({
                     type: 'status',
                     phase: 'thinking',
-                    message: `🧠 深度规划思考中: ${accumulatedReasoningContent.slice(-80).replace(/\n/g, ' ')}...`,
+                    message: `🧠 深度思考中: ${accumulatedReasoningContent.slice(-80).replace(/\n/g, ' ')}...`,
                   })}\n\n`
                 );
               }
@@ -427,7 +437,20 @@ ${userDefinedPrompt ? `【审查要求与格式指令】：\n${userDefinedPrompt
         });
 
         for await (const chunk of synthesisStream) {
-          const deltaContent = chunk.choices?.[0]?.delta?.content || '';
+          const deltaObj = chunk.choices?.[0]?.delta as any;
+          const reasoningChunk =
+            deltaObj?.reasoning_content ||
+            deltaObj?.reasoning ||
+            deltaObj?.thought ||
+            deltaObj?.thinking ||
+            '';
+
+          if (reasoningChunk) {
+            accumulatedReasoningContent += reasoningChunk;
+            res.write(`data: ${JSON.stringify({ type: 'thought', text: reasoningChunk })}\n\n`);
+          }
+
+          const deltaContent = deltaObj?.content || '';
           if (deltaContent) {
             res.write(`data: ${JSON.stringify({ type: 'chunk', text: deltaContent })}\n\n`);
           }

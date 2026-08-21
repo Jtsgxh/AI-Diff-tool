@@ -128,6 +128,7 @@ export interface StreamExplainPayload {
   commitMessage?: string;
   userPrompt?: string;
   config?: AIProviderConfig;
+  onReasoning?: (chunk: string) => void;
   onChunk: (chunk: string) => void;
   onComplete: () => void;
   onError: (err: Error) => void;
@@ -245,6 +246,10 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
 
             try {
               const parsed = JSON.parse(dataStr);
+              if (parsed.reasoning) {
+                aiLogger.appendReasoning(logSessionId, parsed.reasoning);
+                payload.onReasoning?.(parsed.reasoning);
+              }
               if (parsed.text) {
                 aiLogger.appendChunk(logSessionId, parsed.text);
                 payload.onChunk(parsed.text);
@@ -316,6 +321,7 @@ export interface StreamAgentExplainPayload {
   config?: AIProviderConfig;
   onStatusUpdate?: (status: AgentStatusEvent) => void;
   onToolEvent: (event: AgentToolEvent) => void;
+  onReasoning?: (chunk: string) => void;
   onChunk: (chunk: string) => void;
   onComplete: () => void;
   onError: (err: Error) => void;
@@ -428,6 +434,7 @@ export async function streamAgentExplainDiff(
               ) {
                 if (event.type === 'thought' && event.text) {
                   aiLogger.appendReasoning(logSessionId, event.text);
+                  payload.onReasoning?.(event.text);
                 } else if (event.type === 'tool_call') {
                   aiLogger.appendToolEvent(logSessionId, {
                     name: event.name || 'tool_call',

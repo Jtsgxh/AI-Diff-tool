@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AI Multi-Level Persistent Caching Service (多级智能持久化缓存系统)
  * Provides instant 0ms recall for Codex reviews, Fast Diff explanations, and pseudocode.
  */
@@ -9,6 +9,7 @@ export interface CachedReviewItem {
   report: string;
   toolEvents?: any[];
   chatHistory?: any[];
+  reasoning?: string;
   model: string;
   provider: string;
   durationMs?: number;
