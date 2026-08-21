@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AIProviderConfig } from '../types';
+import { DEFAULT_PROMPTS } from '../constants/defaultPrompts';
 import {
   Settings,
   X,
@@ -21,6 +22,7 @@ import {
   Flame,
   Gamepad2,
   Code2,
+  BookOpen,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -33,38 +35,17 @@ interface SettingsModalProps {
 const PROMPT_PRESETS = [
   {
     id: 'expert_deep',
-    title: '🎯 深度代码剖析与前后对比 (专家级·默认推荐)',
+    title: '🏗️ 资深架构师深度技术剖析 (默认推荐)',
     icon: Code2,
-    desc: '清晰对比改动前后行为差异（Before vs After），深入剖析核心语句实现机制、参数语义与跨模块调用。',
-    prompt: `你是一位顶级资深架构师与代码审查专家。请对给定的 Git Diff 进行深度、精确的技术剖析。
-
-【审查原则与要求】：
-1. 直击核心代码细节：严禁空洞套话，严禁简单复述语法。必须精确指出涉及的类名、方法名、参数类型、数据结构与关键算法。
-2. 改动前后行为对比 (Before vs After)：清晰对比改动前的旧逻辑与改动后的新逻辑，说明代码执行路径、状态流转或计算方式的具体差异。
-3. 深入解释实现机制与原因：透彻解析“为什么这样改”（底层机制、内存/并发模型、解耦或调用约定）。
-4. 跨模块调用与依赖影响：若涉及接口变更、公共方法签名或命名空间，明确指出对下游调用方的影响。
-
-【输出排版参考】：
-### 🔄 核心改动前后对比 (Before vs After)
-- **改动前旧逻辑**：说明先前代码的行为与局限
-- **改动后新逻辑**：说明本次改动后的实现与改变
-
-### 🔬 关键代码实现深度拆解 (Implementation Mechanics)
-深入剖析每一处核心修改语句、状态迁移、数据流转与参数语义。
-
-### 🌐 跨模块影响与下游调用 (Callers & Impact)
-明确说明修改对外部依赖、调用方或工程配置的实际影响（若无则简要说明）。`,
+    desc: '深度剖析改动前后行为差异（Before vs After）、底层机制原理、跨模块调用与工程契约影响。',
+    prompt: DEFAULT_PROMPTS.reviewPrompt,
   },
   {
     id: 'concise_tech',
     title: '⚡ 极简技术直解 (纯逻辑·极速干练)',
     icon: Zap,
     desc: '直奔技术主题，用最干练精辟的语言直解每行改动逻辑与实际影响，零套话。',
-    prompt: `你是一位顶级代码专家。请直接对代码改动进行详实、紧凑的技术解析：
-1. 深入拆解核心语句、方法调用与参数变更的具体逻辑；
-2. 清晰对比改动前后的行为差异；
-3. 说明对外部调用方的实际影响。
-文字干练精辟，直击技术要害，零套话。`,
+    prompt: DEFAULT_PROMPTS.fastDiffPrompt,
   },
   {
     id: 'gamedev_unity',
@@ -106,7 +87,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [form, setForm] = useState<AIProviderConfig>({
     ...config,
-    customSystemPrompt: config.customSystemPrompt || PROMPT_PRESETS[0].prompt,
+    reviewPrompt:
+      config.reviewPrompt || config.customSystemPrompt || DEFAULT_PROMPTS.reviewPrompt,
+    fastDiffPrompt: config.fastDiffPrompt || DEFAULT_PROMPTS.fastDiffPrompt,
+    pseudocodePrompt: config.pseudocodePrompt || DEFAULT_PROMPTS.pseudocodePrompt,
+    naturalLanguagePrompt:
+      config.naturalLanguagePrompt || DEFAULT_PROMPTS.naturalLanguagePrompt,
+    customSystemPrompt:
+      config.reviewPrompt || config.customSystemPrompt || DEFAULT_PROMPTS.reviewPrompt,
     maxExplorationTurns:
       config.maxExplorationTurns !== undefined ? config.maxExplorationTurns : 0,
     timeoutSeconds: config.timeoutSeconds || 45,
@@ -116,6 +104,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   });
 
   const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'prompts'>('model');
+  const [promptCategory, setPromptCategory] = useState<
+    'review' | 'fastDiff' | 'pseudocode' | 'naturalLanguage'
+  >('review');
   const [savedMessage, setSavedMessage] = useState(false);
 
   if (!isOpen) return null;
@@ -157,9 +148,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }));
   };
 
+  const handleResetAllPrompts = () => {
+    setForm((prev) => ({
+      ...prev,
+      reviewPrompt: DEFAULT_PROMPTS.reviewPrompt,
+      customSystemPrompt: DEFAULT_PROMPTS.reviewPrompt,
+      fastDiffPrompt: DEFAULT_PROMPTS.fastDiffPrompt,
+      pseudocodePrompt: DEFAULT_PROMPTS.pseudocodePrompt,
+      naturalLanguagePrompt: DEFAULT_PROMPTS.naturalLanguagePrompt,
+    }));
+  };
+
   const handleApplyPresetPrompt = (prompt: string) => {
     setForm((prev) => ({
       ...prev,
+      reviewPrompt: prompt,
       customSystemPrompt: prompt,
     }));
   };
@@ -325,89 +328,276 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: Custom Prompts Settings */}
+          {/* TAB 2: Custom Prompts Settings (Separated Default vs User Config for All Scenarios) */}
           {activeTab === 'prompts' && (
             <div className="space-y-4">
-              <div className="p-3 bg-purple-950/25 border border-purple-500/30 rounded-lg text-slate-300 text-xs">
-                <div className="flex items-center space-x-2 font-semibold text-purple-200 mb-1">
-                  <Sparkles className="w-4 h-4 text-purple-400" />
-                  <span>专家级审查指令 (Prompt Presets & Editor)</span>
+              {/* Category Sub-Tabs */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center bg-[#13141A] border border-white/10 rounded-lg p-1 space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setPromptCategory('review')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
+                      promptCategory === 'review'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Brain className="w-3 h-3" />
+                    <span>1. 深度审查</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPromptCategory('fastDiff')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
+                      promptCategory === 'fastDiff'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Zap className="w-3 h-3" />
+                    <span>2. 直接 Diff</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPromptCategory('pseudocode')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
+                      promptCategory === 'pseudocode'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>3. 概括伪代码</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPromptCategory('naturalLanguage')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
+                      promptCategory === 'naturalLanguage'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <BookOpen className="w-3 h-3" />
+                    <span>4. 自然语言</span>
+                  </button>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  点击下方预设可一键加载专业审查模板，或在下方文本框中自由调整为您的专属提示词。
-                </p>
+
+                <button
+                  type="button"
+                  onClick={handleResetAllPrompts}
+                  className="text-[11px] text-purple-400 hover:text-purple-300 flex items-center gap-1 shrink-0 ml-2"
+                  title="恢复所有 4 个场景的内置推荐提示词"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>恢复全部默认</span>
+                </button>
               </div>
 
-              {/* One-Click Presets */}
-              <div>
-                <label className="block text-slate-300 font-semibold mb-2">
-                  ⚡ 常用审查偏好一键预设 (点击即可填充到下方编辑)
-                </label>
-                <div className="grid grid-cols-1 gap-1.5">
-                  {PROMPT_PRESETS.map((preset) => {
-                    const isSelected = form.customSystemPrompt === preset.prompt;
-                    const Icon = preset.icon;
+              {/* Sub-Category 1: Codex Deep Review Prompt */}
+              {promptCategory === 'review' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  {/* One-Click Presets */}
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1.5">
+                      ⚡ 常用审查偏好一键预设 (点击即可填充)
+                    </label>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {PROMPT_PRESETS.map((preset) => {
+                        const isSelected = form.reviewPrompt === preset.prompt;
+                        const Icon = preset.icon;
 
-                    return (
+                        return (
+                          <button
+                            type="button"
+                            key={preset.id}
+                            onClick={() => handleApplyPresetPrompt(preset.prompt)}
+                            className={`p-2 rounded-lg border text-left transition flex items-start space-x-2.5 ${
+                              isSelected
+                                ? 'bg-purple-600/20 border-purple-500 text-white shadow-sm'
+                                : 'bg-[#15161E] border-white/5 text-slate-400 hover:text-slate-200 hover:border-white/10'
+                            }`}
+                          >
+                            <Icon className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-slate-200 text-xs">
+                                  {preset.title}
+                                </span>
+                                {isSelected && (
+                                  <span className="text-[10px] text-purple-300 font-mono flex items-center gap-0.5">
+                                    <Check className="w-3 h-3" /> 当前选中
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                                {preset.desc}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Textarea */}
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-slate-300 font-semibold">
+                        当前生效的 Codex 深度审查指令 (可自由编辑)
+                      </label>
                       <button
                         type="button"
-                        key={preset.id}
-                        onClick={() => handleApplyPresetPrompt(preset.prompt)}
-                        className={`p-2.5 rounded-lg border text-left transition flex items-start space-x-3 ${
-                          isSelected
-                            ? 'bg-purple-600/20 border-purple-500 text-white shadow-sm'
-                            : 'bg-[#15161E] border-white/5 text-slate-400 hover:text-slate-200 hover:border-white/10'
-                        }`}
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            reviewPrompt: DEFAULT_PROMPTS.reviewPrompt,
+                            customSystemPrompt: DEFAULT_PROMPTS.reviewPrompt,
+                          })
+                        }
+                        className="text-[10px] text-purple-400 hover:text-purple-300 transition flex items-center gap-1"
                       >
-                        <Icon className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-slate-200 text-xs">
-                              {preset.title}
-                            </span>
-                            {isSelected && (
-                              <span className="text-[10px] text-purple-300 font-mono flex items-center gap-0.5">
-                                <Check className="w-3 h-3" /> 当前选中
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                            {preset.desc}
-                          </p>
-                        </div>
+                        <RotateCcw className="w-2.5 h-2.5" />
+                        <span>恢复此项默认</span>
                       </button>
-                    );
-                  })}
+                    </div>
+                    <textarea
+                      rows={6}
+                      value={form.reviewPrompt || form.customSystemPrompt || ''}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          reviewPrompt: e.target.value,
+                          customSystemPrompt: e.target.value,
+                        })
+                      }
+                      placeholder="可在此手写任意审查指令..."
+                      className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
+                    />
+                    <p className="text-[10px] text-slate-500">
+                      用于「🧠 关联解释 (Codex)」和全文件审查，100% 由上方这段 Prompt 决定。
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Custom Prompt Textarea */}
-              <div className="space-y-1.5 pt-2 border-t border-white/5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-slate-300 font-semibold">
-                    生效的审查指令内容 (可自由编辑)
-                  </label>
-                  {form.customSystemPrompt && (
-                    <button
-                      type="button"
-                      onClick={() => setForm({ ...form, customSystemPrompt: '' })}
-                      className="text-[10px] text-slate-500 hover:text-rose-400 transition"
-                    >
-                      清空自定义指令
-                    </button>
-                  )}
+              {/* Sub-Category 2: Fast Direct Diff Prompt */}
+              {promptCategory === 'fastDiff' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  <div className="p-3 bg-[#14151E] border border-white/5 rounded-lg text-slate-300 text-xs">
+                    <span className="font-semibold text-purple-300">💡 功能说明：</span>
+                    <span className="text-slate-400 ml-1">
+                      当您在改动块或文件工具栏中点击「⚡ 直接解释」时，大模型将执行此提示词进行快速技术剖析。
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-slate-300 font-semibold">
+                        直接 Diff 解释提示词 (可自由编辑)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm({ ...form, fastDiffPrompt: DEFAULT_PROMPTS.fastDiffPrompt })
+                        }
+                        className="text-[10px] text-purple-400 hover:text-purple-300 transition flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-2.5 h-2.5" />
+                        <span>恢复此项默认</span>
+                      </button>
+                    </div>
+                    <textarea
+                      rows={6}
+                      value={form.fastDiffPrompt || ''}
+                      onChange={(e) => setForm({ ...form, fastDiffPrompt: e.target.value })}
+                      placeholder="手写直接 Diff 解释指令..."
+                      className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
+                    />
+                  </div>
                 </div>
-                <textarea
-                  rows={6}
-                  value={form.customSystemPrompt}
-                  onChange={(e) => setForm({ ...form, customSystemPrompt: e.target.value })}
-                  placeholder="可在此手写任意审查指令..."
-                  className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
-                />
-                <p className="text-[10px] text-slate-500">
-                  后台代码不会强塞任何固化死板的套话，所有审查行为 100% 由上方这段 Prompt 决定。
-                </p>
-              </div>
+              )}
+
+              {/* Sub-Category 3: Conceptual Pseudocode Prompt */}
+              {promptCategory === 'pseudocode' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  <div className="p-3 bg-[#14151E] border border-white/5 rounded-lg text-slate-300 text-xs">
+                    <span className="font-semibold text-purple-300">💡 功能说明：</span>
+                    <span className="text-slate-400 ml-1">
+                      当您点击改动块上的「🤖 AI 伪代码」时，大模型将按照此提示词提炼出高层语义、通俗精炼的伪代码对照步骤。
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-slate-300 font-semibold">
+                        概括性伪代码提炼提示词 (可自由编辑)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm({ ...form, pseudocodePrompt: DEFAULT_PROMPTS.pseudocodePrompt })
+                        }
+                        className="text-[10px] text-purple-400 hover:text-purple-300 transition flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-2.5 h-2.5" />
+                        <span>恢复此项默认</span>
+                      </button>
+                    </div>
+                    <textarea
+                      rows={8}
+                      value={form.pseudocodePrompt || ''}
+                      onChange={(e) => setForm({ ...form, pseudocodePrompt: e.target.value })}
+                      placeholder="手写概括性伪代码提炼指令..."
+                      className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Sub-Category 4: Natural Language Narrative Prompt */}
+              {promptCategory === 'naturalLanguage' && (
+                <div className="space-y-3 animate-in fade-in duration-150">
+                  <div className="p-3 bg-[#14151E] border border-white/5 rounded-lg text-slate-300 text-xs">
+                    <span className="font-semibold text-purple-300">💡 功能说明：</span>
+                    <span className="text-slate-400 ml-1">
+                      当您在改动块点击「📖 块释义」或右上角开启「📖 自然语言直读」时，大模型将按照此提示词将 Diff 叙述为通俗的业务故事。
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-slate-300 font-semibold">
+                        自然语言转译提示词 (可自由编辑)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            naturalLanguagePrompt: DEFAULT_PROMPTS.naturalLanguagePrompt,
+                          })
+                        }
+                        className="text-[10px] text-purple-400 hover:text-purple-300 transition flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-2.5 h-2.5" />
+                        <span>恢复此项默认</span>
+                      </button>
+                    </div>
+                    <textarea
+                      rows={8}
+                      value={form.naturalLanguagePrompt || ''}
+                      onChange={(e) => setForm({ ...form, naturalLanguagePrompt: e.target.value })}
+                      placeholder="手写自然语言直读叙述指令..."
+                      className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -1,4 +1,4 @@
-﻿import { Response } from 'express';
+import { Response } from 'express';
 import OpenAI from 'openai';
 import { Agent, Runner, tool, RunItemStreamEvent, MaxTurnsExceededError } from '@openai/agents';
 import {
@@ -8,6 +8,23 @@ import {
 import { z } from 'zod';
 import { AgentTools } from './agentTools';
 import { AIProviderConfig, TargetLineInfo } from './aiService';
+
+export interface AgentExecutionConfig {
+  provider?: 'deepseek' | 'openai' | 'gemini' | 'ollama' | 'custom';
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  reviewPrompt?: string;
+  fastDiffPrompt?: string;
+  pseudocodePrompt?: string;
+  naturalLanguagePrompt?: string;
+  customSystemPrompt?: string;
+  maxExplorationTurns?: number;
+  timeoutSeconds?: number;
+  maxRetries?: number;
+  maxReadFileLines?: number;
+  maxSearchResults?: number;
+}
 
 export interface AgentExplainOptions {
   repoPath: string;
@@ -152,7 +169,8 @@ export class CodexAgentEngine {
     });
 
     // 2. Autonomous Codex Planning Prompts
-    const userDefinedPrompt = config?.customSystemPrompt && config.customSystemPrompt.trim();
+    const userDefinedPrompt =
+      config?.reviewPrompt?.trim() || config?.customSystemPrompt?.trim();
     const systemPrompt = `你是由 OpenAI Codex 驱动的高级自主代码审查智能体（Autonomous Codex Agent）。
 【核心自主规划原则】：
 1. 具备全权自主规划与探查能力：根据给定的 Diff，你可以完全自主决定调用 \`read_file\`、\`search_code\`、\`find_files\` 工具探查外部类、接口契约与下游调用链；

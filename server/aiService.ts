@@ -1,10 +1,14 @@
-﻿import { Response } from 'express';
+import { Response } from 'express';
 
 export interface AIProviderConfig {
   provider?: 'deepseek' | 'openai' | 'gemini' | 'ollama' | 'custom';
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  reviewPrompt?: string;
+  fastDiffPrompt?: string;
+  pseudocodePrompt?: string;
+  naturalLanguagePrompt?: string;
   customSystemPrompt?: string;
   maxExplorationTurns?: number;
   timeoutSeconds?: number;
@@ -71,7 +75,10 @@ export class AIService {
     }
 
     try {
-      const baseCustomPrompt = config?.customSystemPrompt && config.customSystemPrompt.trim();
+      const baseCustomPrompt =
+        config?.fastDiffPrompt?.trim() ||
+        config?.reviewPrompt?.trim() ||
+        config?.customSystemPrompt?.trim();
       let systemPrompt = '';
 
       if (baseCustomPrompt) {

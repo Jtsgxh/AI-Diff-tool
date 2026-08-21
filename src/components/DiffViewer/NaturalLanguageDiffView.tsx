@@ -1,7 +1,8 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { DiffHunk } from '../../utils/diffParser';
 import { streamExplainDiff } from '../../services/api';
+import { DEFAULT_PROMPTS } from '../../constants/defaultPrompts';
 import {
   BookOpen,
   Sparkles,
@@ -129,14 +130,7 @@ export const NaturalLanguageDiffView: React.FC<NaturalLanguageDiffViewProps> = (
     setHasRequested(true);
     setAiNarrative('');
 
-    const prompt = `请将以下 Git 代码修改（Diff）转译为流畅、生动、通俗易懂的自然语言改动叙述。
-【转译原则】：
-1. 像向团队同事或产品经理汇报一样，用大白话解释“代码到底改了什么业务意图”与“修改前后有什么差异”；
-2. 避免生硬地按行复述语法，而是按功能点用自然的段落说明改动逻辑；
-3. 输出清晰的 Markdown 格式：
-   - 📌 **改动意图概述**：用 1~2 句话大白话直述目的；
-   - 🔍 **核心改动自然语言转译**：分点用自然语言描述每一处改动前后逻辑；
-   - ⚡ **产生的影响或注意事项**：说明调用方或运行行为的变化。`;
+    const prompt = aiConfig.naturalLanguagePrompt?.trim() || DEFAULT_PROMPTS.naturalLanguagePrompt;
 
     streamExplainDiff({
       scopeType: 'file',

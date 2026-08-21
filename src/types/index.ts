@@ -42,12 +42,23 @@ export interface RepoInfo {
 
 export type DiffViewMode = 'split' | 'unified' | 'natural';
 
-export interface AIProviderConfig {
+export interface AIPromptsConfig {
+  // 1. Codex 深度代码审查提示词
+  reviewPrompt?: string;
+  // 2. 直接 Diff 快速解释提示词
+  fastDiffPrompt?: string;
+  // 3. 概括性伪代码提炼提示词
+  pseudocodePrompt?: string;
+  // 4. 自然语言改动直读提示词
+  naturalLanguagePrompt?: string;
+}
+
+export interface AIProviderConfig extends AIPromptsConfig {
   provider: 'deepseek' | 'gemini' | 'openai' | 'ollama' | 'custom';
   apiKey: string;
   baseUrl: string;
   model: string;
-  // Custom Prompts
+  // Custom Prompts (legacy alias)
   customSystemPrompt?: string;
   // Codex Agent Runtime Controls
   maxExplorationTurns?: number;

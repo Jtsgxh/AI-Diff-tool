@@ -3,6 +3,7 @@ import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
 import { generateConceptualHunkPseudocode } from '../../utils/pseudocodeConverter';
 import { streamExplainDiff } from '../../services/api';
+import { DEFAULT_PROMPTS } from '../../constants/defaultPrompts';
 import {
   Columns,
   AlignJustify,
@@ -114,19 +115,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     }));
 
     const hunkDiffText = getHunkDiffText(hunk);
-    const prompt = `你是一位顶级系统架构师与代码语义提炼专家。请将以下代码 Diff 改动块精准提炼为「高度概括性、通俗易懂的中文自然语言伪代码」。
-
-【严格格式排版】：
-### 🔴 变更前旧逻辑概括
-• (用 1~3 条精炼有力的自然语言伪代码，概括原代码的行为与数据结构；若无删除行则写"无删除内容 (纯新增逻辑)")
-
-### 🟢 变更后新逻辑概括
-• (用 1~3 条精炼有力的自然语言伪代码，概括新代码的对象构造、参数赋值、核心流程与业务意图；若无新增行则写"无新增内容 (纯删除逻辑)")
-
-【提炼原则】：
-- 严禁机械复述代码标点符号与逐行赋值；
-- 提炼高层业务与代码意图（例如：创建并初始化 ServerHealDefinition 实例，配置 11 项技能属性与标签引用）；
-- 保持语言通俗简明，让团队成员一眼看懂。`;
+    const prompt = aiConfig.pseudocodePrompt?.trim() || DEFAULT_PROMPTS.pseudocodePrompt;
 
     streamExplainDiff({
       scopeType: 'chunk',
@@ -214,7 +203,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           }));
 
           const hunkDiffText = getHunkDiffText(hunk);
-          const prompt = `请用 1~2 段通俗易懂的大白话（自然语言），直接解释这个代码改动块的具体意图、前后逻辑行为差异与影响。零套话，直击要害。`;
+          const prompt = aiConfig.naturalLanguagePrompt?.trim() || DEFAULT_PROMPTS.naturalLanguagePrompt;
 
           streamExplainDiff({
             scopeType: 'chunk',
