@@ -245,11 +245,14 @@ ${userPrompt?.trim()}
     }
 
     try {
-      // 3. DeepSeek Reasoner & Thinking Mode Compatibility Layer
+      // 3. DeepSeek Reasoner & Thinking Mode Compatibility Layer (Only for native DeepSeek reasoner)
       let accumulatedReasoningContent = '';
+      const isNativeDeepSeekReasoner =
+        (provider === 'deepseek' || baseUrl.includes('deepseek.com')) &&
+        (modelName || '').toLowerCase().includes('reasoner');
 
       const customFetch: typeof fetch = async (input, init) => {
-        if (init && init.body && typeof init.body === 'string') {
+        if (isNativeDeepSeekReasoner && init && init.body && typeof init.body === 'string') {
           try {
             const parsedBody = JSON.parse(init.body);
             if (Array.isArray(parsedBody.messages)) {
@@ -485,30 +488,40 @@ ${userPrompt?.trim()}
           res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\n---\n\n' })}\n\n`);
         }
 
-        const synthesisStream = await openaiClient.chat.completions.create({
-          model: modelName || 'deepseek-chat',
-          messages: synthesisMessages,
-          stream: true,
-        });
+        try {
+          const synthesisStream = await openaiClient.chat.completions.create({
+            model: modelName || 'deepseek-chat',
+            messages: synthesisMessages,
+            stream: true,
+          });
 
-        for await (const chunk of synthesisStream) {
-          const deltaObj = chunk.choices?.[0]?.delta as any;
-          const reasoningChunk =
-            deltaObj?.reasoning_content ||
-            deltaObj?.reasoning ||
-            deltaObj?.thought ||
-            deltaObj?.thinking ||
-            '';
+          for await (const chunk of synthesisStream) {
+            const deltaObj = chunk.choices?.[0]?.delta as any;
+            const reasoningChunk =
+              deltaObj?.reasoning_content ||
+              deltaObj?.reasoning ||
+              deltaObj?.thought ||
+              deltaObj?.thinking ||
+              '';
 
-          if (reasoningChunk) {
-            accumulatedReasoningContent += reasoningChunk;
-            res.write(`data: ${JSON.stringify({ type: 'thought', text: reasoningChunk })}\n\n`);
+            if (reasoningChunk) {
+              accumulatedReasoningContent += reasoningChunk;
+              res.write(`data: ${JSON.stringify({ type: 'thought', text: reasoningChunk })}\n\n`);
+            }
+
+            const deltaContent = deltaObj?.content || '';
+            if (deltaContent) {
+              res.write(`data: ${JSON.stringify({ type: 'chunk', text: deltaContent })}\n\n`);
+            }
           }
-
-          const deltaContent = deltaObj?.content || '';
-          if (deltaContent) {
-            res.write(`data: ${JSON.stringify({ type: 'chunk', text: deltaContent })}\n\n`);
-          }
+        } catch (synthesisErr: any) {
+          console.error('Synthesis Stream Error:', synthesisErr);
+          res.write(
+            `data: ${JSON.stringify({
+              type: 'chunk',
+              text: `\n\n❌ 综合生成异常: ${synthesisErr.message}`,
+            })}\n\n`
+          );
         }
       }
 
