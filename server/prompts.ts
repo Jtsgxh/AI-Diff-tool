@@ -1,4 +1,9 @@
-import type { PartialAIProviderConfig, ScopeType, TargetLineInfo } from '../shared/types';
+import type {
+  ExplainTask,
+  PartialAIProviderConfig,
+  ScopeType,
+  TargetLineInfo,
+} from '../shared/types';
 
 /** Upper bounds on how much diff text is forwarded to the model, by context. */
 export const DIFF_LIMITS = {
@@ -17,6 +22,7 @@ export interface PromptContext {
   filePath?: string;
   commitMessage?: string;
   userPrompt?: string;
+  task?: ExplainTask;
   config?: PartialAIProviderConfig;
 }
 
@@ -35,7 +41,8 @@ const REVIEW_FORMAT_GUIDE = `### 🔄 核心改动前后对比 (Before vs After)
  * questions: they must become the system prompt verbatim so the model's output
  * shape stays parseable by `parseAiPseudocodeLines`.
  */
-function isFormattingPreset(userPrompt: string): boolean {
+function isFormattingPreset(userPrompt: string, task?: ExplainTask): boolean {
+  if (task === 'pseudocode' || task === 'natural_language') return true;
   return (
     userPrompt.includes('伪代码') ||
     userPrompt.includes('自然语言') ||
@@ -53,15 +60,66 @@ function focusedLineBlock(targetLine: TargetLineInfo): string {
   return `\`\`\`\n${marker} ${targetLine.content}\n\`\`\``;
 }
 
+function splitChangedLines(diff: string): { dels: string[]; adds: string[] } {
+  const dels: string[] = [];
+  const adds: string[] = [];
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) adds.push(line.slice(1));
+    else if (line.startsWith('-') && !line.startsWith('---')) dels.push(line.slice(1));
+  }
+  return { dels, adds };
+}
+
+/**
+ * Number every changed line so the model cannot collapse a hunk into two
+ * summary bullets — the viewer maps output rows 1:1 onto the diff.
+ */
+function buildPseudocodeUserMessage(diff: string, file: string, message: string): string {
+  const { dels, adds } = splitChangedLines(diff);
+  const delList =
+    dels.length === 0
+      ? '（无）'
+      : dels.map((line, i) => `${i + 1}. - ${line}`).join('\n');
+  const addList =
+    adds.length === 0
+      ? '（无）'
+      : adds.map((line, i) => `${i + 1}. + ${line}`).join('\n');
+
+  return `文件: ${file}
+提交信息: ${message}
+
+本块共有 ${dels.length} 行删除、${adds.length} 行新增。
+你必须输出恰好 ${dels.length} 行以 '-' 开头的中文伪代码，然后恰好 ${adds.length} 行以 '+' 开头的中文伪代码。
+顺序必须与下列清单一一对应：一行对一行，不得合并，不得跳过括号/空行/注释，不要编号，不要 Markdown，不要代码围栏。
+
+【删除行】共 ${dels.length} 行：
+${delList}
+
+【新增行】共 ${adds.length} 行：
+${addList}
+
+【输出示例】（不要复制本说明，按真实行数输出）
+- // 第一条删除行在做什么
+- // 第二条删除行在做什么
++ // 第一条新增行在做什么
++ // 第二条新增行在做什么`;
+}
+
 // ------------------------------ Fast diff engine ------------------------------
 
 export function buildFastPrompts(ctx: PromptContext): { system: string; user: string } {
-  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, config } = ctx;
+  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } = ctx;
   const file = filePath || '当前文件';
   const message = commitMessage || '无';
 
   if (userPrompt && userPrompt.trim()) {
-    if (isFormattingPreset(userPrompt)) {
+    if (isFormattingPreset(userPrompt, task)) {
+      if (task === 'pseudocode') {
+        return {
+          system: userPrompt.trim(),
+          user: buildPseudocodeUserMessage(diff, file, message),
+        };
+      }
       return {
         system: userPrompt.trim(),
         user: `【待处理 Git Diff 差异】\n文件: ${file}\n提交信息: ${message}\n${diffBlock(

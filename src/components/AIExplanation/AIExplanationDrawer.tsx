@@ -67,6 +67,25 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(true);
   const [isBatchExpanded, setIsBatchExpanded] = useState(true);
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll when streaming to ensure new output is always in view
+  useEffect(() => {
+    if (activeSession?.isStreaming) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [
+    activeSession?.isStreaming,
+    activeSession?.initialReport,
+    activeSession?.initialReasoning,
+    activeSession?.currentFollowUpStream,
+    activeSession?.currentFollowUpReasoning,
+    activeSession?.currentToolEvents?.length,
+    activeSession?.currentFollowUpToolEvents?.length,
+    activeSession?.agentStatus?.message,
+  ]);
+
   // A new scope object means the user asked for a new review; re-opening the
   // drawer with the same scope must not restart anything.
   const prevScopeRef = useRef<ExplanationScope | null>(null);
@@ -239,7 +258,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       </div>
 
       {/* 2. Report body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-slate-200 select-text">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4 text-slate-200 select-text scroll-smooth"
+      >
         {!activeSession ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs space-y-2">
             <Brain className="w-10 h-10 text-slate-600 stroke-1" />
@@ -247,6 +269,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           </div>
         ) : (
           <>
+            {/* Live Progress Banner during Streaming */}
+            {activeSession.isStreaming && activeSession.agentStatus?.message && (
+              <div className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-200 text-xs font-mono shadow-sm">
+                <Activity className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                <span className="truncate">{activeSession.agentStatus.message}</span>
+              </div>
+            )}
             {batchInfo && batchInfo.messages.length > 0 && (
               <Accordion
                 icon={<Layers className="w-4 h-4 text-indigo-400" />}
@@ -405,6 +434,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                   )}
               </div>
             )}
+
+            <div ref={messagesEndRef} className="h-2 shrink-0" />
           </>
         )}
       </div>

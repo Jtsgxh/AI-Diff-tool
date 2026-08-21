@@ -3,7 +3,11 @@ import type { AgentToolEvent, AIProviderConfig } from '../../types';
 import { streamAgentExplainDiff, streamExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
 import { STORAGE_KEYS, storage } from '../../constants/storage';
-import { cancelStreamFlush, scheduleStreamFlush } from '../../services/streamScheduler';
+import {
+  cancelStreamFlush,
+  flushStreamsNow,
+  scheduleStreamFlush,
+} from '../../services/streamScheduler';
 import type { ChatMessage, ExplanationScope, ReviewSession } from './types';
 
 /** Session persistence is debounced and skipped entirely while streaming. */
@@ -214,7 +218,17 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
       };
 
       acc.commit = commit;
-      const scheduleCommit = () => scheduleStreamFlush(commit);
+
+      /**
+       * `immediate` is for the moments where a tick of latency is perceptible:
+       * the first token of a response, and every tool event. It flushes through
+       * the shared scheduler rather than calling `commit` directly, so the AI
+       * console lands in the same React render instead of a tick behind.
+       */
+      const scheduleCommit = (immediate = false) => {
+        scheduleStreamFlush(commit);
+        if (immediate) flushStreamsNow();
+      };
 
       /** tool_result frames update the matching tool_call in place. */
       const recordToolEvent = (event: AgentToolEvent) => {
@@ -226,12 +240,12 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
               { ...acc.toolEvents[idx], ...event },
               ...acc.toolEvents.slice(idx + 1),
             ];
-            scheduleCommit();
+            scheduleCommit(true);
             return;
           }
         }
         acc.toolEvents = [...acc.toolEvents, event];
-        scheduleCommit();
+        scheduleCommit(true);
       };
 
       const finalize = () => {
@@ -304,12 +318,14 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         userPrompt: followUpPrompt,
         config,
         onReasoning: (chunk: string) => {
+          const isFirst = !acc.reasoning;
           acc.reasoning += chunk;
-          scheduleCommit();
+          scheduleCommit(isFirst);
         },
         onChunk: (chunk: string) => {
+          const isFirst = !acc.text;
           acc.text += chunk;
-          scheduleCommit();
+          scheduleCommit(isFirst);
         },
         onComplete: handleComplete,
         onError: handleError,

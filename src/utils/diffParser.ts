@@ -150,6 +150,16 @@ export function parseRawDiff(rawDiff: string): ParsedFileDiff {
   };
 }
 
+/** Only the `+`/`-` rows. Context and the `@@` header confuse line-for-line translation. */
+export function serializeChangedLines(hunk: DiffHunk): string {
+  const rows: string[] = [];
+  for (const line of hunk.lines) {
+    if (line.type === 'add') rows.push(`+${line.content}`);
+    else if (line.type === 'delete') rows.push(`-${line.content}`);
+  }
+  return rows.join('\n');
+}
+
 function computeSplitRows(lines: DiffLine[]): SplitDiffRow[] {
   const rows: SplitDiffRow[] = [];
   let deleteBuffer: DiffLine[] = [];

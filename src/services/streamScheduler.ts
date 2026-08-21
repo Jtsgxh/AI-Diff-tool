@@ -9,10 +9,15 @@
  * step by up to ~120ms mid-stream.
  *
  * Registering here instead means every pending flush runs in one task, so React
- * batches them into a single render and the panes always agree.
+ * batches them into a single render and the panes always agree — including the
+ * immediate flushes taken on a first token or a tool event.
  */
 
-const FLUSH_INTERVAL_MS = 80;
+/**
+ * Tuned in d124bb9: fast enough that streamed text reads as continuous, slow
+ * enough to keep the render and markdown re-parse cost bounded.
+ */
+const FLUSH_INTERVAL_MS = 35;
 
 const pending = new Set<() => void>();
 let handle: ReturnType<typeof setTimeout> | null = null;

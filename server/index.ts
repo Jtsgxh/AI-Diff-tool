@@ -10,6 +10,7 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
+const HOST = process.env.HOST || '127.0.0.1';
 
 app.use(cors());
 // Diffs for large commits are posted back with each AI request.
@@ -22,6 +23,15 @@ app.use('/api/ai', aiRouter);
 // Must be registered last: it is the single place errors become responses.
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`🚀 Git Semantic Server running at http://localhost:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`🚀 Git Semantic Server running at http://${HOST}:${PORT}`);
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use. Stop the other process or set PORT to a free port.`);
+    process.exit(1);
+  }
+  console.error(err);
+  process.exit(1);
 });

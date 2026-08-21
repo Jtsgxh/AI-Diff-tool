@@ -93,6 +93,12 @@ export type PartialAIProviderConfig = Partial<AIProviderConfig>;
 
 export type ScopeType = 'line' | 'chunk' | 'file' | 'commit';
 
+/**
+ * Distinguishes formatting jobs (in-place pseudocode / NL reading) from a
+ * free-form review so the server does not have to sniff the prompt text.
+ */
+export type ExplainTask = 'review' | 'pseudocode' | 'natural_language';
+
 export interface TargetLineInfo {
   lineNumber?: number;
   content: string;
@@ -106,6 +112,7 @@ export interface ExplainRequest {
   filePath?: string;
   commitMessage?: string;
   userPrompt?: string;
+  task?: ExplainTask;
   config?: PartialAIProviderConfig;
 }
 
