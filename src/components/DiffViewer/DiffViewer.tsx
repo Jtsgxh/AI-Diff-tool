@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { DiffFile, DiffViewMode, AIProviderConfig } from '../../types';
 import { parseRawDiff, DiffHunk, SplitDiffRow, DiffLine } from '../../utils/diffParser';
-import { generateConceptualHunkPseudocode } from '../../utils/pseudocodeConverter';
+import { convertCodeLineToPseudocode } from '../../utils/pseudocodeConverter';
 import { streamExplainDiff } from '../../services/api';
 import { DEFAULT_PROMPTS } from '../../constants/defaultPrompts';
 import {
@@ -239,20 +239,31 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     });
   };
 
-  const renderUnifiedLine = (line: DiffLine, index: number) => {
+  const renderUnifiedLine = (line: DiffLine, index: number, isHunkPseudocode: boolean) => {
     if (line.type === 'hunk-header') {
       return (
         <div
           key={`hunk-hdr-${index}`}
-          className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none"
+          className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none flex items-center justify-between"
         >
-          {line.content}
+          <span>{line.content}</span>
+          {isHunkPseudocode && (
+            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30 font-sans">
+              ✨ 伪代码转换中
+            </span>
+          )}
         </div>
       );
     }
 
     const isAdd = line.type === 'add';
     const isDelete = line.type === 'delete';
+
+    // In-place pseudocode translation ONLY on changed diff lines!
+    const displayContent =
+      isHunkPseudocode && (isAdd || isDelete)
+        ? convertCodeLineToPseudocode(line.content)
+        : line.content;
 
     return (
       <div
@@ -284,15 +295,27 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           {isAdd ? '+' : isDelete ? '-' : ' '}
         </div>
 
-        {/* Code Content */}
-        <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0">{line.content}</div>
+        {/* Code Content (In-place translated when pseudocode is on) */}
+        <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-x-auto min-w-0">
+          {displayContent}
+        </div>
       </div>
     );
   };
 
-  const renderSplitRow = (row: SplitDiffRow, index: number) => {
+  const renderSplitRow = (row: SplitDiffRow, index: number, isHunkPseudocode: boolean) => {
     const leftIsDelete = row.left?.type === 'delete';
     const rightIsAdd = row.right?.type === 'add';
+
+    const leftContent =
+      isHunkPseudocode && leftIsDelete && row.left?.content
+        ? convertCodeLineToPseudocode(row.left.content)
+        : row.left?.content || '';
+
+    const rightContent =
+      isHunkPseudocode && rightIsAdd && row.right?.content
+        ? convertCodeLineToPseudocode(row.right.content)
+        : row.right?.content || '';
 
     return (
       <div
@@ -312,7 +335,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             {leftIsDelete ? '-' : ''}
           </div>
           <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
-            {row.left?.content || ''}
+            {leftContent}
           </div>
         </div>
 
@@ -329,7 +352,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             {rightIsAdd ? '+' : ''}
           </div>
           <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-x-auto min-w-0">
-            {row.right?.content || ''}
+            {rightContent}
           </div>
         </div>
       </div>
@@ -470,8 +493,6 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           const isNaturalExpanded = expandedNaturalHunkIds.has(hunk.id);
           const isHunkPseudocode = hunkPseudocodeSet.has(hunk.id);
           const hunkText = getHunkDiffText(hunk);
-
-          const conceptual = isHunkPseudocode ? generateConceptualHunkPseudocode(hunk) : null;
 
           return (
             <div
@@ -623,96 +644,19 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 </div>
               )}
 
-              {/* Main Hunk Content: 100% AI-Driven Conceptual Pseudocode Summary VS Raw Diff Lines */}
-              {isHunkPseudocode ? (
-                <div className="p-4 bg-[#14151E] border-b border-purple-500/20 space-y-3 font-sans">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2 text-xs font-bold text-purple-300">
-                      <Sparkles className={`w-4 h-4 text-purple-400 ${hunkAiPseudocode[hunk.id]?.loading ? 'animate-spin' : ''}`} />
-                      <span>改动块 #{hunk.index} · 🤖 AI 概括伪代码 (AI Conceptual Pseudocode)</span>
-                      {hunkAiPseudocode[hunk.id]?.loading && (
-                        <span className="text-[10px] text-purple-400 animate-pulse font-mono font-normal">
-                          (大模型实时提炼中...)
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => fetchAiPseudocode(hunk.id, hunk)}
-                        disabled={hunkAiPseudocode[hunk.id]?.loading}
-                        className="text-[11px] text-purple-300 hover:text-white px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/30 transition border border-purple-500/30 flex items-center gap-1"
-                        title="重新调用 AI 提炼概括性伪代码"
-                      >
-                        <RotateCcw className={`w-3 h-3 ${hunkAiPseudocode[hunk.id]?.loading ? 'animate-spin' : ''}`} />
-                        <span>重新提炼</span>
-                      </button>
-                      <button
-                        onClick={() => toggleHunkPseudocode(hunk.id)}
-                        className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 transition border border-white/5"
-                      >
-                        ✕ 恢复原始代码
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Render AI-Generated Result if available, or fallback to instant rule baseline */}
-                  {hunkAiPseudocode[hunk.id]?.text ? (
-                    <div
-                      className="prose prose-invert prose-sm max-w-none text-slate-200 text-xs leading-relaxed bg-[#171824] border border-white/5 rounded-xl p-4 shadow-sm"
-                      dangerouslySetInnerHTML={{
-                        __html: marked.parse(hunkAiPseudocode[hunk.id].text) as string,
-                      }}
-                    />
-                  ) : (
-                    /* Instant Heuristic Fallback / Loading State */
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      {/* Old Logic Conceptual Summary */}
-                      <div className="bg-rose-950/20 border border-rose-500/20 rounded-xl p-3.5 space-y-2">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-rose-400 pb-1.5 border-b border-rose-500/10">
-                          <span>🔴 变更前旧逻辑概括 ({hunk.deletions} 行)</span>
-                        </div>
-                        {conceptual?.oldPseudocode && conceptual.oldPseudocode.length > 0 ? (
-                          <ul className="space-y-1.5 text-rose-200">
-                            {conceptual.oldPseudocode.map((step, sIdx) => (
-                              <li key={`old-s-${sIdx}`} className="flex items-start space-x-2 leading-relaxed">
-                                <span className="text-rose-400 shrink-0 font-bold">•</span>
-                                <span>{step}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="text-slate-500 text-xs italic">无删除行 (纯新增逻辑)</span>
-                        )}
-                      </div>
-
-                      {/* New Logic Conceptual Summary */}
-                      <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3.5 space-y-2">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-emerald-400 pb-1.5 border-b border-emerald-500/10">
-                          <span>🟢 变更后新逻辑概括 (+{hunk.additions} 行)</span>
-                        </div>
-                        {conceptual?.newPseudocode && conceptual.newPseudocode.length > 0 ? (
-                          <ul className="space-y-1.5 text-emerald-200">
-                            {conceptual.newPseudocode.map((step, sIdx) => (
-                              <li key={`new-s-${sIdx}`} className="flex items-start space-x-2 leading-relaxed">
-                                <span className="text-emerald-400 shrink-0 font-bold">•</span>
-                                <span>{step}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="text-slate-500 text-xs italic">无新增行 (纯删除逻辑)</span>
-                        )}
-                      </div>
-                    </div>
+              {/* Standard Diff Rows Rendering with In-Place Pseudocode Replacement on Changed Lines */}
+              {viewMode === 'unified' ? (
+                <div>
+                  {hunk.lines.map((line, lineIdx) =>
+                    renderUnifiedLine(line, lineIdx, isHunkPseudocode)
                   )}
                 </div>
               ) : (
-                /* Raw Diff Lines Rendering (Split / Unified) */
-                viewMode === 'unified' ? (
-                  <div>{hunk.lines.map((line, lineIdx) => renderUnifiedLine(line, lineIdx))}</div>
-                ) : (
-                  <div>{hunk.splitRows.map((row, rowIdx) => renderSplitRow(row, rowIdx))}</div>
-                )
+                <div>
+                  {hunk.splitRows.map((row, rowIdx) =>
+                    renderSplitRow(row, rowIdx, isHunkPseudocode)
+                  )}
+                </div>
               )}
             </div>
           );

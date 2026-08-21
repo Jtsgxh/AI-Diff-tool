@@ -1,142 +1,156 @@
 ﻿import { DiffHunk, DiffLine, SplitDiffRow } from './diffParser';
 
 /**
- * Conceptual / Summarized Pseudocode Generator (概括性伪代码生成器)
- * Translates low-level verbose syntax lines into high-level, human-readable conceptual pseudocode blocks.
+ * In-Place Pseudocode Converter (Diff 内联行级伪代码转换器)
+ * Replaces changed code lines in-place within the Diff rows (Split & Unified)
+ * with intuitive, readable natural language pseudocode statements.
  */
 
-export interface HunkConceptualSummary {
-  oldPseudocode: string[];
-  newPseudocode: string[];
-}
+export function convertCodeLineToPseudocode(code: string): string {
+  const trimmed = code.trim();
+  if (!trimmed) return code;
 
-export function generateConceptualHunkPseudocode(hunk: DiffHunk): HunkConceptualSummary {
-  const oldLines = hunk.lines.filter((l) => l.type === 'delete').map((l) => l.content);
-  const newLines = hunk.lines.filter((l) => l.type === 'add').map((l) => l.content);
+  // Preserve leading indentation
+  const indentMatch = code.match(/^(\s*)/);
+  const indent = indentMatch ? indentMatch[1] : '';
 
-  const oldPseudocode = summarizeLinesToConceptualSteps(oldLines, 'delete');
-  const newPseudocode = summarizeLinesToConceptualSteps(newLines, 'add');
-
-  return { oldPseudocode, newPseudocode };
-}
-
-function summarizeLinesToConceptualSteps(lines: string[], type: 'add' | 'delete'): string[] {
-  if (lines.length === 0) return [];
-
-  const steps: string[] = [];
-  const joined = lines.join('\n');
-
-  // 1. Check for Batch Registration Pattern: e.g. GasTypeRegistry.RegisterAbilityAsset(...)
-  const regMatches = lines.filter((l) => /Register.*Asset|Register.*Ability|Register\w+\(/.test(l));
-  if (regMatches.length >= 3) {
-    steps.push(`📦 批量注册 ${regMatches.length} 项技能与玩法资产到类型注册表 (GasTypeRegistry)`);
+  // 1. XML documentation & Comments
+  if (trimmed.startsWith('/// <summary>')) return `${indent}// 📋 [功能概述]`;
+  if (trimmed.startsWith('/// </summary>')) return `${indent}// 📋 [/功能概述]`;
+  if (trimmed.startsWith('/// <param name="')) {
+    const pMatch = trimmed.match(/name="([^"]+)">([^<]*)/);
+    if (pMatch) return `${indent}// 📥 参数「${pMatch[1]}」：${pMatch[2].trim()}`;
+  }
+  if (trimmed.startsWith('/// <returns>')) {
+    const rMatch = trimmed.match(/<returns>([^<]*)/);
+    if (rMatch) return `${indent}// 📤 返回值：${rMatch[1].trim()}`;
+  }
+  if (trimmed.startsWith('///')) {
+    return `${indent}// ${trimmed.replace(/^\/\/\/\s*/, '')}`;
+  }
+  if (trimmed.startsWith('//')) {
+    return code; // Keep original comments
   }
 
-  // 2. Check for Object Instantiation with Initializers: e.g. (_, target) => new ServerHealDefinition { ... }
-  const objInitMatch = joined.match(/(?:new\s+(\w+))\s*\{([^}]+)\}/s);
-  if (objInitMatch) {
-    const typeName = objInitMatch[1];
-    const props = objInitMatch[2]
-      .split('\n')
-      .map((p) => p.trim())
-      .filter((p) => p && !p.startsWith('//') && p.includes('='))
-      .map((p) => p.split('=')[0].trim());
+  // 2. Pure syntax braces
+  if (trimmed === '{' || trimmed === '}' || trimmed === '},' || trimmed === '};') {
+    return code;
+  }
 
-    const mainProps = props.slice(0, 4).join('、');
-    steps.push(
-      `⚡ 创建并配置「${typeName}」对象（包含 ${props.length} 项属性：${mainProps}${props.length > 4 ? ' 等' : ''}）`
-    );
-  } else {
-    // Check for lambda / constructor without full block match
-    const lambdaMatch = lines.find((l) => /=>\s*new\s+(\w+)/.test(l));
-    if (lambdaMatch) {
-      const match = lambdaMatch.match(/=>\s*new\s+(\w+)/);
-      steps.push(`⚡ 创建「${match ? match[1] : '对象'}」新实例并绑定到回调委托`);
+  // 3. Method / Function Declarations: public static void LogConversion(...)
+  const methodMatch = trimmed.match(
+    /^(public|private|protected|internal)?\s*(static\s+)?(async\s+)?([\w<>\[\],\s\?]+)\s+([\w]+)\s*\((.*)\)\s*\{?$/
+  );
+  if (
+    methodMatch &&
+    !trimmed.startsWith('if') &&
+    !trimmed.startsWith('for') &&
+    !trimmed.startsWith('while') &&
+    !trimmed.startsWith('switch') &&
+    !trimmed.startsWith('catch')
+  ) {
+    const access = methodMatch[1] ? `${methodMatch[1]} ` : '';
+    const isStatic = methodMatch[2] ? '静态' : '';
+    const retType = methodMatch[4].trim();
+    const methodName = methodMatch[5];
+    const params = methodMatch[6].trim();
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    return `${indent}// ⚙️ 定义${access}${isStatic}方法「${methodName}」(返回: ${retType}, 参数: ${params || '无'})${hasBrace}`;
+  }
+
+  // 4. Conditionals (if, else if, else, switch)
+  if (/^if\s*\(/.test(trimmed)) {
+    const cond = trimmed.replace(/^if\s*\(/, '').replace(/\)[\s\{]*$/, '');
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    return `${indent}// ❓ 条件判断：如果【${cond}】为真${hasBrace}`;
+  }
+  if (/^else\s+if\s*\(/.test(trimmed)) {
+    const cond = trimmed.replace(/^else\s+if\s*\(/, '').replace(/\)[\s\{]*$/, '');
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    return `${indent}// ❓ 否则如果【${cond}】为真${hasBrace}`;
+  }
+  if (/^else\s*\{?$/.test(trimmed)) {
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    return `${indent}// ↪️ 否则执行备用分支${hasBrace}`;
+  }
+
+  // 5. Loops (foreach, for, while)
+  if (/^foreach\s*\(/.test(trimmed)) {
+    const loop = trimmed.replace(/^foreach\s*\(/, '').replace(/\)[\s\{]*$/, '');
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    return `${indent}// 🔁 遍历集合：针对【${loop}】${hasBrace}`;
+  }
+  if (/^for\s*\(/.test(trimmed)) {
+    const loop = trimmed.replace(/^for\s*\(/, '').replace(/\)[\s\{]*$/, '');
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    return `${indent}// 🔁 循环迭代：【${loop}】${hasBrace}`;
+  }
+  if (/^while\s*\(/.test(trimmed)) {
+    const loop = trimmed.replace(/^while\s*\(/, '').replace(/\)[\s\{]*$/, '');
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    return `${indent}// 🔁 当【${loop}】为真时持续循环${hasBrace}`;
+  }
+
+  // 6. Returns & Throws
+  if (/^return\b/.test(trimmed)) {
+    const val = trimmed.replace(/^return\s*/, '').replace(/;$/, '');
+    return `${indent}// ↩️ 返回：${val || 'void'}`;
+  }
+  if (/^throw\s+new\s+/.test(trimmed)) {
+    const ex = trimmed.replace(/^throw\s+new\s+/, '').replace(/;$/, '');
+    return `${indent}// 💥 抛出异常：${ex}`;
+  }
+
+  // 7. Console & Logger Calls
+  if (
+    /^(Console\.(WriteLine|Write|Error\.WriteLine)|Debug\.Log(Warning|Error)?|logger\.|BackendLog\.)/.test(
+      trimmed
+    )
+  ) {
+    const logCall = trimmed.replace(/;$/, '');
+    return `${indent}// 📢 输出日志：${logCall}`;
+  }
+
+  // 8. Object Instantiation (new ClassName { ... })
+  if (/(=>|\=)\s*new\s+(\w+)/.test(trimmed)) {
+    const hasBrace = trimmed.endsWith('{') ? ' {' : '';
+    const instMatch = trimmed.match(/new\s+([\w<>]+)/);
+    const typeName = instMatch ? instMatch[1] : '对象';
+    return `${indent}// ⚡ 实例化「${typeName}」对象${hasBrace}`;
+  }
+
+  // 9. Property Assignment: AbilityName = "Heal",
+  const propAssignMatch = trimmed.match(/^([\w]+)\s*=\s*(.+)[,;]?$/);
+  if (propAssignMatch && !trimmed.includes('=>') && !trimmed.startsWith('return')) {
+    const propName = propAssignMatch[1];
+    const val = propAssignMatch[2].replace(/[,;]$/, '');
+    return `${indent}// 🔹 配置属性「${propName}」= ${val}`;
+  }
+
+  // 10. Variable Declarations
+  const varDeclMatch = trimmed.match(
+    /^(var|let|const|int|string|bool|float|double|auto|List<[\w]+>|Dictionary<[\w,\s]+>)\s+([\w]+)\s*=\s*(.+);?$/
+  );
+  if (varDeclMatch) {
+    const varName = varDeclMatch[2];
+    const val = varDeclMatch[3].replace(/;$/, '');
+    return `${indent}// 📌 声明变量「${varName}」并初始化为：${val}`;
+  }
+
+  // 11. Method invocations
+  if (/^([\w\.]+)\s*\((.*)\);?$/.test(trimmed)) {
+    const callMatch = trimmed.match(/^([\w\.]+)\s*\((.*)\);?$/);
+    if (callMatch) {
+      return `${indent}// ⚙️ 调用方法「${callMatch[1]}」(${callMatch[2].trim() || '无参数'})`;
     }
   }
 
-  // 3. Check for multiple Property Assignments (if not already captured by object init)
-  const propAssigns = lines.filter((l) => /^\s*(\w+)\s*=\s*(.+)[,;]?$/.test(l.trim()) && !l.includes('=>') && !l.includes('function') && !l.includes('class'));
-  if (propAssigns.length > 0 && !objInitMatch) {
-    if (propAssigns.length === 1) {
-      const p = propAssigns[0].trim().match(/^(\w+)\s*=\s*(.+)[,;]?$/);
-      if (p) {
-        steps.push(`🔹 设置【${p[1]}】= ${cleanValue(p[2])}`);
-      }
-    } else {
-      const propNames = propAssigns.map((p) => p.trim().split('=')[0].trim()).slice(0, 4).join('、');
-      steps.push(`🔹 调整 ${propAssigns.length} 项属性字段赋值 (${propNames}${propAssigns.length > 4 ? ' 等' : ''})`);
-    }
+  // 12. Imports / Usings
+  if (/^(using|import)\s+/.test(trimmed)) {
+    const mod = trimmed.replace(/^(using|import)\s+/, '').replace(/;$/, '');
+    return `${indent}// 📦 引入模块依赖：${mod}`;
   }
 
-  // 4. Check for Method Calls (excluding batch registrations)
-  const methodCalls = lines.filter((l) => /^\s*([\w\.]+)\(/.test(l.trim()) && !regMatches.includes(l));
-  if (methodCalls.length > 0 && methodCalls.length <= 3) {
-    methodCalls.forEach((mc) => {
-      const m = mc.trim().match(/^([\w\.]+)\((.*)\)[,;]?$/);
-      if (m) {
-        steps.push(`⚙️ 调用方法「${m[1]}」${m[2] ? `(参数: ${m[2].trim().slice(0, 30)})` : ''}`);
-      }
-    });
-  } else if (methodCalls.length > 3) {
-    steps.push(`⚙️ 执行 ${methodCalls.length} 处方法调用逻辑`);
-  }
-
-  // 5. Control Flow & Defensive Checks
-  const ifConditions = lines.filter((l) => /^\s*if\s*\(/.test(l.trim()));
-  if (ifConditions.length > 0) {
-    ifConditions.forEach((c) => {
-      const cond = c.trim().replace(/^if\s*\(/, '').replace(/\)[\s\{]*$/, '');
-      steps.push(`❓ 条件判断：当满足【${cond}】时执行处理`);
-    });
-  }
-
-  const loops = lines.filter((l) => /^\s*(foreach|for|while)\s*\(/.test(l.trim()));
-  if (loops.length > 0) {
-    loops.forEach((lp) => {
-      steps.push(`🔁 循环逻辑：${lp.trim().replace(/\{$/, '')}`);
-    });
-  }
-
-  // 6. Usings / Imports
-  const importLines = lines.filter((l) => /^\s*(using|import)\s+/.test(l.trim()));
-  if (importLines.length > 0) {
-    if (importLines.length === 1) {
-      steps.push(`📦 引入模块：${importLines[0].trim().replace(/^(using|import)\s+/, '').replace(/;$/, '')}`);
-    } else {
-      steps.push(`📦 调整引入 ${importLines.length} 个命名空间与依赖模块`);
-    }
-  }
-
-  // 7. Returns / Throws
-  const returnLines = lines.filter((l) => /^\s*return\b/.test(l.trim()));
-  if (returnLines.length > 0) {
-    returnLines.forEach((r) => {
-      const val = r.trim().replace(/^return\s*/, '').replace(/;$/, '');
-      steps.push(`↩️ 返回：${val || 'void'}`);
-    });
-  }
-
-  // Fallback if no specific pattern matched
-  if (steps.length === 0) {
-    const meaningfulLines = lines.filter((l) => {
-      const t = l.trim();
-      return t && t !== '{' && t !== '}' && t !== '},' && t !== '});' && !t.startsWith('//');
-    });
-    if (meaningfulLines.length > 0) {
-      steps.push(`📝 包含 ${meaningfulLines.length} 行代码逻辑调整：${meaningfulLines[0].trim().slice(0, 50)}`);
-    } else {
-      steps.push(`📝 代码块结构与格式微调 (${lines.length} 行)`);
-    }
-  }
-
-  return steps;
-}
-
-function cleanValue(val: string): string {
-  const v = val.trim().replace(/[,;]$/, '');
-  if (v === 'false') return '关闭/否 (false)';
-  if (v === 'true') return '开启/是 (true)';
-  if (v === 'null') return '空 (null)';
-  return v.length > 30 ? `${v.slice(0, 30)}...` : v;
+  // Default fallback: Add descriptive pseudocode indicator
+  return `${indent}// 📝 执行：${trimmed.replace(/;$/, '')}`;
 }
