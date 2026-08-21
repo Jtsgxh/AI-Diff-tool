@@ -25,7 +25,9 @@ import {
 } from './components/AIExplanation/AIExplanationDrawer';
 import { SettingsModal } from './components/SettingsModal';
 import { OpenRepoModal } from './components/OpenRepoModal';
-import { AlertCircle, PanelLeftOpen } from 'lucide-react';
+import { AICallInspectorModal } from './components/AICallInspector/AICallInspectorModal';
+import { aiLogger } from './services/aiLogger';
+import { AlertCircle, PanelLeftOpen, Terminal } from 'lucide-react';
 
 const DEFAULT_AI_CONFIG: AIProviderConfig = {
   provider: 'deepseek',
@@ -69,6 +71,16 @@ export const App: React.FC = () => {
   const [isExplanationOpen, setIsExplanationOpen] = useState<boolean>(false);
   const [explanationScope, setExplanationScope] = useState<ExplanationScope | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isAIInspectorOpen, setIsAIInspectorOpen] = useState<boolean>(false);
+  const [aiSessions, setAiSessions] = useState(() => aiLogger.getSessions());
+
+  useEffect(() => {
+    return aiLogger.subscribe((updated) => {
+      setAiSessions(updated);
+    });
+  }, []);
+
+  const isAIRunning = aiSessions.some((s) => s.status === 'running');
 
   // Collapsible Git Commit Graph Panel
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -305,6 +317,7 @@ export const App: React.FC = () => {
         onSelectWorkingTree={handleSelectWorkingTree}
         onRefresh={() => loadRepo(repoPath)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenAIInspector={() => setIsAIInspectorOpen(true)}
         isLoading={isLoadingRepo || isLoadingDiff}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={handleToggleSidebar}
@@ -346,7 +359,7 @@ export const App: React.FC = () => {
         {isSidebarCollapsed && (
           <div
             onClick={handleToggleSidebar}
-            className="w-10 bg-[#15161C] border-r border-white/10 hover:border-purple-500/40 flex flex-col items-center py-3 cursor-pointer select-none transition group text-slate-400 hover:text-purple-300 hover:bg-[#1A1B22] shrink-0 z-10"
+            className="w-10 bg-[#121319] hover:bg-[#1A1C24] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
             title="点击展开 Git 提交历史图谱面板"
           >
             <button className="p-1.5 rounded-lg bg-white/5 group-hover:bg-purple-500/20 group-hover:text-purple-300 transition mb-4">
@@ -395,6 +408,27 @@ export const App: React.FC = () => {
         </div>
       </div>
 
+      {/* Floating Bottom-Right AI Console Trigger Pill */}
+      <button
+        onClick={() => setIsAIInspectorOpen(true)}
+        className={`fixed bottom-4 right-4 z-40 flex items-center space-x-2 px-3 py-2 rounded-full border shadow-xl transition transform active:scale-95 ${
+          isAIRunning
+            ? 'bg-emerald-600/90 hover:bg-emerald-600 text-white border-emerald-400 shadow-emerald-500/30 animate-pulse'
+            : 'bg-[#181924]/90 hover:bg-[#202230] text-slate-300 hover:text-white border-purple-500/30 hover:border-purple-500/60 shadow-purple-500/10'
+        }`}
+        title="打开 AI 实时调用控制台"
+      >
+        <Terminal className={`w-4 h-4 ${isAIRunning ? 'text-white' : 'text-purple-400'}`} />
+        <span className="text-xs font-semibold">
+          {isAIRunning ? 'AI 流式输出中...' : 'AI 控制台'}
+        </span>
+        {aiSessions.length > 0 && !isAIRunning && (
+          <span className="bg-purple-500/30 text-purple-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+            {aiSessions.length}
+          </span>
+        )}
+      </button>
+
       {/* Open Repo Modal */}
       <OpenRepoModal
         isOpen={isOpenRepoModal}
@@ -420,6 +454,12 @@ export const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         config={aiConfig}
         onSaveConfig={handleSaveConfig}
+      />
+
+      {/* AI Call Inspector Modal */}
+      <AICallInspectorModal
+        isOpen={isAIInspectorOpen}
+        onClose={() => setIsAIInspectorOpen(false)}
       />
     </div>
   );

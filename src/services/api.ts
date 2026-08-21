@@ -92,6 +92,8 @@ export async function fetchWorkingTreeDiff(path: string): Promise<DiffResult> {
   return res.json();
 }
 
+import { aiLogger } from './aiLogger';
+
 export interface StreamExplainPayload {
   scopeType?: 'line' | 'chunk' | 'file' | 'commit';
   targetLine?: {
@@ -111,6 +113,32 @@ export interface StreamExplainPayload {
 
 export async function streamExplainDiff(payload: StreamExplainPayload): Promise<() => void> {
   const abortController = new AbortController();
+
+  // Determine session title & type for AI Logger
+  let title = '⚡ 直接 Diff 解释';
+  let type: 'agent' | 'fast_diff' | 'pseudocode' | 'natural_language' = 'fast_diff';
+
+  if (payload.userPrompt?.includes('伪代码')) {
+    type = 'pseudocode';
+    title = `🤖 原位伪代码转译 (${payload.filePath ? payload.filePath.split('/').pop() : 'Diff'})`;
+  } else if (payload.userPrompt?.includes('自然语言')) {
+    type = 'natural_language';
+    title = `📖 自然语言改动直读 (${payload.filePath ? payload.filePath.split('/').pop() : 'Diff'})`;
+  } else if (payload.scopeType === 'line') {
+    title = `⚡ 聚焦代码行解释 (Line ${payload.targetLine?.lineNumber || ''})`;
+  } else if (payload.filePath) {
+    title = `⚡ 直接 Diff 解释 (${payload.filePath.split('/').pop()})`;
+  }
+
+  const logSessionId = aiLogger.startSession({
+    title,
+    type,
+    config: payload.config,
+    filePath: payload.filePath,
+    scopeType: payload.scopeType,
+    userPrompt: payload.userPrompt,
+    inputDiff: payload.diff,
+  });
 
   try {
     const res = await fetch(`${API_BASE}/ai/explain/stream`, {
@@ -133,6 +161,7 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
 
     if (!res.ok) {
       const errText = await res.text();
+      aiLogger.errorSession(logSessionId, errText);
       throw new Error(`AI Request Failed (${res.status}): ${errText}`);
     }
 
@@ -158,6 +187,7 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
             const dataStr = trimmed.slice(6);
 
             if (dataStr === '[DONE]') {
+              aiLogger.completeSession(logSessionId);
               payload.onComplete();
               return;
             }
@@ -165,26 +195,38 @@ export async function streamExplainDiff(payload: StreamExplainPayload): Promise<
             try {
               const parsed = JSON.parse(dataStr);
               if (parsed.text) {
+                aiLogger.appendChunk(logSessionId, parsed.text);
                 payload.onChunk(parsed.text);
               }
             } catch (e) {
+              aiLogger.appendChunk(logSessionId, dataStr);
               payload.onChunk(dataStr);
             }
           }
         }
+        aiLogger.completeSession(logSessionId);
         payload.onComplete();
       } catch (err: any) {
         if (err.name !== 'AbortError') {
+          aiLogger.errorSession(logSessionId, err.message);
           payload.onError(err);
+        } else {
+          aiLogger.abortSession(logSessionId);
         }
       }
     };
 
     read();
-    return () => abortController.abort();
+    return () => {
+      aiLogger.abortSession(logSessionId);
+      abortController.abort();
+    };
   } catch (err: any) {
     if (err.name !== 'AbortError') {
+      aiLogger.errorSession(logSessionId, err.message);
       payload.onError(err);
+    } else {
+      aiLogger.abortSession(logSessionId);
     }
     return () => {};
   }
@@ -232,6 +274,17 @@ export async function streamAgentExplainDiff(
 ): Promise<() => void> {
   const abortController = new AbortController();
 
+  const title = `🧠 Codex 智能体深度审查 (${payload.filePath ? payload.filePath.split('/').pop() : '全库探查'})`;
+  const logSessionId = aiLogger.startSession({
+    title,
+    type: 'agent',
+    config: payload.config,
+    filePath: payload.filePath,
+    scopeType: payload.scopeType,
+    userPrompt: payload.userPrompt,
+    inputDiff: payload.diff,
+  });
+
   try {
     const res = await fetch(`${API_BASE}/ai/agent/explain/stream`, {
       method: 'POST',
@@ -254,6 +307,7 @@ export async function streamAgentExplainDiff(
 
     if (!res.ok) {
       const errText = await res.text();
+      aiLogger.errorSession(logSessionId, errText);
       throw new Error(`AI Agent Request Failed (${res.status}): ${errText}`);
     }
 
@@ -281,6 +335,7 @@ export async function streamAgentExplainDiff(
             try {
               const event = JSON.parse(dataStr);
               if (event.type === 'done') {
+                aiLogger.completeSession(logSessionId);
                 payload.onComplete();
                 return;
               } else if (event.type === 'status') {
@@ -290,8 +345,22 @@ export async function streamAgentExplainDiff(
                 event.type === 'tool_result' ||
                 event.type === 'thought'
               ) {
+                if (event.type === 'thought' && event.text) {
+                  aiLogger.appendReasoning(logSessionId, event.text);
+                } else if (event.type === 'tool_call') {
+                  aiLogger.appendToolEvent(logSessionId, {
+                    name: event.name || 'tool_call',
+                    args: event.args,
+                  });
+                } else if (event.type === 'tool_result') {
+                  aiLogger.appendToolEvent(logSessionId, {
+                    name: event.name || 'tool_result',
+                    output: event.output,
+                  });
+                }
                 payload.onToolEvent(event);
               } else if (event.type === 'chunk' && event.text) {
+                aiLogger.appendChunk(logSessionId, event.text);
                 payload.onChunk(event.text);
               }
             } catch (e) {
@@ -299,19 +368,29 @@ export async function streamAgentExplainDiff(
             }
           }
         }
+        aiLogger.completeSession(logSessionId);
         payload.onComplete();
       } catch (err: any) {
         if (err.name !== 'AbortError') {
+          aiLogger.errorSession(logSessionId, err.message);
           payload.onError(err);
+        } else {
+          aiLogger.abortSession(logSessionId);
         }
       }
     };
 
     read();
-    return () => abortController.abort();
+    return () => {
+      aiLogger.abortSession(logSessionId);
+      abortController.abort();
+    };
   } catch (err: any) {
     if (err.name !== 'AbortError') {
+      aiLogger.errorSession(logSessionId, err.message);
       payload.onError(err);
+    } else {
+      aiLogger.abortSession(logSessionId);
     }
     return () => {};
   }

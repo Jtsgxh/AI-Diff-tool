@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   GitBranch,
   FolderGit2,
@@ -10,8 +10,10 @@ import {
   Sparkles,
   PanelLeftClose,
   PanelLeftOpen,
+  Terminal,
 } from 'lucide-react';
 import { RepoInfo, SelectionState } from '../types';
+import { aiLogger } from '../services/aiLogger';
 
 interface HeaderProps {
   repoInfo: RepoInfo | null;
@@ -22,6 +24,7 @@ interface HeaderProps {
   onSelectWorkingTree: () => void;
   onRefresh: () => void;
   onOpenSettings: () => void;
+  onOpenAIInspector: () => void;
   isLoading: boolean;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -35,10 +38,20 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectWorkingTree,
   onRefresh,
   onOpenSettings,
+  onOpenAIInspector,
   isLoading,
   isSidebarCollapsed,
   onToggleSidebar,
 }) => {
+  const [sessions, setSessions] = useState(() => aiLogger.getSessions());
+
+  useEffect(() => {
+    return aiLogger.subscribe((updated) => {
+      setSessions(updated);
+    });
+  }, []);
+
+  const isAIRunning = sessions.some((s) => s.status === 'running');
   return (
     <header className="h-14 bg-[#14151B] border-b border-white/10 px-4 flex items-center justify-between select-none z-20">
       {/* Left: Brand Logo & Repo Selector */}
@@ -144,8 +157,31 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
 
-      {/* Right: Actions & Settings */}
+      {/* Right: Actions, AI Console & Settings */}
       <div className="flex items-center space-x-2">
+        {/* AI Call Live Inspector Console Button */}
+        <button
+          onClick={onOpenAIInspector}
+          className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${
+            isAIRunning
+              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse shadow-emerald-500/20'
+              : 'bg-[#1E2029] hover:bg-[#252834] text-slate-300 hover:text-white border-white/10 hover:border-purple-500/30'
+          }`}
+          title="打开 AI 实时调用控制台 (实时观察大模型完整输出流、思考过程与 Prompt)"
+        >
+          <Terminal className={`w-3.5 h-3.5 ${isAIRunning ? 'text-emerald-400' : 'text-purple-400'}`} />
+          <span className="font-semibold">AI 控制台</span>
+          {isAIRunning ? (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+          ) : (
+            sessions.length > 0 && (
+              <span className="bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                {sessions.length}
+              </span>
+            )
+          )}
+        </button>
+
         <button
           onClick={onRefresh}
           disabled={isLoading}
