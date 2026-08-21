@@ -78,45 +78,43 @@ export class AIService {
     }
 
     try {
-      const baseCustomPrompt =
-        config?.fastDiffPrompt?.trim() ||
-        config?.reviewPrompt?.trim() ||
-        config?.customSystemPrompt?.trim();
       let systemPrompt = '';
-
-      if (baseCustomPrompt) {
-        systemPrompt = baseCustomPrompt;
-      } else if (scopeType === 'line' && targetLine) {
-        systemPrompt = `你是一位资深代码审查专家。请对用户选中的具体代码行进行清晰、透彻的代码改动直解与上下文意图分析。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
-      } else if (scopeType === 'chunk') {
-        systemPrompt = `你是一位资深代码审查专家。请对用户选定的代码改动块（Diff Hunks）进行深入的代码逻辑剖析与改动目的说明。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
-      } else {
-        systemPrompt = `你是一位资深架构师和代码审查专家。你的任务是对给定的 Git Diff 进行深度语义分析，深入剖析代码改动的核心逻辑、语句含义与修改目的。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
-      }
-
       let userContent = '';
-      if (scopeType === 'line' && targetLine) {
-        userContent = userPrompt
-          ? `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${
-              targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '
-            } ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
-              0,
-              5000
-            )}\n\`\`\`\n\n【附加要求】: ${userPrompt}`
-          : `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${
-              targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '
-            } ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
-              0,
-              5000
-            )}\n\`\`\`\n\n请针对该聚焦行进行专业解释。`;
+
+      if (userPrompt && userPrompt.trim()) {
+        // Dedicated task-specific instruction (e.g. pseudocode conversion or natural language translation)
+        systemPrompt = userPrompt.trim();
+        userContent = `【待处理 Git Diff 差异】\n文件: ${filePath || '当前文件'}\n提交信息: ${
+          commitMessage || '无'
+        }\n\`\`\`diff\n${diff}\n\`\`\``;
       } else {
-        userContent = userPrompt
-          ? `【上下文 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${
-              commitMessage || '无'
-            }\n\`\`\`diff\n${diff.slice(0, 9000)}\n\`\`\`\n\n【附加要求】: ${userPrompt}`
-          : `【请分析以下 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${
-              commitMessage || '无'
-            }\n\`\`\`diff\n${diff.slice(0, 9000)}\n\`\`\``;
+        const baseCustomPrompt =
+          config?.fastDiffPrompt?.trim() ||
+          config?.reviewPrompt?.trim() ||
+          config?.customSystemPrompt?.trim();
+
+        if (baseCustomPrompt) {
+          systemPrompt = baseCustomPrompt;
+        } else if (scopeType === 'line' && targetLine) {
+          systemPrompt = `你是一位资深代码审查专家。请对用户选中的具体代码行进行清晰、透彻的代码改动直解与上下文意图分析。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
+        } else if (scopeType === 'chunk') {
+          systemPrompt = `你是一位资深代码审查专家。请对用户选定的代码改动块（Diff Hunks）进行深入的代码逻辑剖析与改动目的说明。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
+        } else {
+          systemPrompt = `你是一位资深架构师和代码审查专家。你的任务是对给定的 Git Diff 进行深度语义分析，深入剖析代码改动的核心逻辑、语句含义与修改目的。请使用排版清晰的 Markdown 输出，直击要点，无需输出无关套话。`;
+        }
+
+        if (scopeType === 'line' && targetLine) {
+          userContent = `【文件】: ${filePath || '当前文件'}\n【聚焦代码行 (Line ${targetLine.lineNumber || ''})】:\n\`\`\`\n${
+            targetLine.type === 'delete' ? '-' : targetLine.type === 'add' ? '+' : ' '
+          } ${targetLine.content}\n\`\`\`\n\n【周围上下文 Diff】:\n\`\`\`diff\n${diff.slice(
+            0,
+            5000
+          )}\n\`\`\`\n\n请针对该聚焦行进行专业解释。`;
+        } else {
+          userContent = `【请分析以下 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${
+            commitMessage || '无'
+          }\n\`\`\`diff\n${diff.slice(0, 9000)}\n\`\`\``;
+        }
       }
 
       const url = baseUrl.endsWith('/') ? `${baseUrl}chat/completions` : `${baseUrl}/chat/completions`;
