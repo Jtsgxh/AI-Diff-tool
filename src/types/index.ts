@@ -21,7 +21,12 @@ export type {
   TargetLineInfo,
 } from '../../shared/types';
 
-export { DIFF_CHAR_LIMITS } from '../../shared/types';
+export {
+  CONTEXT_WINDOW_TOKENS,
+  diffCharBudgetFromWindow,
+  inferContextWindowTokens,
+  suggestContextWindowTokens,
+} from '../../shared/types';
 
 import type { CommitNode } from '../../shared/types';
 

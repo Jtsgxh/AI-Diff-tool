@@ -28,7 +28,7 @@ interface DiffViewerProps {
   aiConfig: AIProviderConfig;
 }
 
-export const DiffViewer: React.FC<DiffViewerProps> = ({
+export const DiffViewer = React.memo<DiffViewerProps>(({
   file,
   viewMode,
   onToggleViewMode,
@@ -247,4 +247,6 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       )}
     </div>
   );
-};
+});
+
+DiffViewer.displayName = 'DiffViewer';

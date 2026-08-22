@@ -1,5 +1,6 @@
 import {
-  DIFF_CHAR_LIMITS,
+  diffCharBudgetFromWindow,
+  inferContextWindowTokens,
   type ExplainTask,
   type PartialAIProviderConfig,
   type ScopeType,
@@ -103,25 +104,15 @@ function diffBlock(diff: string, limit: number, canExplore = false): string {
   return `\`\`\`diff\n${kept}\n\`\`\`\n\n${truncationNote(diff, kept, canExplore)}`;
 }
 
-function clampDiffChars(value: number): number {
-  return Math.max(DIFF_CHAR_LIMITS.min, Math.min(DIFF_CHAR_LIMITS.max, Math.round(value)));
-}
-
 function resolveDiffBudget(
   ctx: PromptContext,
   kind: 'fast' | 'agent'
 ): { full: number; line: number } {
-  const raw = ctx.config?.maxDiffChars;
-  const requested =
-    raw === undefined || !Number.isFinite(raw)
-      ? kind === 'agent'
-        ? DIFF_CHAR_LIMITS.agent
-        : DIFF_CHAR_LIMITS.fast
-      : clampDiffChars(raw);
-  // Agent always keeps a ceiling so subsequent tool rounds fit in 64k-context models,
-  // even if the user (or a previous default) saved a much larger slider value.
-  const full = kind === 'agent' ? Math.min(requested, DIFF_CHAR_LIMITS.agent) : requested;
-  return { full, line: Math.min(DIFF_CHAR_LIMITS.line, full) };
+  const tokens = inferContextWindowTokens(ctx.config ?? {});
+  return {
+    full: diffCharBudgetFromWindow(tokens, kind),
+    line: diffCharBudgetFromWindow(tokens, 'line'),
+  };
 }
 
 function focusedLineBlock(targetLine: TargetLineInfo): string {

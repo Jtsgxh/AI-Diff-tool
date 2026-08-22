@@ -29,6 +29,29 @@ function isResolvable(selection: SelectionState): boolean {
   }
 }
 
+function shouldKeepSelection(prev: SelectionState, commits: CommitNode[]): boolean {
+  switch (prev.type) {
+    case 'working-tree':
+      return true;
+    case 'commit':
+      return Boolean(prev.commitHash && commits.some((c) => c.hash === prev.commitHash));
+    case 'compare':
+      return Boolean(
+        prev.baseHash &&
+          prev.targetHash &&
+          commits.some((c) => c.hash === prev.baseHash) &&
+          commits.some((c) => c.hash === prev.targetHash)
+      );
+    case 'batch':
+      return (
+        (prev.commitHashes?.length ?? 0) > 0 &&
+        (prev.commitHashes || []).every((h) => commits.some((c) => c.hash === h))
+      );
+    default:
+      return false;
+  }
+}
+
 function loadDiffFor(repoPath: string, selection: SelectionState): Promise<DiffResult | null> {
   switch (selection.type) {
     case 'commit':
@@ -102,11 +125,16 @@ export function useRepository() {
           addRecentRepo(info.path);
         }
 
-        setSelection(
-          commitData.commits.length > 0
+        setSelection((prev) => {
+          if (shouldKeepSelection(prev, commitData.commits)) {
+            // New object so the diff effect re-runs (the working tree is live).
+            return { ...prev };
+          }
+          if (info.modifiedFilesCount > 0) return { type: 'working-tree' };
+          return commitData.commits.length > 0
             ? { type: 'commit', commitHash: commitData.commits[0].hash }
-            : { type: 'working-tree' }
-        );
+            : { type: 'working-tree' };
+        });
       } catch (err: any) {
         console.error(err);
         setRepoError(err.message || '无法加载该 Git 仓库');
@@ -137,6 +165,7 @@ export function useRepository() {
       .catch((err) => {
         if (requestId !== diffRequestIdRef.current) return;
         console.error(err);
+        setDiffResult(null);
       })
       .finally(() => {
         if (requestId !== diffRequestIdRef.current) return;

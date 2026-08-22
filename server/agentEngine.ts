@@ -21,17 +21,12 @@ import {
   buildSynthesisPrompt,
   type ExplorationEntry,
 } from './prompts';
+import { inferContextWindowTokens, totalContextChars } from '../shared/types';
 import type { AgentExplainRequest, PartialAIProviderConfig } from '../shared/types';
 
 export type AgentExecutionConfig = PartialAIProviderConfig;
 export type AgentExplainOptions = AgentExplainRequest;
 
-/** How much of each tool result is retained for the synthesis fallback. */
-const TOOL_OUTPUT_LOG_LIMIT = 8000;
-/** Replay only this much of the original user/diff message during synthesis. */
-const SYNTHESIS_DIFF_CHARS = 12_000;
-/** Cap on the concatenated tool-log prompt so synthesis cannot blow the window. */
-const SYNTHESIS_LOG_CHARS = 20_000;
 /** How much of each tool result is mirrored to the UI trail. */
 const TOOL_OUTPUT_UI_LIMIT = 450;
 /** Below this length the run is treated as having produced no real report. */
@@ -66,11 +61,15 @@ export class CodexAgentEngine {
       return;
     }
 
+    const contextTokens = inferContextWindowTokens(config ?? {});
+    const contextChars = totalContextChars(contextTokens);
+    const reserveChars = Math.round(contextChars * 0.18);
+    let usedChars = 0;
+
     stream.send({
       type: 'status',
       phase: 'initializing',
-      message:
-        'OpenAI Agents 官方智能体引擎已启动，已挂载 Git 索引沙箱 (Codex 完全自主规划模式)...',
+      message: `OpenAI Agents 官方智能体引擎已启动，上下文 ${contextTokens.toLocaleString()} tokens（约 ${contextChars.toLocaleString()} 字符），已挂载 Git 索引沙箱...`,
     });
 
     // Runtime knobs exposed by the settings modal now actually reach the tools.
@@ -80,13 +79,17 @@ export class CodexAgentEngine {
     });
     const explorationLog: ExplorationEntry[] = [];
 
-    /** Wraps a repo tool so every call is mirrored into the synthesis log. */
+    /** Wraps a repo tool so every call is mirrored into the synthesis log
+     *  and clipped to whatever of the context window is still free. */
     const withLogging =
       <A extends Record<string, unknown>>(name: string) =>
       async (args: A): Promise<string> => {
         const result = await toolsInstance.executeTool(name, args);
-        explorationLog.push({ name, args, output: result.slice(0, TOOL_OUTPUT_LOG_LIMIT) });
-        return result;
+        const room = Math.max(2_000, contextChars - reserveChars - usedChars);
+        const clipped = clipChars(result, room);
+        usedChars += clipped.length;
+        explorationLog.push({ name, args, output: clipped });
+        return clipped;
       };
 
     const readFileTool = tool({
@@ -128,6 +131,7 @@ export class CodexAgentEngine {
     const isFollowUp = Boolean(options.userPrompt && options.userPrompt.trim());
     const systemPrompt = buildAgentSystemPrompt(options);
     const initialUserMsg = buildAgentUserMessage(options);
+    usedChars = systemPrompt.length + initialUserMsg.length;
 
     try {
       // DeepSeek's reasoner rejects assistant turns that lack `reasoning_content`
@@ -301,6 +305,7 @@ export class CodexAgentEngine {
           userPrompt: options.userPrompt,
           isFollowUp,
           hasPartialContent: accumulatedContent.length > 0,
+          contextChars,
           onReasoning: (chunk) => {
             accumulatedReasoningContent += chunk;
           },
@@ -342,9 +347,10 @@ export class CodexAgentEngine {
     userPrompt?: string;
     isFollowUp: boolean;
     hasPartialContent: boolean;
+    contextChars: number;
     onReasoning: (chunk: string) => void;
   }): Promise<void> {
-    const { stream, openaiClient, model, explorationLog } = params;
+    const { stream, openaiClient, model, explorationLog, contextChars } = params;
 
     stream.send({
       type: 'status',
@@ -364,12 +370,15 @@ export class CodexAgentEngine {
           model,
           messages: [
             { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: clipChars(params.initialUserMsg, SYNTHESIS_DIFF_CHARS) },
+            {
+              role: 'user',
+              content: clipChars(params.initialUserMsg, Math.round(contextChars * 0.35)),
+            },
             {
               role: 'user',
               content: clipChars(
                 buildSynthesisPrompt(explorationLog, params.userPrompt),
-                SYNTHESIS_LOG_CHARS
+                Math.round(contextChars * 0.4)
               ),
             },
           ],

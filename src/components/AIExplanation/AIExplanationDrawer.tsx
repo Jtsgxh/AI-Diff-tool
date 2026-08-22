@@ -41,8 +41,8 @@ interface AIExplanationDrawerProps {
  * Slide-over review workbench. All session and streaming logic lives in
  * `useReviewSessions`; this component renders it.
  *
- * The drawer stays mounted and is hidden by transform rather than unmounted, so
- * closing it never aborts an in-flight review.
+ * The drawer stays mounted as a workspace column (width 0 when closed) rather
+ * than unmounting, so closing it never aborts an in-flight review.
  */
 export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   isOpen,
@@ -139,8 +139,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
   return (
     <div
-      className={`fixed inset-y-0 right-0 w-full max-w-2xl bg-[#12131A]/95 backdrop-blur-xl border-l border-white/10 shadow-2xl z-50 flex flex-col font-sans transition-transform duration-300 ease-out ${
-        isOpen ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+      className={`h-full w-full min-w-0 min-h-0 bg-[#12131A] border-l border-white/10 flex flex-col font-sans ${
+        isOpen ? '' : 'pointer-events-none'
       }`}
     >
       {/* 1. Header & session tabs */}

@@ -71,23 +71,90 @@ export interface AIPromptsConfig {
   naturalLanguagePrompt?: string;
 }
 
-/** Caps on how much diff text is forwarded to the model. Characters, not tokens. */
-export const DIFF_CHAR_LIMITS = {
-  /** Slider default and fast-mode (no tools) budget. */
-  default: 48_000,
-  /** Fast one-shot review. Same as `default`. */
-  fast: 48_000,
-  /**
-   * Hard ceiling for agent prompts. Tool results share the model's context
-   * window; stuffing a 64k-char diff here leaves no room for read_file and
-   * the run finishes with an empty report.
-   */
-  agent: 24_000,
-  /** Surrounding context when the user focused a single line. */
-  line: 12_000,
+/** Model context-window size in tokens. Diff budgets are derived from this. */
+export const CONTEXT_WINDOW_TOKENS = {
   min: 8_000,
-  max: 120_000,
+  default: 1_000_000,
+  max: 2_000_000,
 } as const;
+
+/**
+ * Source is mostly ASCII (~4 chars/token). 3.5 leaves room for Chinese
+ * prompts and tokenizer variance so we do not walk into the output budget.
+ */
+export const CONTEXT_CHARS_PER_TOKEN = 3.5;
+
+/** Share of the window spent on the Diff itself. Agent keeps the rest for tools. */
+export const CONTEXT_DIFF_FRACTION = {
+  fast: 0.7,
+  agent: 0.4,
+  line: 0.16,
+} as const;
+
+const MODEL_CONTEXT_RULES: Array<{ test: RegExp; tokens: number }> = [
+  { test: /gemini/i, tokens: 1_000_000 },
+  { test: /claude/i, tokens: 200_000 },
+  { test: /gpt-4o|gpt-4\.1|gpt-4-turbo|o3|o4-mini/i, tokens: 128_000 },
+  { test: /gpt-4/i, tokens: 128_000 },
+  { test: /deepseek/i, tokens: 64_000 },
+  { test: /qwen|llama|mistral|phi|coder/i, tokens: 32_768 },
+];
+
+export function clampContextWindowTokens(tokens: number): number {
+  return Math.max(
+    CONTEXT_WINDOW_TOKENS.min,
+    Math.min(CONTEXT_WINDOW_TOKENS.max, Math.round(tokens))
+  );
+}
+
+/** Hint for the settings UI only — never applied unless the user clicks it. */
+export function suggestContextWindowTokens(input: {
+  provider?: string;
+  model?: string;
+}): number {
+  const model = input.model || '';
+  for (const rule of MODEL_CONTEXT_RULES) {
+    if (rule.test.test(model)) return rule.tokens;
+  }
+  switch (input.provider) {
+    case 'gemini':
+      return 1_000_000;
+    case 'openai':
+    case 'openrouter':
+      return 128_000;
+    case 'ollama':
+      return 32_768;
+    default:
+      return CONTEXT_WINDOW_TOKENS.default;
+  }
+}
+
+/** Resolve the token window: explicit setting, otherwise 1M. */
+export function inferContextWindowTokens(input: {
+  contextWindowTokens?: number;
+  provider?: string;
+  model?: string;
+}): number {
+  const raw = input.contextWindowTokens;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+    return clampContextWindowTokens(raw);
+  }
+  return CONTEXT_WINDOW_TOKENS.default;
+}
+
+export function diffCharBudgetFromWindow(
+  tokens: number,
+  kind: 'fast' | 'agent' | 'line'
+): number {
+  return Math.max(
+    8_000,
+    Math.round(clampContextWindowTokens(tokens) * CONTEXT_CHARS_PER_TOKEN * CONTEXT_DIFF_FRACTION[kind])
+  );
+}
+
+export function totalContextChars(tokens: number): number {
+  return Math.round(clampContextWindowTokens(tokens) * CONTEXT_CHARS_PER_TOKEN);
+}
 
 export interface AIRuntimeConfig {
   maxExplorationTurns?: number;
@@ -95,7 +162,12 @@ export interface AIRuntimeConfig {
   maxRetries?: number;
   maxReadFileLines?: number;
   maxSearchResults?: number;
-  /** Max characters of diff body sent to the model (clamped to DIFF_CHAR_LIMITS). */
+  /**
+   * Model context window in tokens. Diff and tool budgets are derived from
+   * this so a 64k/128k/1M model actually uses the extra room.
+   */
+  contextWindowTokens?: number;
+  /** @deprecated Derived from contextWindowTokens. Ignored by the server. */
   maxDiffChars?: number;
 }
 

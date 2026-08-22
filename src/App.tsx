@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, PanelLeftOpen, Terminal } from 'lucide-react';
 import type { AIProviderConfig, DiffFile } from './types';
 import { fetchBatchCommitsDiff, fetchCommitDiff } from './services/api';
@@ -16,13 +16,19 @@ import {
 import { SettingsModal } from './components/SettingsModal';
 import { OpenRepoModal } from './components/OpenRepoModal';
 import { AICallInspectorModal } from './components/AICallInspector/AICallInspectorModal';
+import { readPersistedWidth, ResizeGutter } from './components/common/ResizeGutter';
 import type { DiffHunk } from './utils/diffParser';
+
+const HISTORY_PANE = { defaultWidth: 380, min: 260, max: 960 };
+const FILES_PANE = { defaultWidth: 240, min: 176, max: 560 };
+const AI_PANE = { defaultWidth: 520, min: 320, max: 1200 };
 
 const DEFAULT_AI_CONFIG: AIProviderConfig = {
   provider: 'deepseek',
   apiKey: '',
   baseUrl: 'https://api.deepseek.com/v1',
   model: 'deepseek-chat',
+  contextWindowTokens: 1_000_000,
 };
 
 /** Normalizes Windows separators before comparing repository-relative paths. */
@@ -61,6 +67,33 @@ export const App: React.FC = () => {
   const [isFilesPanelCollapsed, setIsFilesPanelCollapsed] = useState(
     () => storage.get(STORAGE_KEYS.filesPanelCollapsed) === 'true'
   );
+  const [historyWidth, setHistoryWidth] = useState(() =>
+    readPersistedWidth(
+      storage.get(STORAGE_KEYS.historyWidth),
+      HISTORY_PANE.defaultWidth,
+      HISTORY_PANE.min,
+      HISTORY_PANE.max
+    )
+  );
+  const [filesWidth, setFilesWidth] = useState(() =>
+    readPersistedWidth(
+      storage.get(STORAGE_KEYS.filesWidth),
+      FILES_PANE.defaultWidth,
+      FILES_PANE.min,
+      FILES_PANE.max
+    )
+  );
+  const [aiPaneWidth, setAiPaneWidth] = useState(() =>
+    readPersistedWidth(
+      storage.get(STORAGE_KEYS.aiPaneWidth),
+      AI_PANE.defaultWidth,
+      AI_PANE.min,
+      AI_PANE.max
+    )
+  );
+  const historyPaneRef = useRef<HTMLDivElement>(null);
+  const filesPaneRef = useRef<HTMLDivElement>(null);
+  const aiPaneRef = useRef<HTMLDivElement>(null);
 
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(() =>
     storage.getJson<AIProviderConfig>(STORAGE_KEYS.aiConfig, DEFAULT_AI_CONFIG)
@@ -89,6 +122,21 @@ export const App: React.FC = () => {
       storage.set(STORAGE_KEYS.filesPanelCollapsed, String(!prev));
       return !prev;
     });
+  }, []);
+
+  const commitHistoryWidth = useCallback((width: number) => {
+    setHistoryWidth(width);
+    storage.set(STORAGE_KEYS.historyWidth, String(width));
+  }, []);
+
+  const commitFilesWidth = useCallback((width: number) => {
+    setFilesWidth(width);
+    storage.set(STORAGE_KEYS.filesWidth, String(width));
+  }, []);
+
+  const commitAiPaneWidth = useCallback((width: number) => {
+    setAiPaneWidth(width);
+    storage.set(STORAGE_KEYS.aiPaneWidth, String(width));
   }, []);
 
   const handleSaveConfig = useCallback((newConfig: AIProviderConfig) => {
@@ -281,10 +329,16 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Three-column workspace: DAG · files · diff */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* Workspace: history · files · diff · AI dock. Side panes are pixel-sized
+          and draggable so a maximized window actually gives the extra width to
+          the diff (and to the review, instead of overlaying it). */}
+      <div className="flex-1 flex overflow-hidden min-w-0">
         {!isSidebarCollapsed && (
-          <div className="w-[42%] min-w-[360px] max-w-[700px] h-full flex flex-col transition-all duration-200">
+          <div
+            ref={historyPaneRef}
+            className="h-full flex flex-col shrink-0 min-w-0 overflow-hidden"
+            style={{ width: historyWidth }}
+          >
             <CommitGraph
               commits={commits}
               selection={selection}
@@ -296,6 +350,19 @@ export const App: React.FC = () => {
               onCollapse={handleToggleSidebar}
             />
           </div>
+        )}
+
+        {!isSidebarCollapsed && (
+          <ResizeGutter
+            panelRef={historyPaneRef}
+            min={HISTORY_PANE.min}
+            max={HISTORY_PANE.max}
+            value={historyWidth}
+            onChange={setHistoryWidth}
+            onCommit={commitHistoryWidth}
+            onReset={() => commitHistoryWidth(HISTORY_PANE.defaultWidth)}
+            title="拖动调整提交历史栏宽度 · 双击恢复默认"
+          />
         )}
 
         {isSidebarCollapsed && (
@@ -320,11 +387,9 @@ export const App: React.FC = () => {
 
         {!isFilesPanelCollapsed && (
           <div
-            className={`${
-              isSidebarCollapsed
-                ? 'w-[24%] min-w-[240px] max-w-[380px]'
-                : 'w-[20%] min-w-[200px] max-w-[320px]'
-            } h-full flex flex-col transition-all duration-200`}
+            ref={filesPaneRef}
+            className="h-full flex flex-col shrink-0 min-w-0 overflow-hidden"
+            style={{ width: filesWidth }}
           >
             <FilesPanel
               diffResult={diffResult}
@@ -336,6 +401,19 @@ export const App: React.FC = () => {
               onCollapse={handleToggleFilesPanel}
             />
           </div>
+        )}
+
+        {!isFilesPanelCollapsed && (
+          <ResizeGutter
+            panelRef={filesPaneRef}
+            min={FILES_PANE.min}
+            max={FILES_PANE.max}
+            value={filesWidth}
+            onChange={setFilesWidth}
+            onCommit={commitFilesWidth}
+            onReset={() => commitFilesWidth(FILES_PANE.defaultWidth)}
+            title="拖动调整变更文件栏宽度 · 双击恢复默认"
+          />
         )}
 
         {isFilesPanelCollapsed && (
@@ -372,12 +450,41 @@ export const App: React.FC = () => {
             aiConfig={aiConfig}
           />
         </div>
+
+        {isExplanationOpen && (
+          <ResizeGutter
+            panelRef={aiPaneRef}
+            min={AI_PANE.min}
+            max={AI_PANE.max}
+            invert
+            value={aiPaneWidth}
+            onChange={setAiPaneWidth}
+            onCommit={commitAiPaneWidth}
+            onReset={() => commitAiPaneWidth(AI_PANE.defaultWidth)}
+            title="拖动调整审查栏宽度 · 双击恢复默认"
+          />
+        )}
+
+        <div
+          ref={aiPaneRef}
+          className="h-full min-h-0 shrink-0 overflow-hidden"
+          style={{ width: isExplanationOpen ? aiPaneWidth : 0 }}
+        >
+          <AIExplanationDrawer
+            isOpen={isExplanationOpen}
+            onClose={() => setIsExplanationOpen(false)}
+            scope={explanationScope}
+            repoPath={repoInfo?.path || repoPath}
+            aiConfig={aiConfig}
+          />
+        </div>
       </div>
 
       {/* Floating AI console trigger */}
       <button
         onClick={() => setIsAIInspectorOpen(true)}
-        className={`fixed bottom-4 right-4 z-40 flex items-center space-x-2 px-3 py-2 rounded-full border shadow-xl transition transform active:scale-95 ${
+        style={{ right: isExplanationOpen ? aiPaneWidth + 16 : 16 }}
+        className={`fixed bottom-4 z-40 flex items-center space-x-2 px-3 py-2 rounded-full border shadow-xl transition-[right] duration-200 transform active:scale-95 ${
           isAIRunning
             ? 'bg-emerald-600/90 hover:bg-emerald-600 text-white border-emerald-400 shadow-emerald-500/30 animate-pulse'
             : 'bg-[#181924]/90 hover:bg-[#202230] text-slate-300 hover:text-white border-purple-500/30 hover:border-purple-500/60 shadow-purple-500/10'
@@ -402,14 +509,6 @@ export const App: React.FC = () => {
         onSelectRepo={setRepoPath}
         recentRepos={recentRepos}
         onRemoveRecentRepo={removeRecentRepo}
-      />
-
-      <AIExplanationDrawer
-        isOpen={isExplanationOpen}
-        onClose={() => setIsExplanationOpen(false)}
-        scope={explanationScope}
-        repoPath={repoInfo?.path || repoPath}
-        aiConfig={aiConfig}
       />
 
       <SettingsModal

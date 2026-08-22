@@ -24,6 +24,10 @@ const COMMIT_FORMAT = '%H%x00%h%x00%P%x00%an%x00%ae%x00%ad%x00%s%x00%D%x01';
 
 const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
 
+function normalizeGitPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 /**
  * Diffs of a given commit (or of an immutable SHA range) never change, so they
  * are worth holding on to: re-selecting a commit in the graph then becomes a
@@ -216,13 +220,114 @@ export class GitService {
   async getWorkingTreeDiff(repoPath: string): Promise<DiffResult> {
     const git = this.getGit(repoPath);
 
-    // Staged & unstaged changes. Never cached: the working tree is live.
-    const [diffRaw, numstat] = await Promise.all([
-      git.raw(['diff', 'HEAD']),
-      git.raw(['diff', '--numstat', 'HEAD']),
-    ]);
+    // Empty repos have no HEAD; fall back to the empty tree so untracked files
+    // still produce a diff.
+    const hasHead = await git
+      .raw(['rev-parse', '--verify', 'HEAD'])
+      .then(() => true)
+      .catch(() => false);
+    const against = hasHead ? 'HEAD' : EMPTY_TREE_HASH;
 
-    return this.parseDiffOutput('Uncommitted Changes (Working Tree)', diffRaw, numstat);
+    // Staged + unstaged tracked changes. Never cached: the working tree is live.
+    // `core.quotepath=false` keeps CJK / space paths unescaped for the parser.
+    let diffRaw = '';
+    let numstat = '';
+    try {
+      [diffRaw, numstat] = await Promise.all([
+        git.raw(['-c', 'core.quotepath=false', 'diff', against]),
+        git.raw(['-c', 'core.quotepath=false', 'diff', '--numstat', against]),
+      ]);
+    } catch {
+      // A missing HEAD or odd worktree still lets us append untracked files.
+    }
+
+    const parsed = this.parseDiffOutput('未提交变更 (Working Tree)', diffRaw || '', numstat || '');
+    const seen = new Set(parsed.files.map((f) => normalizeGitPath(f.newPath)));
+
+    let untrackedList = '';
+    try {
+      untrackedList = await git.raw([
+        '-c',
+        'core.quotepath=false',
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+      ]);
+    } catch {
+      untrackedList = '';
+    }
+
+    for (const line of untrackedList.split('\n')) {
+      const rel = normalizeGitPath(line.trim());
+      if (!rel || seen.has(rel)) continue;
+      const extra = this.diffUntrackedFile(repoPath, rel);
+      if (!extra) continue;
+      parsed.files.push(extra);
+      parsed.summary.filesChanged += 1;
+      parsed.summary.insertions += extra.additions;
+      parsed.summary.deletions += extra.deletions;
+      seen.add(rel);
+    }
+
+    return parsed;
+  }
+
+  /** Build a synthetic `diff --git` patch for a file git does not yet track. */
+  private diffUntrackedFile(repoPath: string, relPath: string): DiffFile | null {
+    const fullPath = path.join(repoPath, relPath);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(fullPath);
+    } catch {
+      return null;
+    }
+    if (!stat.isFile()) return null;
+
+    const posix = normalizeGitPath(relPath);
+    const header =
+      `diff --git a/${posix} b/${posix}\n` +
+      `new file mode 100644\n` +
+      `--- /dev/null\n` +
+      `+++ b/${posix}\n`;
+
+    const tooLarge = stat.size > 5 * 1024 * 1024;
+    let buf: Buffer | null = null;
+    if (!tooLarge) {
+      try {
+        buf = fs.readFileSync(fullPath);
+      } catch {
+        return null;
+      }
+    }
+    const binary = tooLarge || (buf !== null && buf.includes(0));
+    if (binary) {
+      return {
+        oldPath: '/dev/null',
+        newPath: posix,
+        status: 'added',
+        additions: 0,
+        deletions: 0,
+        diff: header + (tooLarge ? 'File too large to display\n' : 'Binary file (not shown)\n'),
+      };
+    }
+
+    const text = buf!.toString('utf8');
+    const lines = text.split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+    const additions = lines.length;
+    const hunk =
+      additions === 0
+        ? ''
+        : `@@ -0,0 +1,${additions} @@\n` + lines.map((l) => `+${l}`).join('\n') + '\n';
+
+    return {
+      oldPath: '/dev/null',
+      newPath: posix,
+      status: 'added',
+      additions,
+      deletions: 0,
+      diff: header + hunk,
+    };
   }
 
   /**

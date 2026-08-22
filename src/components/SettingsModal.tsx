@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
-import { DIFF_CHAR_LIMITS, type AIProviderConfig } from '../types';
+import {
+  CONTEXT_WINDOW_TOKENS,
+  diffCharBudgetFromWindow,
+  suggestContextWindowTokens,
+  type AIProviderConfig,
+} from '../types';
 import { DEFAULT_PROMPTS } from '../constants/defaultPrompts';
 import {
   Settings,
@@ -25,8 +30,17 @@ import {
   BookOpen,
   Database,
   Trash2,
-  AlignLeft,
+  Maximize2,
 } from 'lucide-react';
+
+const CONTEXT_WINDOW_PRESETS = [
+  { value: 32_768, label: '32k', hint: '本地小模型' },
+  { value: 64_000, label: '64k', hint: 'DeepSeek' },
+  { value: 128_000, label: '128k', hint: 'GPT-4o' },
+  { value: 200_000, label: '200k', hint: 'Claude' },
+  { value: 1_000_000, label: '1M', hint: '默认 · 推荐' },
+  { value: 2_000_000, label: '2M', hint: '超长上下文' },
+] as const;
 import { aiCache } from '../services/aiCache';
 
 interface SettingsModalProps {
@@ -105,7 +119,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
     maxReadFileLines: config.maxReadFileLines || 500,
     maxSearchResults: config.maxSearchResults || 30,
-    maxDiffChars: config.maxDiffChars || DIFF_CHAR_LIMITS.default,
+    contextWindowTokens: config.contextWindowTokens ?? CONTEXT_WINDOW_TOKENS.default,
   });
 
   const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'prompts'>('model');
@@ -115,6 +129,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [savedMessage, setSavedMessage] = useState(false);
 
   if (!isOpen) return null;
+
+  const windowTokens = form.contextWindowTokens ?? CONTEXT_WINDOW_TOKENS.default;
+  const agentChars = diffCharBudgetFromWindow(windowTokens, 'agent');
+  const fastChars = diffCharBudgetFromWindow(windowTokens, 'fast');
+  const suggestedWindow = suggestContextWindowTokens(form);
 
   const handleProviderSelect = (provider: AIProviderConfig['provider']) => {
     let baseUrl = '';
@@ -153,7 +172,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       maxRetries: 2,
       maxReadFileLines: 500,
       maxSearchResults: 30,
-      maxDiffChars: DIFF_CHAR_LIMITS.default,
     }));
   };
 
@@ -188,7 +206,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#181922] border border-white/10 rounded-xl w-full max-w-xl shadow-2xl overflow-hidden text-slate-200 flex flex-col max-h-[90vh]">
+      <div className="bg-[#181922] border border-white/10 rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden text-slate-200 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-5 py-4 bg-[#14151B] border-b border-white/10 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
@@ -365,6 +383,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
+              <div className="pt-3 border-t border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-300 font-semibold flex items-center gap-1.5">
+                    <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>上下文窗口</span>
+                  </label>
+                  <span className="font-mono text-xs text-amber-200">
+                    {windowTokens >= 1_000_000
+                      ? `${windowTokens / 1_000_000}M`
+                      : `${Math.round(windowTokens / 1000)}k`}{' '}
+                    tokens
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {CONTEXT_WINDOW_PRESETS.map((preset) => {
+                    const active = windowTokens === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setForm({ ...form, contextWindowTokens: preset.value })}
+                        className={`p-2 rounded-lg border text-left transition ${
+                          active
+                            ? 'bg-amber-600/20 border-amber-500 text-white shadow-sm'
+                            : 'bg-[#1D1F28] border-white/5 text-slate-400 hover:text-slate-200 hover:border-white/10'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-semibold text-xs">
+                          <span>{preset.label}</span>
+                          {active && <Check className="w-3 h-3 text-amber-300" />}
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{preset.hint}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  type="number"
+                  min={CONTEXT_WINDOW_TOKENS.min}
+                  max={CONTEXT_WINDOW_TOKENS.max}
+                  step={1000}
+                  value={windowTokens}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      contextWindowTokens:
+                        parseInt(e.target.value, 10) || CONTEXT_WINDOW_TOKENS.default,
+                    })
+                  }
+                  className="w-full bg-[#13141A] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-500/50"
+                />
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  默认 1M。Agent 约 {agentChars.toLocaleString()} 字符，快速解释约{' '}
+                  {fastChars.toLocaleString()} 字符。接口报 context length 时再往下调。
+                  {suggestedWindow !== windowTokens
+                    ? ` 当前模型常见值 ${suggestedWindow.toLocaleString()} tokens。`
+                    : ''}
+                </p>
               </div>
             </div>
           )}
@@ -790,73 +867,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* 3. Diff upload character budget */}
-              <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className="font-semibold text-slate-200 flex items-center gap-1.5">
-                    <AlignLeft className="w-3.5 h-3.5 text-amber-400" />
-                    <span>发送给模型的 Diff 上限</span>
-                  </label>
-                  <span className="font-mono font-bold text-xs px-2 py-0.5 rounded border bg-amber-500/15 text-amber-200 border-amber-500/30">
-                    {(form.maxDiffChars || DIFF_CHAR_LIMITS.default).toLocaleString()} 字符
-                    <span className="text-amber-200/70 font-medium">
-                      {' '}
-                      ≈ {Math.round((form.maxDiffChars || DIFF_CHAR_LIMITS.default) / 4 / 1000)}k
-                      tokens
-                    </span>
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-4 gap-2">
-                  {(
-                    [
-                      { value: DIFF_CHAR_LIMITS.min, label: '8k', hint: '本地小模型' },
-                      { value: DIFF_CHAR_LIMITS.agent, label: '24k', hint: 'Agent 封顶' },
-                      { value: DIFF_CHAR_LIMITS.default, label: '48k', hint: '推荐' },
-                      { value: DIFF_CHAR_LIMITS.max, label: '120k', hint: '仅快速模式' },
-                    ] as const
-                  ).map((preset) => {
-                    const active = (form.maxDiffChars || DIFF_CHAR_LIMITS.default) === preset.value;
-                    return (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        onClick={() => setForm({ ...form, maxDiffChars: preset.value })}
-                        className={`p-2 rounded-lg border text-left transition ${
-                          active
-                            ? 'bg-amber-600/20 border-amber-500 text-white shadow-sm'
-                            : 'bg-[#181924] border-white/5 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between font-semibold text-xs">
-                          <span>{preset.label}</span>
-                          {active && <Check className="w-3 h-3 text-amber-300" />}
-                        </div>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{preset.hint}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <input
-                  type="range"
-                  min={DIFF_CHAR_LIMITS.min}
-                  max={DIFF_CHAR_LIMITS.max}
-                  step={4000}
-                  value={form.maxDiffChars || DIFF_CHAR_LIMITS.default}
-                  onChange={(e) =>
-                    setForm({ ...form, maxDiffChars: parseInt(e.target.value, 10) })
-                  }
-                  className="w-full accent-amber-500 cursor-pointer"
-                />
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  快速解释可用满额。Agent 模式内部最多 {DIFF_CHAR_LIMITS.agent.toLocaleString()}{' '}
-                  字符，把窗口留给 read_file / search_code；超出部分会截断并列出文件。Ollama 等
-                  8k 上下文模型请选 8k。
-                </p>
-              </div>
-
-              {/* 4. Read Lines & Search Results */}
+              {/* 3. Read Lines & Search Results */}
               <div className="grid grid-cols-2 gap-3">
                 {/* Max File Read Lines */}
                 <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-1.5">
