@@ -21,6 +21,8 @@ export type {
   TargetLineInfo,
 } from '../../shared/types';
 
+export { DIFF_CHAR_LIMITS } from '../../shared/types';
+
 import type { CommitNode } from '../../shared/types';
 
 // ------------------------------ Client-only types ------------------------------

@@ -71,12 +71,24 @@ export interface AIPromptsConfig {
   naturalLanguagePrompt?: string;
 }
 
+/** Caps on how much diff text is forwarded to the model. Characters, not tokens. */
+export const DIFF_CHAR_LIMITS = {
+  /** Full-file / multi-file / hunk review (fast + agent). */
+  default: 64_000,
+  /** Surrounding context when the user focused a single line. */
+  line: 16_000,
+  min: 8_000,
+  max: 120_000,
+} as const;
+
 export interface AIRuntimeConfig {
   maxExplorationTurns?: number;
   timeoutSeconds?: number;
   maxRetries?: number;
   maxReadFileLines?: number;
   maxSearchResults?: number;
+  /** Max characters of diff body sent to the model (clamped to DIFF_CHAR_LIMITS). */
+  maxDiffChars?: number;
 }
 
 export interface AIProviderConfig extends AIPromptsConfig, AIRuntimeConfig {

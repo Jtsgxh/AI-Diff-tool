@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AIProviderConfig } from '../types';
+import { DIFF_CHAR_LIMITS, type AIProviderConfig } from '../types';
 import { DEFAULT_PROMPTS } from '../constants/defaultPrompts';
 import {
   Settings,
@@ -25,6 +25,7 @@ import {
   BookOpen,
   Database,
   Trash2,
+  AlignLeft,
 } from 'lucide-react';
 import { aiCache } from '../services/aiCache';
 
@@ -102,8 +103,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       config.maxExplorationTurns !== undefined ? config.maxExplorationTurns : 0,
     timeoutSeconds: config.timeoutSeconds || 45,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
-    maxReadFileLines: config.maxReadFileLines || 300,
+    maxReadFileLines: config.maxReadFileLines || 500,
     maxSearchResults: config.maxSearchResults || 30,
+    maxDiffChars: config.maxDiffChars || DIFF_CHAR_LIMITS.default,
   });
 
   const [activeTab, setActiveTab] = useState<'model' | 'agent' | 'prompts'>('model');
@@ -149,8 +151,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       maxExplorationTurns: 0,
       timeoutSeconds: 45,
       maxRetries: 2,
-      maxReadFileLines: 300,
+      maxReadFileLines: 500,
       maxSearchResults: 30,
+      maxDiffChars: DIFF_CHAR_LIMITS.default,
     }));
   };
 
@@ -787,7 +790,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* 3. Read Lines & Search Results */}
+              {/* 3. Diff upload character budget */}
+              <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-slate-200 flex items-center gap-1.5">
+                    <AlignLeft className="w-3.5 h-3.5 text-amber-400" />
+                    <span>发送给模型的 Diff 上限</span>
+                  </label>
+                  <span className="font-mono font-bold text-xs px-2 py-0.5 rounded border bg-amber-500/15 text-amber-200 border-amber-500/30">
+                    {(form.maxDiffChars || DIFF_CHAR_LIMITS.default).toLocaleString()} 字符
+                    <span className="text-amber-200/70 font-medium">
+                      {' '}
+                      ≈ {Math.round((form.maxDiffChars || DIFF_CHAR_LIMITS.default) / 4 / 1000)}k
+                      tokens
+                    </span>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2">
+                  {(
+                    [
+                      { value: DIFF_CHAR_LIMITS.min, label: '8k', hint: '本地小模型' },
+                      { value: 32_000, label: '32k', hint: '均衡' },
+                      { value: DIFF_CHAR_LIMITS.default, label: '64k', hint: '推荐' },
+                      { value: DIFF_CHAR_LIMITS.max, label: '120k', hint: '超大 Diff' },
+                    ] as const
+                  ).map((preset) => {
+                    const active = (form.maxDiffChars || DIFF_CHAR_LIMITS.default) === preset.value;
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        onClick={() => setForm({ ...form, maxDiffChars: preset.value })}
+                        className={`p-2 rounded-lg border text-left transition ${
+                          active
+                            ? 'bg-amber-600/20 border-amber-500 text-white shadow-sm'
+                            : 'bg-[#181924] border-white/5 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-semibold text-xs">
+                          <span>{preset.label}</span>
+                          {active && <Check className="w-3 h-3 text-amber-300" />}
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{preset.hint}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <input
+                  type="range"
+                  min={DIFF_CHAR_LIMITS.min}
+                  max={DIFF_CHAR_LIMITS.max}
+                  step={4000}
+                  value={form.maxDiffChars || DIFF_CHAR_LIMITS.default}
+                  onChange={(e) =>
+                    setForm({ ...form, maxDiffChars: parseInt(e.target.value, 10) })
+                  }
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  快速解释与 Agent 共用。超出部分会截断，并列出未完整包含的文件；Agent 可用
+                  read_file 自行补全。Ollama 等 8k 上下文模型请选 8k。
+                </p>
+              </div>
+
+              {/* 4. Read Lines & Search Results */}
               <div className="grid grid-cols-2 gap-3">
                 {/* Max File Read Lines */}
                 <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-1.5">
@@ -800,13 +868,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     min={100}
                     max={1000}
                     step={50}
-                    value={form.maxReadFileLines || 300}
+                    value={form.maxReadFileLines || 500}
                     onChange={(e) =>
-                      setForm({ ...form, maxReadFileLines: parseInt(e.target.value, 10) || 300 })
+                      setForm({ ...form, maxReadFileLines: parseInt(e.target.value, 10) || 500 })
                     }
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                   />
-                  <p className="text-[10px] text-slate-500">建议 200~400 行，包含类核心结构</p>
+                  <p className="text-[10px] text-slate-500">建议 300~600 行，覆盖较大的 C# 类</p>
                 </div>
 
                 {/* Max Search Results */}
@@ -830,7 +898,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              {/* 3. Cache Storage Manager */}
+              {/* 5. Cache Storage Manager */}
               <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-slate-200 text-xs flex items-center gap-1.5">

@@ -10,7 +10,7 @@ export interface AgentToolsOptions {
 }
 
 const DEFAULTS = {
-  maxReadFileLines: 300,
+  maxReadFileLines: 500,
   maxSearchResults: 35,
   /** Files above this size are never read into memory. */
   maxFileBytes: 5 * 1024 * 1024,

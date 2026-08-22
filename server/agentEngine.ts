@@ -27,7 +27,7 @@ export type AgentExecutionConfig = PartialAIProviderConfig;
 export type AgentExplainOptions = AgentExplainRequest;
 
 /** How much of each tool result is retained for the synthesis fallback. */
-const TOOL_OUTPUT_LOG_LIMIT = 3000;
+const TOOL_OUTPUT_LOG_LIMIT = 8000;
 /** How much of each tool result is mirrored to the UI trail. */
 const TOOL_OUTPUT_UI_LIMIT = 450;
 /** Below this length the run is treated as having produced no real report. */

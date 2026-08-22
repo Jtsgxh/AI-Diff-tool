@@ -1,19 +1,10 @@
-import type {
-  ExplainTask,
-  PartialAIProviderConfig,
-  ScopeType,
-  TargetLineInfo,
+import {
+  DIFF_CHAR_LIMITS,
+  type ExplainTask,
+  type PartialAIProviderConfig,
+  type ScopeType,
+  type TargetLineInfo,
 } from '../shared/types';
-
-/** Upper bounds on how much diff text is forwarded to the model, by context. */
-export const DIFF_LIMITS = {
-  /** Full-diff review / follow-up context in fast mode. */
-  fast: 9000,
-  /** Full-diff review / follow-up context in agent mode. */
-  agent: 8000,
-  /** Surrounding context when the user focused a single line. */
-  line: 5000,
-} as const;
 
 export interface PromptContext {
   scopeType?: ScopeType;
@@ -51,8 +42,74 @@ function isFormattingPreset(userPrompt: string, task?: ExplainTask): boolean {
   );
 }
 
-function diffBlock(diff: string, limit: number): string {
-  return `\`\`\`diff\n${diff.slice(0, limit)}\n\`\`\``;
+function listDiffPaths(diff: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  const re = /^diff --git a\/(.+?) b\/(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(diff))) {
+    const path = match[2] && match[2] !== '/dev/null' ? match[2] : match[1];
+    if (!seen.has(path)) {
+      seen.add(path);
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+function cutAtBudget(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const slice = text.slice(0, limit);
+  const atNewline = slice.lastIndexOf('\n');
+  if (atNewline >= Math.floor(limit * 0.8)) return slice.slice(0, atNewline);
+  return slice;
+}
+
+function truncationNote(full: string, kept: string, canExplore: boolean): string {
+  const allFiles = listDiffPaths(full);
+  const keptFiles = listDiffPaths(kept);
+  const omitted = allFiles.filter((f) => !keptFiles.includes(f));
+  const partial =
+    keptFiles.length > 0 && kept.length < full.length
+      ? keptFiles[keptFiles.length - 1]
+      : undefined;
+
+  const lines = [
+    `【截断提示】完整 Diff 共 ${full.length} 字符，此处仅保留前 ${kept.length} 字符。`,
+  ];
+  if (allFiles.length > 0) {
+    lines.push(`涉及文件（${allFiles.length}）：${allFiles.join(', ')}`);
+  }
+  if (partial && omitted.length) {
+    lines.push(`未完整包含：${partial}；完全未包含：${omitted.join(', ')}`);
+  } else if (partial) {
+    lines.push(`未完整包含：${partial}`);
+  } else if (omitted.length) {
+    lines.push(`完全未包含：${omitted.join(', ')}`);
+  }
+  lines.push(
+    canExplore
+      ? '被截断的内容不要臆测。请对未读完的文件调用 read_file / search_code 补全后再下结论。'
+      : '被截断的内容不要臆测。如需完整审查，请按文件解释或改用 Agent 模式。'
+  );
+  return lines.join('\n');
+}
+
+function diffBlock(diff: string, limit: number, canExplore = false): string {
+  if (diff.length <= limit) {
+    return `\`\`\`diff\n${diff}\n\`\`\``;
+  }
+  const kept = cutAtBudget(diff, limit);
+  return `\`\`\`diff\n${kept}\n\`\`\`\n\n${truncationNote(diff, kept, canExplore)}`;
+}
+
+function resolveDiffBudget(ctx: PromptContext): { full: number; line: number } {
+  const raw = ctx.config?.maxDiffChars;
+  const full =
+    raw === undefined || !Number.isFinite(raw)
+      ? DIFF_CHAR_LIMITS.default
+      : Math.max(DIFF_CHAR_LIMITS.min, Math.min(DIFF_CHAR_LIMITS.max, Math.round(raw)));
+  return { full, line: Math.min(DIFF_CHAR_LIMITS.line, full) };
 }
 
 function focusedLineBlock(targetLine: TargetLineInfo): string {
@@ -111,6 +168,7 @@ export function buildFastPrompts(ctx: PromptContext): { system: string; user: st
   const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } = ctx;
   const file = filePath || '当前文件';
   const message = commitMessage || '无';
+  const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx);
 
   if (userPrompt && userPrompt.trim()) {
     if (isFormattingPreset(userPrompt, task)) {
@@ -134,7 +192,7 @@ export function buildFastPrompts(ctx: PromptContext): { system: string; user: st
         '你是一位资深架构师和代码审查专家。请结合代码改动上下文，专业、透彻地解答用户的追问。请使用排版清晰的 Markdown 输出。',
       user: `【代码改动上下文 Diff】\n文件: ${file}\n提交信息: ${message}\n${diffBlock(
         diff,
-        DIFF_LIMITS.fast
+        fullLimit
       )}\n\n【用户追问】:\n${userPrompt.trim()}\n\n请针对用户的具体追问给出专业解答。`,
     };
   }
@@ -164,11 +222,11 @@ export function buildFastPrompts(ctx: PromptContext): { system: string; user: st
           targetLine.lineNumber || ''
         })】:\n${focusedLineBlock(targetLine)}\n\n【周围上下文 Diff】:\n${diffBlock(
           diff,
-          DIFF_LIMITS.line
+          lineLimit
         )}\n\n请针对该聚焦行进行专业解释。`
       : `【请分析以下 Git 差异】\n文件: ${filePath || '多文件'}\n提交信息: ${message}\n${diffBlock(
           diff,
-          DIFF_LIMITS.fast
+          fullLimit
         )}`;
 
   return { system, user };
@@ -217,12 +275,13 @@ ${REVIEW_FORMAT_GUIDE}`
 export function buildAgentUserMessage(ctx: PromptContext): string {
   const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt } = ctx;
   const message = commitMessage || '无';
+  const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx);
 
   if (userPrompt && userPrompt.trim()) {
     return `【代码改动上下文 Diff】:
 文件: ${filePath || '多文件'}
 提交信息: ${message}
-${diffBlock(diff, DIFF_LIMITS.agent)}
+${diffBlock(diff, fullLimit, true)}
 
 【用户追问】:
 ${userPrompt.trim()}
@@ -236,13 +295,15 @@ ${userPrompt.trim()}
       targetLine.lineNumber || ''
     })】:\n${focusedLineBlock(targetLine)}\n\n【周围上下文 Diff】:\n${diffBlock(
       diff,
-      DIFF_LIMITS.line
+      lineLimit,
+      true
     )}\n\n请自主规划探查并进行深度代码审查。`;
   }
 
   return `【待审查文件】: ${filePath || '多文件'}\n【提交信息】: ${message}\n${diffBlock(
     diff,
-    DIFF_LIMITS.agent
+    fullLimit,
+    true
   )}\n\n请自主规划代码库探查路径并输出审查报告。`;
 }
 
