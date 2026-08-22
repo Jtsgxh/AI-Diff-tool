@@ -1,4 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { STORAGE_KEYS } from '../../constants/storage';
+import { useResizableSplit } from '../../hooks/useResizableSplit';
 import { Brain, FileCode, Layers, Zap } from 'lucide-react';
 import type { AIProviderConfig, DiffFile, DiffViewMode } from '../../types';
 import { parseRawDiff, type DiffHunk } from '../../utils/diffParser';
@@ -38,6 +40,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   /** Engine used by the per-hunk and per-file explain buttons. */
   const [defaultMode, setDefaultMode] = useState<'agent' | 'fast'>('agent');
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
+  const split = useResizableSplit(STORAGE_KEYS.diffSplitPct);
 
   const annotations = useHunkAnnotations(file, aiConfig);
 
@@ -143,24 +146,49 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         onToggleViewMode={onToggleViewMode}
       />
 
-      <div className="flex-1 overflow-auto bg-[#13141A] pb-16">
-        {hunks.map((hunk) => (
-          <HunkBlock
-            key={hunk.id}
-            hunk={hunk}
-            viewMode={viewMode}
-            isSelected={selectedHunkIds.has(hunk.id)}
-            showPseudocode={annotations.pseudocodeHunkIds.has(hunk.id)}
-            pseudocode={annotations.pseudocodeLines[hunk.id]}
-            showNaturalLanguage={annotations.naturalHunkIds.has(hunk.id)}
-            naturalLanguage={annotations.naturalContent[hunk.id]}
-            deferMount={deferMount}
-            onToggleSelection={toggleHunkSelection}
-            onTogglePseudocode={annotations.togglePseudocode}
-            onToggleNaturalLanguage={annotations.toggleNaturalLanguage}
-            onExplain={handleExplainHunk}
-          />
-        ))}
+      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#13141A]">
+        <div
+          className="absolute inset-0 overflow-auto pb-16"
+          style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
+        >
+          {hunks.map((hunk) => (
+            <HunkBlock
+              key={hunk.id}
+              hunk={hunk}
+              viewMode={viewMode}
+              isSelected={selectedHunkIds.has(hunk.id)}
+              showPseudocode={annotations.pseudocodeHunkIds.has(hunk.id)}
+              pseudocode={annotations.pseudocodeLines[hunk.id]}
+              showNaturalLanguage={annotations.naturalHunkIds.has(hunk.id)}
+              naturalLanguage={annotations.naturalContent[hunk.id]}
+              deferMount={deferMount}
+              onToggleSelection={toggleHunkSelection}
+              onTogglePseudocode={annotations.togglePseudocode}
+              onToggleNaturalLanguage={annotations.toggleNaturalLanguage}
+              onExplain={handleExplainHunk}
+            />
+          ))}
+        </div>
+
+        {viewMode === 'split' && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuenow={Math.round(split.pct)}
+            aria-valuemin={20}
+            aria-valuemax={80}
+            title="拖动调整左右栏宽度 · 双击恢复 50/50"
+            onPointerDown={split.onPointerDown}
+            onPointerMove={split.onPointerMove}
+            onPointerUp={split.onPointerUp}
+            onPointerCancel={split.onPointerUp}
+            onDoubleClick={split.reset}
+            className="absolute top-0 bottom-0 z-20 w-2 -ml-1 cursor-col-resize group/split"
+            style={{ left: `${split.pct}%` }}
+          >
+            <div className="mx-auto h-full w-px bg-white/20 group-hover/split:w-0.5 group-hover/split:bg-purple-400 group-active/split:bg-purple-300 transition-[width,background-color]" />
+          </div>
+        )}
       </div>
 
       {/* Multi-selection action bar */}

@@ -15,6 +15,7 @@ import {
   FolderTree,
   ChevronRight,
   ChevronDown,
+  PanelLeftClose,
 } from 'lucide-react';
 
 interface FilesPanelProps {
@@ -24,6 +25,7 @@ interface FilesPanelProps {
   onExplainAll: () => void;
   onExplainFile: (file: DiffFile) => void;
   isLoading: boolean;
+  onCollapse?: () => void;
 }
 
 interface TreeNode {
@@ -47,6 +49,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
   onExplainAll,
   onExplainFile,
   isLoading,
+  onCollapse,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
@@ -311,6 +314,17 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                 <List className="w-3.5 h-3.5" />
               </button>
             </div>
+
+            {onCollapse && (
+              <button
+                onClick={onCollapse}
+                className="p-1 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded transition flex items-center gap-1 text-[11px]"
+                title="收起变更文件列表"
+              >
+                <PanelLeftClose className="w-3.5 h-3.5" />
+                <span>收起</span>
+              </button>
+            )}
           </div>
         </div>
 

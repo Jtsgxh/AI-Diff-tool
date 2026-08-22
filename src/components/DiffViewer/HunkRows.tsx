@@ -59,7 +59,7 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
           return (
             <div
               key={`line-${lineIdx}`}
-              className={`flex items-stretch font-mono text-xs leading-5 hover:bg-white/[0.04] transition-colors ${
+              className={`flex items-stretch font-mono text-xs leading-5 min-w-max w-full hover:bg-white/[0.04] transition-colors ${
                 isAdd
                   ? 'bg-emerald-950/25 text-emerald-200'
                   : isDelete
@@ -80,9 +80,7 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
               >
                 {isAdd ? '+' : isDelete ? '-' : ' '}
               </div>
-              <div className="flex-1 whitespace-pre pl-1 pr-4 overflow-hidden min-w-0">
-                {displayContent}
-              </div>
+              <div className="whitespace-pre pl-1 pr-4">{displayContent}</div>
             </div>
           );
         })}
@@ -97,66 +95,69 @@ export const HunkSplitRows = React.memo<HunkRowsProps>(({ hunk, showPseudocode, 
   let delCounter = 0;
   let addCounter = 0;
 
+  const rows = hunk.splitRows.map((row) => {
+    const leftIsDelete = row.left?.type === 'delete';
+    const rightIsAdd = row.right?.type === 'add';
+    const aiDelText = leftIsDelete ? pseudocode?.dels[delCounter++] : undefined;
+    const aiAddText = rightIsAdd ? pseudocode?.adds[addCounter++] : undefined;
+    return {
+      leftIsDelete,
+      rightIsAdd,
+      leftNumber: row.left?.lineNumber || '',
+      rightNumber: row.right?.lineNumber || '',
+      leftContent:
+        showPseudocode && leftIsDelete && row.left?.content
+          ? aiDelText || row.left.content
+          : row.left?.content || '',
+      rightContent:
+        showPseudocode && rightIsAdd && row.right?.content
+          ? aiAddText || row.right.content
+          : row.right?.content || '',
+    };
+  });
+
   return (
-    <div>
-      {hunk.splitRows.map((row, rowIdx) => {
-        const leftIsDelete = row.left?.type === 'delete';
-        const rightIsAdd = row.right?.type === 'add';
-
-        const aiDelText = leftIsDelete ? pseudocode?.dels[delCounter++] : undefined;
-        const aiAddText = rightIsAdd ? pseudocode?.adds[addCounter++] : undefined;
-
-        const leftContent =
-          showPseudocode && leftIsDelete && row.left?.content
-            ? aiDelText || row.left.content
-            : row.left?.content || '';
-
-        const rightContent =
-          showPseudocode && rightIsAdd && row.right?.content
-            ? aiAddText || row.right.content
-            : row.right?.content || '';
-
-        return (
+    <div className="flex items-stretch min-w-0">
+      <div
+        className="diff-split-pane min-w-0 border-r border-white/10"
+        style={{ width: 'var(--diff-split-left, 50%)' }}
+      >
+        {rows.map((row, rowIdx) => (
           <div
-            key={`split-row-${rowIdx}`}
-            className="flex items-stretch font-mono text-xs leading-5 border-b border-white/[0.02] hover:bg-white/[0.04] transition-colors"
+            key={`split-left-${rowIdx}`}
+            className={`flex items-stretch h-5 font-mono text-xs leading-5 w-max min-w-full border-b border-white/[0.02] ${
+              row.leftIsDelete ? 'bg-rose-950/25 text-rose-200' : 'text-slate-300'
+            }`}
           >
-            {/* Left (old version) */}
-            <div
-              className={`flex-1 flex min-w-0 border-r border-white/10 ${
-                leftIsDelete ? 'bg-rose-950/25 text-rose-200' : 'text-slate-300'
-              }`}
-            >
-              <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
-                {row.left?.lineNumber || ''}
-              </div>
-              <div className="w-5 shrink-0 text-center font-bold select-none text-rose-400">
-                {leftIsDelete ? '-' : ''}
-              </div>
-              <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-hidden min-w-0">
-                {leftContent}
-              </div>
+            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+              {row.leftNumber}
             </div>
-
-            {/* Right (new version) */}
-            <div
-              className={`flex-1 flex min-w-0 ${
-                rightIsAdd ? 'bg-emerald-950/25 text-emerald-200' : 'text-slate-300'
-              }`}
-            >
-              <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
-                {row.right?.lineNumber || ''}
-              </div>
-              <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-400">
-                {rightIsAdd ? '+' : ''}
-              </div>
-              <div className="flex-1 whitespace-pre pl-1 pr-3 overflow-hidden min-w-0">
-                {rightContent}
-              </div>
+            <div className="w-5 shrink-0 text-center font-bold select-none text-rose-400">
+              {row.leftIsDelete ? '-' : ''}
             </div>
+            <div className="whitespace-pre pl-1 pr-3">{row.leftContent}</div>
           </div>
-        );
-      })}
+        ))}
+      </div>
+
+      <div className="diff-split-pane min-w-0 flex-1">
+        {rows.map((row, rowIdx) => (
+          <div
+            key={`split-right-${rowIdx}`}
+            className={`flex items-stretch h-5 font-mono text-xs leading-5 w-max min-w-full border-b border-white/[0.02] ${
+              row.rightIsAdd ? 'bg-emerald-950/25 text-emerald-200' : 'text-slate-300'
+            }`}
+          >
+            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+              {row.rightNumber}
+            </div>
+            <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-400">
+              {row.rightIsAdd ? '+' : ''}
+            </div>
+            <div className="whitespace-pre pl-1 pr-3">{row.rightContent}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 });

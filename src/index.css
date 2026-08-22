@@ -34,6 +34,19 @@
   background: rgba(255, 255, 255, 0.25);
 }
 
+/* Split-diff drag: keep the col-resize cursor even when the pointer leaves the gutter. */
+body.diff-splitting,
+body.diff-splitting * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+/* Independent horizontal scroll per split pane; gutter keeps left/right row heights in sync. */
+.diff-split-pane {
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+
 /* Glassmorphism & UI Accents */
 .glass-panel {
   background: rgba(26, 27, 34, 0.85);

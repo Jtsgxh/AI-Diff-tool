@@ -8,6 +8,8 @@ export const STORAGE_KEYS = {
   recentRepos: 'git_recent_repos',
   aiConfig: 'git_ai_config',
   sidebarCollapsed: 'git_sidebar_collapsed',
+  filesPanelCollapsed: 'git_files_panel_collapsed',
+  diffSplitPct: 'git_diff_split_pct',
   explanationOpen: 'git_ai_explanation_open',
   activeSessions: 'git_ai_active_sessions',
   activeSessionId: 'git_ai_active_session_id',

@@ -58,6 +58,9 @@ export const App: React.FC = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
     () => storage.get(STORAGE_KEYS.sidebarCollapsed) === 'true'
   );
+  const [isFilesPanelCollapsed, setIsFilesPanelCollapsed] = useState(
+    () => storage.get(STORAGE_KEYS.filesPanelCollapsed) === 'true'
+  );
 
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(() =>
     storage.getJson<AIProviderConfig>(STORAGE_KEYS.aiConfig, DEFAULT_AI_CONFIG)
@@ -77,6 +80,13 @@ export const App: React.FC = () => {
   const handleToggleSidebar = useCallback(() => {
     setIsSidebarCollapsed((prev) => {
       storage.set(STORAGE_KEYS.sidebarCollapsed, String(!prev));
+      return !prev;
+    });
+  }, []);
+
+  const handleToggleFilesPanel = useCallback(() => {
+    setIsFilesPanelCollapsed((prev) => {
+      storage.set(STORAGE_KEYS.filesPanelCollapsed, String(!prev));
       return !prev;
     });
   }, []);
@@ -250,6 +260,8 @@ export const App: React.FC = () => {
         isLoading={isLoadingRepo || isLoadingDiff}
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={handleToggleSidebar}
+        isFilesPanelCollapsed={isFilesPanelCollapsed}
+        onToggleFilesPanel={handleToggleFilesPanel}
         isExplanationOpen={isExplanationOpen}
         onToggleExplanation={() => setIsExplanationOpen((v) => !v)}
       />
@@ -306,22 +318,48 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        <div
-          className={`${
-            isSidebarCollapsed
-              ? 'w-[24%] min-w-[240px] max-w-[380px]'
-              : 'w-[20%] min-w-[200px] max-w-[320px]'
-          } h-full flex flex-col transition-all duration-200`}
-        >
-          <FilesPanel
-            diffResult={diffResult}
-            selectedFilePath={selectedFilePath}
-            onSelectFile={setSelectedFilePath}
-            onExplainAll={handleExplainAll}
-            onExplainFile={handleExplainFile}
-            isLoading={isLoadingDiff}
-          />
-        </div>
+        {!isFilesPanelCollapsed && (
+          <div
+            className={`${
+              isSidebarCollapsed
+                ? 'w-[24%] min-w-[240px] max-w-[380px]'
+                : 'w-[20%] min-w-[200px] max-w-[320px]'
+            } h-full flex flex-col transition-all duration-200`}
+          >
+            <FilesPanel
+              diffResult={diffResult}
+              selectedFilePath={selectedFilePath}
+              onSelectFile={setSelectedFilePath}
+              onExplainAll={handleExplainAll}
+              onExplainFile={handleExplainFile}
+              isLoading={isLoadingDiff}
+              onCollapse={handleToggleFilesPanel}
+            />
+          </div>
+        )}
+
+        {isFilesPanelCollapsed && (
+          <div
+            onClick={handleToggleFilesPanel}
+            className="w-10 bg-[#121319] hover:bg-[#1A1C24] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
+            title="点击展开变更文件列表"
+          >
+            <button
+              type="button"
+              className="p-1.5 rounded-lg bg-white/5 group-hover:bg-sky-500/20 group-hover:text-sky-300 transition mb-4"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+            <div className="flex-1 flex items-center justify-center">
+              <span
+                className="text-[11px] font-semibold tracking-wider text-slate-400 group-hover:text-sky-300 uppercase transition select-none"
+                style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+              >
+                📂 变更文件 ({diffResult?.files.length ?? 0})
+              </span>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 h-full flex flex-col min-w-0">
           <DiffViewer

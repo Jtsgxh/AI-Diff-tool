@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Terminal,
+  FileDiff,
 } from 'lucide-react';
 import { RepoInfo, SelectionState } from '../types';
 import { aiLogger } from '../services/aiLogger';
@@ -28,6 +29,8 @@ interface HeaderProps {
   isLoading: boolean;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  isFilesPanelCollapsed?: boolean;
+  onToggleFilesPanel?: () => void;
   isExplanationOpen?: boolean;
   onToggleExplanation?: () => void;
 }
@@ -48,6 +51,8 @@ export const Header = React.memo<HeaderProps>(({
   isLoading,
   isSidebarCollapsed,
   onToggleSidebar,
+  isFilesPanelCollapsed,
+  onToggleFilesPanel,
   isExplanationOpen,
   onToggleExplanation,
 }) => {
@@ -121,6 +126,31 @@ export const Header = React.memo<HeaderProps>(({
               )}
               <span className="hidden sm:inline font-medium text-[11px]">
                 {isSidebarCollapsed ? '展开历史' : '收起历史'}
+              </span>
+            </button>
+          )}
+
+          {onToggleFilesPanel && (
+            <button
+              onClick={onToggleFilesPanel}
+              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition shadow-sm ${
+                isFilesPanelCollapsed
+                  ? 'bg-sky-600/20 border-sky-500/50 text-sky-300 hover:bg-sky-600/30'
+                  : 'bg-[#1E2029] hover:bg-[#252834] border-white/10 text-slate-300 hover:text-white'
+              }`}
+              title={
+                isFilesPanelCollapsed
+                  ? '展开变更文件列表'
+                  : '收起变更文件列表 (释放更多代码对比空间)'
+              }
+            >
+              {isFilesPanelCollapsed ? (
+                <PanelLeftOpen className="w-4 h-4 text-sky-400" />
+              ) : (
+                <FileDiff className="w-4 h-4 text-slate-400" />
+              )}
+              <span className="hidden sm:inline font-medium text-[11px]">
+                {isFilesPanelCollapsed ? '展开文件' : '收起文件'}
               </span>
             </button>
           )}
