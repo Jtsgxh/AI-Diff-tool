@@ -73,10 +73,18 @@ export interface AIPromptsConfig {
 
 /** Caps on how much diff text is forwarded to the model. Characters, not tokens. */
 export const DIFF_CHAR_LIMITS = {
-  /** Full-file / multi-file / hunk review (fast + agent). */
-  default: 64_000,
+  /** Slider default and fast-mode (no tools) budget. */
+  default: 48_000,
+  /** Fast one-shot review. Same as `default`. */
+  fast: 48_000,
+  /**
+   * Hard ceiling for agent prompts. Tool results share the model's context
+   * window; stuffing a 64k-char diff here leaves no room for read_file and
+   * the run finishes with an empty report.
+   */
+  agent: 24_000,
   /** Surrounding context when the user focused a single line. */
-  line: 16_000,
+  line: 12_000,
   min: 8_000,
   max: 120_000,
 } as const;

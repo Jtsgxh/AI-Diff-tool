@@ -28,6 +28,10 @@ export type AgentExplainOptions = AgentExplainRequest;
 
 /** How much of each tool result is retained for the synthesis fallback. */
 const TOOL_OUTPUT_LOG_LIMIT = 8000;
+/** Replay only this much of the original user/diff message during synthesis. */
+const SYNTHESIS_DIFF_CHARS = 12_000;
+/** Cap on the concatenated tool-log prompt so synthesis cannot blow the window. */
+const SYNTHESIS_LOG_CHARS = 20_000;
 /** How much of each tool result is mirrored to the UI trail. */
 const TOOL_OUTPUT_UI_LIMIT = 450;
 /** Below this length the run is treated as having produced no real report. */
@@ -38,6 +42,11 @@ const RETRY_BOUNDS = { min: 0, max: 5, default: 2 };
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function clipChars(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n\n…(已截断，原文 ${text.length} 字符)`;
 }
 
 /**
@@ -355,8 +364,14 @@ export class CodexAgentEngine {
           model,
           messages: [
             { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: params.initialUserMsg },
-            { role: 'user', content: buildSynthesisPrompt(explorationLog, params.userPrompt) },
+            { role: 'user', content: clipChars(params.initialUserMsg, SYNTHESIS_DIFF_CHARS) },
+            {
+              role: 'user',
+              content: clipChars(
+                buildSynthesisPrompt(explorationLog, params.userPrompt),
+                SYNTHESIS_LOG_CHARS
+              ),
+            },
           ],
           stream: true,
         },

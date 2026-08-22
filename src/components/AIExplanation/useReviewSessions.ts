@@ -291,14 +291,17 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
           currentFollowUpToolEvents: [],
         }));
 
-        aiCache.set(cacheKey, {
-          report: isFollowUp ? latest?.initialReport || '' : acc.text,
-          toolEvents: isFollowUp ? latest?.currentToolEvents || [] : acc.toolEvents,
-          chatHistory,
-          reasoning: isFollowUp ? latest?.initialReasoning : acc.reasoning,
-          model: config.model,
-          provider: config.provider,
-        });
+        const reportForCache = isFollowUp ? latest?.initialReport || '' : acc.text;
+        if (reportForCache.trim()) {
+          aiCache.set(cacheKey, {
+            report: reportForCache,
+            toolEvents: isFollowUp ? latest?.currentToolEvents || [] : acc.toolEvents,
+            chatHistory,
+            reasoning: isFollowUp ? latest?.initialReasoning : acc.reasoning,
+            model: config.model,
+            provider: config.provider,
+          });
+        }
 
         finalize();
       };
@@ -360,9 +363,14 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         scope.diff.length
       }_${mode}`;
 
-      if (!forceRefresh && sessionsRef.current.some((s) => s.id === sessionId)) {
-        setActiveSessionId(sessionId);
-        return;
+      if (!forceRefresh) {
+        const existing = sessionsRef.current.find((s) => s.id === sessionId);
+        // Reuse a live or successful tab. A completed tab with no report is a
+        // failed run — fall through and start it again.
+        if (existing && (existing.isStreaming || existing.initialReport?.trim())) {
+          setActiveSessionId(sessionId);
+          return;
+        }
       }
 
       const shortTitle = shortTitleFor(scope);
@@ -371,7 +379,10 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
 
       if (!forceRefresh) {
         const cached = aiCache.get(cacheKey);
-        if (cached) {
+        // Empty reports used to get cached when an agent run blew the context
+        // window and finished with no tokens — reopening then "succeeded" instantly
+        // with a blank pane. Ignore those entries so the request is retried.
+        if (cached?.report?.trim()) {
           const cachedSession: ReviewSession = {
             id: sessionId,
             title: fullTitle,

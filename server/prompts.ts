@@ -103,12 +103,24 @@ function diffBlock(diff: string, limit: number, canExplore = false): string {
   return `\`\`\`diff\n${kept}\n\`\`\`\n\n${truncationNote(diff, kept, canExplore)}`;
 }
 
-function resolveDiffBudget(ctx: PromptContext): { full: number; line: number } {
+function clampDiffChars(value: number): number {
+  return Math.max(DIFF_CHAR_LIMITS.min, Math.min(DIFF_CHAR_LIMITS.max, Math.round(value)));
+}
+
+function resolveDiffBudget(
+  ctx: PromptContext,
+  kind: 'fast' | 'agent'
+): { full: number; line: number } {
   const raw = ctx.config?.maxDiffChars;
-  const full =
+  const requested =
     raw === undefined || !Number.isFinite(raw)
-      ? DIFF_CHAR_LIMITS.default
-      : Math.max(DIFF_CHAR_LIMITS.min, Math.min(DIFF_CHAR_LIMITS.max, Math.round(raw)));
+      ? kind === 'agent'
+        ? DIFF_CHAR_LIMITS.agent
+        : DIFF_CHAR_LIMITS.fast
+      : clampDiffChars(raw);
+  // Agent always keeps a ceiling so subsequent tool rounds fit in 64k-context models,
+  // even if the user (or a previous default) saved a much larger slider value.
+  const full = kind === 'agent' ? Math.min(requested, DIFF_CHAR_LIMITS.agent) : requested;
   return { full, line: Math.min(DIFF_CHAR_LIMITS.line, full) };
 }
 
@@ -168,7 +180,7 @@ export function buildFastPrompts(ctx: PromptContext): { system: string; user: st
   const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } = ctx;
   const file = filePath || '当前文件';
   const message = commitMessage || '无';
-  const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx);
+  const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx, 'fast');
 
   if (userPrompt && userPrompt.trim()) {
     if (isFormattingPreset(userPrompt, task)) {
@@ -275,7 +287,7 @@ ${REVIEW_FORMAT_GUIDE}`
 export function buildAgentUserMessage(ctx: PromptContext): string {
   const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt } = ctx;
   const message = commitMessage || '无';
-  const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx);
+  const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx, 'agent');
 
   if (userPrompt && userPrompt.trim()) {
     return `【代码改动上下文 Diff】:

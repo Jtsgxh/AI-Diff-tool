@@ -811,9 +811,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {(
                     [
                       { value: DIFF_CHAR_LIMITS.min, label: '8k', hint: '本地小模型' },
-                      { value: 32_000, label: '32k', hint: '均衡' },
-                      { value: DIFF_CHAR_LIMITS.default, label: '64k', hint: '推荐' },
-                      { value: DIFF_CHAR_LIMITS.max, label: '120k', hint: '超大 Diff' },
+                      { value: DIFF_CHAR_LIMITS.agent, label: '24k', hint: 'Agent 封顶' },
+                      { value: DIFF_CHAR_LIMITS.default, label: '48k', hint: '推荐' },
+                      { value: DIFF_CHAR_LIMITS.max, label: '120k', hint: '仅快速模式' },
                     ] as const
                   ).map((preset) => {
                     const active = (form.maxDiffChars || DIFF_CHAR_LIMITS.default) === preset.value;
@@ -850,8 +850,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="w-full accent-amber-500 cursor-pointer"
                 />
                 <p className="text-[10px] text-slate-500 leading-relaxed">
-                  快速解释与 Agent 共用。超出部分会截断，并列出未完整包含的文件；Agent 可用
-                  read_file 自行补全。Ollama 等 8k 上下文模型请选 8k。
+                  快速解释可用满额。Agent 模式内部最多 {DIFF_CHAR_LIMITS.agent.toLocaleString()}{' '}
+                  字符，把窗口留给 read_file / search_code；超出部分会截断并列出文件。Ollama 等
+                  8k 上下文模型请选 8k。
                 </p>
               </div>
 
