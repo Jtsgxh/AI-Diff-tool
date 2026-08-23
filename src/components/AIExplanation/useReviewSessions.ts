@@ -308,7 +308,16 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
 
       const handleError = (err: Error) => {
         commit();
-        updateSession(sessionId, (s) => ({ ...s, isStreaming: false, error: err.message }));
+        updateSession(sessionId, (s) => ({
+          ...s,
+          isStreaming: false,
+          error: err.message,
+          agentStatus: {
+            type: 'status',
+            phase: 'completed',
+            message: '审查异常中断',
+          },
+        }));
         finalize();
       };
 
@@ -365,9 +374,13 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
 
       if (!forceRefresh) {
         const existing = sessionsRef.current.find((s) => s.id === sessionId);
-        // Reuse a live or successful tab. A completed tab with no report is a
-        // failed run — fall through and start it again.
-        if (existing && (existing.isStreaming || existing.initialReport?.trim())) {
+        // Reuse a live or successful tab. A completed tab with no report, or
+        // one that ended in error (connection drop mid-review), is retried.
+        if (
+          existing &&
+          !existing.error &&
+          (existing.isStreaming || existing.initialReport?.trim())
+        ) {
           setActiveSessionId(sessionId);
           return;
         }

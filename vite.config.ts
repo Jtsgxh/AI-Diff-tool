@@ -31,6 +31,10 @@ export default defineConfig(({ mode }) => {
           // as ECONNREFUSED on every request.
           target: `http://127.0.0.1:${apiPort}`,
           changeOrigin: true,
+          // Agent reviews stream for minutes. The proxy default (often 2 min)
+          // was cutting SSE mid-report and the UI treated the drop as success.
+          timeout: 0,
+          proxyTimeout: 0,
         },
       },
     },

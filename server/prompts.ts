@@ -320,24 +320,36 @@ export interface ExplorationEntry {
  *  finished without emitting a substantial report. */
 export function buildSynthesisPrompt(
   explorationLog: ExplorationEntry[],
-  userPrompt?: string
+  userPrompt?: string,
+  extra?: { truncatedDraft?: string }
 ): string {
   const isFollowUp = Boolean(userPrompt && userPrompt.trim());
 
+  let body: string;
   if (explorationLog.length === 0) {
-    return isFollowUp
+    body = isFollowUp
       ? `【用户追问】:\n${userPrompt?.trim()}\n\n请直接针对用户的追问给出精准、专业、详尽的 Markdown 解答。`
       : '【探查阶段已结束】请根据上述代码修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。';
+  } else {
+    const contextSummary = explorationLog
+      .map(
+        (log, idx) =>
+          `【探查结果 #${idx + 1} (${log.name} 参数: ${JSON.stringify(log.args)})】:\n${log.output}`
+      )
+      .join('\n\n');
+
+    body = isFollowUp
+      ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`
+      : `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`;
   }
 
-  const contextSummary = explorationLog
-    .map(
-      (log, idx) =>
-        `【探查结果 #${idx + 1} (${log.name} 参数: ${JSON.stringify(log.args)})】:\n${log.output}`
-    )
-    .join('\n\n');
+  const draft = extra?.truncatedDraft?.trim();
+  if (!draft) return body;
 
-  return isFollowUp
-    ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`
-    : `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`;
+  return `${body}
+
+【上一轮输出被截断，尚未写完】请从中断处继续补全终审报告，不要重复已经写过的段落。
+
+【已输出的不完整内容】:
+${draft}`;
 }

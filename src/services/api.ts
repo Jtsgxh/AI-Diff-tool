@@ -229,6 +229,8 @@ function runStream(params: {
   activeStreams.set(fingerprint, cancel);
 
   let settled = false;
+  let receivedDone = false;
+
   const complete = () => {
     if (settled) return;
     settled = true;
@@ -237,25 +239,42 @@ function runStream(params: {
     payload.onComplete();
   };
 
+  const fail = (err: Error) => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    aiLogger.errorSession(logSessionId, err.message);
+    payload.onError(err);
+  };
+
   readEventStream({
     url,
     body,
     signal: abortController.signal,
-    onEvent: (event, raw) => params.onEvent(event, raw, { logSessionId }),
+    onEvent: (event, raw) => {
+      if (event === SSE_DONE || event?.type === 'done') receivedDone = true;
+      return params.onEvent(event, raw, { logSessionId });
+    },
   })
-    // Reaching here means either a terminal sentinel was seen or the server
-    // closed the connection; both are completions, and `complete` is idempotent.
-    .then(complete)
+    .then(() => {
+      if (receivedDone) {
+        complete();
+        return;
+      }
+      // The socket closed without the terminal sentinel — the report is
+      // truncated. Treating this as success used to leave a half-written
+      // review marked "已完成".
+      fail(new Error('审查连接中断，报告可能不完整。请点击右上角重新审查。'));
+    })
     .catch((err: any) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
       if (err?.name === 'AbortError') {
+        if (settled) return;
+        settled = true;
+        cleanup();
         aiLogger.abortSession(logSessionId);
         return;
       }
-      aiLogger.errorSession(logSessionId, err.message);
-      payload.onError(err);
+      fail(err instanceof Error ? err : new Error(String(err?.message || err)));
     });
 
   return cancel;

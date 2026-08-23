@@ -21,7 +21,12 @@ import {
   buildSynthesisPrompt,
   type ExplorationEntry,
 } from './prompts';
-import { inferContextWindowTokens, totalContextChars } from '../shared/types';
+import {
+  inferContextWindowTokens,
+  MAX_OUTPUT_TOKENS,
+  REQUEST_TIMEOUT_SECONDS,
+  totalContextChars,
+} from '../shared/types';
 import type { AgentExplainRequest, PartialAIProviderConfig } from '../shared/types';
 
 export type AgentExecutionConfig = PartialAIProviderConfig;
@@ -29,10 +34,10 @@ export type AgentExplainOptions = AgentExplainRequest;
 
 /** How much of each tool result is mirrored to the UI trail. */
 const TOOL_OUTPUT_UI_LIMIT = 450;
-/** Below this length the run is treated as having produced no real report. */
-const SUBSTANTIAL_REPORT_MIN_CHARS = 50;
 
-const TIMEOUT_BOUNDS_MS = { min: 10_000, max: 120_000, default: 45_000 };
+/** Wall-clock cap for one streamed model call (thinking + tokens + tools). */
+const MODEL_CALL_TIMEOUT_MS = 15 * 60 * 1000;
+
 const RETRY_BOUNDS = { min: 0, max: 5, default: 2 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -133,11 +138,24 @@ export class CodexAgentEngine {
     const initialUserMsg = buildAgentUserMessage(options);
     usedChars = systemPrompt.length + initialUserMsg.length;
 
+    const headerTimeoutMs = clamp(
+      (config?.timeoutSeconds ?? REQUEST_TIMEOUT_SECONDS.default) * 1000,
+      REQUEST_TIMEOUT_SECONDS.min * 1000,
+      REQUEST_TIMEOUT_SECONDS.max * 1000
+    );
+
+    let openaiClient: OpenAI | undefined;
+    let accumulatedContent = '';
+    let lastTurnContent = '';
+    let accumulatedReasoningContent = '';
+    let actionCount = 0;
+    let hitMaxTurns = false;
+    let outputTruncated = false;
+
     try {
       // DeepSeek's reasoner rejects assistant turns that lack `reasoning_content`
       // on subsequent tool-loop requests, so replay what we have seen so far.
       // Strictly scoped to that model: other providers reject the extra field.
-      let accumulatedReasoningContent = '';
       const isNativeDeepSeekReasoner =
         (provider.provider === 'deepseek' || provider.baseUrl.includes('deepseek.com')) &&
         (provider.model || '').toLowerCase().includes('reasoner');
@@ -162,14 +180,10 @@ export class CodexAgentEngine {
         return fetch(input, { ...init, signal: init?.signal ?? stream.signal });
       };
 
-      const openaiClient = new OpenAI({
+      openaiClient = new OpenAI({
         apiKey: provider.apiKey || 'dummy-key-for-ollama',
         baseURL: provider.baseUrl,
-        timeout: clamp(
-          (config?.timeoutSeconds ?? TIMEOUT_BOUNDS_MS.default / 1000) * 1000,
-          TIMEOUT_BOUNDS_MS.min,
-          TIMEOUT_BOUNDS_MS.max
-        ),
+        timeout: headerTimeoutMs,
         maxRetries:
           config?.maxRetries !== undefined
             ? clamp(config.maxRetries, RETRY_BOUNDS.min, RETRY_BOUNDS.max)
@@ -185,6 +199,10 @@ export class CodexAgentEngine {
         instructions: systemPrompt,
         model,
         tools: [readFileTool, searchCodeTool, findFilesTool],
+        modelSettings: {
+          maxTokens: MAX_OUTPUT_TOKENS,
+          timeoutMs: MODEL_CALL_TIMEOUT_MS,
+        },
       });
 
       // 0 or unset means full autonomy: no turn ceiling at all.
@@ -199,9 +217,6 @@ export class CodexAgentEngine {
         message: 'Codex 智能体已接管：正在自主规划代码探查与分析路径...',
         step: 1,
       });
-
-      let accumulatedContent = '';
-      let actionCount = 0;
 
       try {
         const streamedResult = await runner.run(agent, initialUserMsg, {
@@ -218,6 +233,8 @@ export class CodexAgentEngine {
 
             if (itemEvent.name === 'tool_called') {
               actionCount++;
+              // A tool call starts a new turn: preamble before tools is not the report.
+              lastTurnContent = '';
               const toolCallId = item.callId || `call_${Date.now()}_${actionCount}`;
               const toolName =
                 item.toolName || item.name || item.rawItem?.function?.name || 'read_file';
@@ -253,6 +270,7 @@ export class CodexAgentEngine {
               const msgContent = extractMessageContent(item);
               if (msgContent && !accumulatedContent.includes(msgContent)) {
                 accumulatedContent += msgContent;
+                lastTurnContent += msgContent;
                 stream.send({ type: 'chunk', text: msgContent });
               }
             }
@@ -260,7 +278,9 @@ export class CodexAgentEngine {
             event.type === 'raw_model_stream_event' &&
             isOpenAIChatCompletionsRawModelStreamEvent(event)
           ) {
-            const delta = event.data.event.choices?.[0]?.delta as any;
+            const choice = event.data.event.choices?.[0];
+            const delta = choice?.delta as any;
+            if (choice?.finish_reason === 'length') outputTruncated = true;
             const reasoningChunk = extractReasoningDelta(delta);
 
             if (reasoningChunk) {
@@ -276,6 +296,7 @@ export class CodexAgentEngine {
             }
             if (delta?.content) {
               accumulatedContent += delta.content;
+              lastTurnContent += delta.content;
               stream.send({ type: 'chunk', text: delta.content });
             }
           }
@@ -289,12 +310,19 @@ export class CodexAgentEngine {
           runErr.message?.includes('Max turns');
 
         if (!isMaxTurns) throw runErr;
+        hitMaxTurns = true;
       }
 
-      const hasSubstantialReport =
-        accumulatedContent.trim().length > SUBSTANTIAL_REPORT_MIN_CHARS;
-
-      if (!hasSubstantialReport && !stream.isClosed) {
+      if (
+        shouldRunSynthesis(
+          lastTurnContent,
+          accumulatedContent,
+          hitMaxTurns,
+          outputTruncated,
+          isFollowUp
+        ) &&
+        !stream.isClosed
+      ) {
         await this.streamSynthesis({
           stream,
           openaiClient,
@@ -306,6 +334,7 @@ export class CodexAgentEngine {
           isFollowUp,
           hasPartialContent: accumulatedContent.length > 0,
           contextChars,
+          truncatedDraft: outputTruncated ? lastTurnContent || accumulatedContent : undefined,
           onReasoning: (chunk) => {
             accumulatedReasoningContent += chunk;
           },
@@ -316,7 +345,47 @@ export class CodexAgentEngine {
       stream.send({ type: 'done' });
       stream.close();
     } catch (err: any) {
-      if (err?.name !== 'AbortError' && !stream.isClosed) {
+      if (isClientGone(err, stream)) {
+        stream.close();
+        return;
+      }
+
+      // Recover a usable report from whatever the loop already gathered.
+      if (
+        openaiClient &&
+        explorationLog.length > 0 &&
+        !looksLikeCompleteReport(lastTurnContent || accumulatedContent)
+      ) {
+        try {
+          await this.streamSynthesis({
+            stream,
+            openaiClient,
+            model: provider.model || FALLBACK_MODEL,
+            systemPrompt,
+            initialUserMsg,
+            explorationLog,
+            userPrompt: options.userPrompt,
+            isFollowUp,
+            hasPartialContent: accumulatedContent.length > 0,
+            contextChars,
+            truncatedDraft: lastTurnContent || accumulatedContent || undefined,
+            onReasoning: (chunk) => {
+              accumulatedReasoningContent += chunk;
+            },
+          });
+          stream.send({ type: 'status', phase: 'completed', message: 'Codex 智能体审查已完成（中断后已补全）' });
+          stream.send({ type: 'done' });
+          stream.close();
+          return;
+        } catch (synthErr: any) {
+          if (isClientGone(synthErr, stream)) {
+            stream.close();
+            return;
+          }
+        }
+      }
+
+      if (!stream.isClosed) {
         stream.send({
           type: 'status',
           phase: 'completed',
@@ -348,6 +417,7 @@ export class CodexAgentEngine {
     isFollowUp: boolean;
     hasPartialContent: boolean;
     contextChars: number;
+    truncatedDraft?: string;
     onReasoning: (chunk: string) => void;
   }): Promise<void> {
     const { stream, openaiClient, model, explorationLog, contextChars } = params;
@@ -355,9 +425,11 @@ export class CodexAgentEngine {
     stream.send({
       type: 'status',
       phase: 'reporting',
-      message: `Codex 探查收敛完成 (共获取 ${explorationLog.length} 处关键上下文)，正在实时流式输出${
-        params.isFollowUp ? '追问解答' : '深度审查报告'
-      }...`,
+      message: params.truncatedDraft
+        ? `终审报告不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
+        : `Codex 探查收敛完成 (共获取 ${explorationLog.length} 处关键上下文)，正在实时流式输出${
+            params.isFollowUp ? '追问解答' : '深度审查报告'
+          }...`,
     });
 
     if (params.hasPartialContent) {
@@ -368,6 +440,7 @@ export class CodexAgentEngine {
       const synthesisStream = await openaiClient.chat.completions.create(
         {
           model,
+          max_tokens: MAX_OUTPUT_TOKENS,
           messages: [
             { role: 'system', content: params.systemPrompt },
             {
@@ -377,7 +450,11 @@ export class CodexAgentEngine {
             {
               role: 'user',
               content: clipChars(
-                buildSynthesisPrompt(explorationLog, params.userPrompt),
+                buildSynthesisPrompt(explorationLog, params.userPrompt, {
+                  truncatedDraft: params.truncatedDraft
+                    ? clipChars(params.truncatedDraft, 6_000)
+                    : undefined,
+                }),
                 Math.round(contextChars * 0.4)
               ),
             },
@@ -401,11 +478,44 @@ export class CodexAgentEngine {
         }
       }
     } catch (synthesisErr: any) {
-      if (synthesisErr?.name === 'AbortError') return;
+      if (isClientGone(synthesisErr, stream) || synthesisErr?.name === 'AbortError') return;
       console.error('Synthesis Stream Error:', synthesisErr);
       stream.send({ type: 'chunk', text: `\n\n❌ 综合生成异常: ${synthesisErr.message}` });
     }
   }
+}
+
+/**
+ * A complete review has structure (headings) and length. A 50-character
+ * "我先搜索一下调用方…" preamble used to skip synthesis, which is why
+ * reviews appeared to stop halfway after the tool loop.
+ */
+function looksLikeCompleteReport(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 400) return false;
+  const headings = trimmed.match(/^#{1,3}\s/gm)?.length ?? 0;
+  if (headings >= 2) return true;
+  if (trimmed.includes('###') && trimmed.length >= 500) return true;
+  return trimmed.length >= 1200;
+}
+
+function shouldRunSynthesis(
+  lastTurn: string,
+  accumulated: string,
+  hitMaxTurns: boolean,
+  outputTruncated: boolean,
+  isFollowUp: boolean
+): boolean {
+  if (hitMaxTurns || outputTruncated) return true;
+  const text = (lastTurn || accumulated).trim();
+  // Follow-ups are often a short, complete answer after tools — don't
+  // rewrite them. Initial reviews must look like a structured report.
+  if (isFollowUp) return text.length < 80;
+  return !looksLikeCompleteReport(text);
+}
+
+function isClientGone(_err: unknown, stream: SseStream): boolean {
+  return stream.isClosed || stream.signal.aborted;
 }
 
 /** Tool arguments arrive either pre-parsed or as a raw JSON string. */

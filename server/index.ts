@@ -27,6 +27,12 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`🚀 Git Semantic Server running at http://${HOST}:${PORT}`);
 });
 
+// Agent reviews are long-lived SSE. Node's 5-minute requestTimeout would
+// otherwise destroy the socket mid-report on a slow reasoning model.
+// (`headersTimeout = 0` is NOT "disabled" — Node treats 0 as "reset to 60s".)
+server.timeout = 0;
+server.requestTimeout = 0;
+
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is already in use. Stop the other process or set PORT to a free port.`);

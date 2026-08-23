@@ -112,11 +112,13 @@ export async function* readSseJson(
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (value) buffer += decoder.decode(value, { stream: true });
+      if (done) buffer += decoder.decode();
 
-      buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      // Incomplete last line is held for the next chunk; flushed when the
+      // stream ends so a hung-up provider doesn't drop the final frame.
+      buffer = done ? '' : lines.pop() || '';
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -131,6 +133,8 @@ export async function* readSseJson(
           // Partial or non-JSON frame — skip it rather than killing the stream.
         }
       }
+
+      if (done) break;
     }
   } finally {
     signal?.removeEventListener('abort', onAbort);

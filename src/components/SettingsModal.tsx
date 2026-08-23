@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   CONTEXT_WINDOW_TOKENS,
+  REQUEST_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   suggestContextWindowTokens,
   type AIProviderConfig,
@@ -115,7 +116,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       config.reviewPrompt || config.customSystemPrompt || DEFAULT_PROMPTS.reviewPrompt,
     maxExplorationTurns:
       config.maxExplorationTurns !== undefined ? config.maxExplorationTurns : 0,
-    timeoutSeconds: config.timeoutSeconds || 45,
+    timeoutSeconds: config.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
     maxReadFileLines: config.maxReadFileLines || 500,
     maxSearchResults: config.maxSearchResults || 30,
@@ -168,7 +169,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setForm((prev) => ({
       ...prev,
       maxExplorationTurns: 0,
-      timeoutSeconds: 45,
+      timeoutSeconds: REQUEST_TIMEOUT_SECONDS.default,
       maxRetries: 2,
       maxReadFileLines: 500,
       maxSearchResults: 30,
@@ -829,22 +830,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-1.5">
                   <label className="font-semibold text-slate-300 text-xs flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-sky-400" />
-                    <span>单轮请求超时控制</span>
+                    <span>首包等待超时 (TTFB)</span>
                   </label>
                   <select
-                    value={form.timeoutSeconds || 35}
+                    value={form.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default}
                     onChange={(e) =>
                       setForm({ ...form, timeoutSeconds: parseInt(e.target.value, 10) })
                     }
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                   >
-                    <option value={20}>20 秒 (网络极快)</option>
-                    <option value={30}>30 秒 (标准推荐)</option>
-                    <option value={45}>45 秒 (复杂推理)</option>
-                    <option value={60}>60 秒 (超长等待)</option>
-                    <option value={90}>90 秒 (极慢网络)</option>
+                    <option value={30}>30 秒</option>
+                    <option value={45}>45 秒</option>
+                    <option value={90}>90 秒</option>
+                    <option value={180}>180 秒 (推荐 · 推理模型)</option>
+                    <option value={300}>300 秒</option>
+                    <option value={600}>600 秒</option>
                   </select>
-                  <p className="text-[10px] text-slate-500">超时将自动中止当前等待并触发重试</p>
+                  <p className="text-[10px] text-slate-500">
+                    仅限制等到模型开始吐字的时间；开始流式输出后不再受此限制
+                  </p>
                 </div>
 
                 {/* Retries */}

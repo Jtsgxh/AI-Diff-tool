@@ -156,6 +156,24 @@ export function totalContextChars(tokens: number): number {
   return Math.round(clampContextWindowTokens(tokens) * CONTEXT_CHARS_PER_TOKEN);
 }
 
+/**
+ * Wait for the provider's first response byte (headers / first SSE frame).
+ * Streaming the rest of the body is not bound by this — a review can run
+ * for many minutes after the stream has started.
+ */
+export const REQUEST_TIMEOUT_SECONDS = {
+  min: 20,
+  default: 180,
+  max: 600,
+} as const;
+
+/**
+ * Output cap sent on chat-completions / agent turns. 8k is accepted by
+ * DeepSeek and most OpenAI-compatible gateways; the previous implicit
+ * provider default (often 4k) cut long Chinese reviews off mid-sentence.
+ */
+export const MAX_OUTPUT_TOKENS = 8_192;
+
 export interface AIRuntimeConfig {
   maxExplorationTurns?: number;
   timeoutSeconds?: number;

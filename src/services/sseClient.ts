@@ -57,40 +57,45 @@ export async function readEventStream({
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
 
+  const emitLine = (line: string): boolean => {
+    const trimmed = line.trim();
+    // `:` prefixed frames are keep-alive comments.
+    if (!trimmed || !trimmed.startsWith('data:')) return false;
+
+    const dataStr = trimmed.slice(5).trim();
+    if (!dataStr) return false;
+
+    if (dataStr === '[DONE]') {
+      return onEvent(SSE_DONE, dataStr) === true;
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(dataStr);
+    } catch {
+      // Non-JSON payload: hand the raw text to the caller.
+      return onEvent(undefined, dataStr) === true;
+    }
+
+    return onEvent(parsed, dataStr) === true;
+  };
+
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (value) buffer += decoder.decode(value, { stream: true });
+      if (done) buffer += decoder.decode();
 
-      buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
-      // The trailing element may be a partial line; hold it for the next chunk.
-      buffer = lines.pop() || '';
+      // Incomplete last line is held for the next chunk; flushed when done
+      // so a hung-up server doesn't drop the final frame.
+      buffer = done ? '' : lines.pop() || '';
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        // `:` prefixed frames are keep-alive comments.
-        if (!trimmed || !trimmed.startsWith('data:')) continue;
-
-        const dataStr = trimmed.slice(5).trim();
-        if (!dataStr) continue;
-
-        if (dataStr === '[DONE]') {
-          if (onEvent(SSE_DONE, dataStr) === true) return;
-          continue;
-        }
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(dataStr);
-        } catch {
-          // Non-JSON payload: hand the raw text to the caller.
-          if (onEvent(undefined, dataStr) === true) return;
-          continue;
-        }
-
-        if (onEvent(parsed, dataStr) === true) return;
+        if (emitLine(line)) return;
       }
+
+      if (done) break;
     }
   } finally {
     reader.releaseLock?.();
