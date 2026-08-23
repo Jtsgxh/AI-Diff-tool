@@ -8,6 +8,7 @@ import type {
   DiffFile,
   DiffResult,
   RepoInfo,
+  RepoOverview,
 } from '../shared/types';
 
 export type { CommitNode, DiffFile, DiffResult, RepoInfo } from '../shared/types';
@@ -58,10 +59,14 @@ export class GitService {
     }
 
     // Independent reads — issue them concurrently instead of serially.
-    const [status, branchSummary, remoteSummary] = await Promise.all([
+    const [status, branchSummary, remoteSummary, headHash] = await Promise.all([
       git.status(),
       git.branchLocal(),
       git.getRemotes(true),
+      git
+        .raw(['rev-parse', 'HEAD'])
+        .then((s) => s.trim())
+        .catch(() => undefined),
     ]);
 
     return {
@@ -75,6 +80,86 @@ export class GitService {
       modifiedFilesCount: status.files.length,
       branches: branchSummary.all,
       remotes: remoteSummary,
+      headHash,
+    };
+  }
+
+  async getRepoOverview(repoPath: string): Promise<RepoOverview> {
+    const git = this.getGit(repoPath);
+
+    let files: string[] = [];
+    try {
+      const raw = await git.raw(['-c', 'core.quotepath=false', 'ls-files']);
+      files = raw
+        .split('\n')
+        .map((s) => s.replace(/\\/g, '/').trim())
+        .filter(Boolean);
+    } catch {
+      files = [];
+    }
+
+    const dirCounts = new Map<string, number>();
+    const extCounts = new Map<string, number>();
+    for (const file of files) {
+      const slash = file.indexOf('/');
+      const top = slash === -1 ? '(root)' : file.slice(0, slash);
+      dirCounts.set(top, (dirCounts.get(top) || 0) + 1);
+      const dot = file.lastIndexOf('.');
+      const ext = dot > file.lastIndexOf('/') ? file.slice(dot).toLowerCase() : '(none)';
+      extCounts.set(ext, (extCounts.get(ext) || 0) + 1);
+    }
+
+    const topDirs = [...dirCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 16)
+      .map(([name, count]) => ({ name, count }));
+    const languages = [...extCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12)
+      .map(([ext, count]) => ({ ext, count }));
+
+    const manifestHit = (base: string) =>
+      /^(readme(\.(md|txt|rst))?|package\.json|pyproject\.toml|go\.mod|cargo\.toml|cmakelists\.txt|.*\.(csproj|sln|fsproj))$/i.test(
+        base
+      );
+
+    const manifests: RepoOverview['manifests'] = [];
+    for (const file of files) {
+      const depth = file.split('/').length;
+      const base = file.split('/').pop() || '';
+      if (depth > 3 || !manifestHit(base)) continue;
+      let preview = '';
+      try {
+        const full = path.join(repoPath, file);
+        const text = fs.readFileSync(full, 'utf8');
+        if (!text.includes('\0')) {
+          preview = text.split('\n').slice(0, 40).join('\n').slice(0, 2500);
+        }
+      } catch {
+        preview = '';
+      }
+      manifests.push({ path: file, preview });
+      if (manifests.length >= 8) break;
+    }
+
+    const entryName =
+      /^(program|startup|main|index|app|gamemanager|bootstrap|host|server)\.(cs|ts|tsx|js|jsx|py|go|rs)$/i;
+    const entryCandidates = files.filter((f) => entryName.test(f.split('/').pop() || '')).slice(0, 20);
+
+    let headHash: string | undefined;
+    try {
+      headHash = (await git.raw(['rev-parse', 'HEAD'])).trim();
+    } catch {
+      headHash = undefined;
+    }
+
+    return {
+      fileCount: files.length,
+      headHash,
+      languages,
+      topDirs,
+      manifests,
+      entryCandidates,
     };
   }
 
@@ -464,6 +549,37 @@ function parseCommitRecords(raw: string): CommitNode[] {
 function formatBatchMessage(commit: CommitNode, withDate: boolean): string {
   const suffix = withDate ? `${commit.author} · ${commit.date}` : commit.author;
   return `• [${commit.shortHash}] ${commit.message} (${suffix})`;
+}
+
+export function formatRepoOverview(overview: RepoOverview): string {
+  const langs = overview.languages
+    .map((l) => `${l.ext || '(none)'} × ${l.count}`)
+    .join(', ');
+  const dirs = overview.topDirs.map((d) => `- ${d.name}/  (${d.count} 文件)`).join('\n');
+  const entries =
+    overview.entryCandidates.length > 0
+      ? overview.entryCandidates.map((e) => `- ${e}`).join('\n')
+      : '（未探测到常见入口文件名）';
+  const manifests = overview.manifests
+    .map((m) => {
+      const body = m.preview ? `\n\`\`\`\n${m.preview}\n\`\`\`` : '';
+      return `### ${m.path}${body}`;
+    })
+    .join('\n\n');
+
+  return `【仓库骨架】
+文件总数: ${overview.fileCount}
+HEAD: ${overview.headHash || '（无）'}
+语言/扩展名: ${langs || '未知'}
+
+【顶层目录】
+${dirs || '（空）'}
+
+【疑似入口】
+${entries}
+
+【清单与 README 摘录】
+${manifests || '（无）'}`;
 }
 
 export const gitService = new GitService();

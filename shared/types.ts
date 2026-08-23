@@ -54,6 +54,78 @@ export interface RepoInfo {
   isClean: boolean;
   modifiedFilesCount: number;
   branches: string[];
+  headHash?: string;
+}
+
+export interface RepoOverview {
+  fileCount: number;
+  headHash?: string;
+  languages: { ext: string; count: number }[];
+  topDirs: { name: string; count: number }[];
+  manifests: { path: string; preview: string }[];
+  entryCandidates: string[];
+}
+
+export type LearnNodeKind = 'file' | 'class' | 'function' | 'interface' | 'enum' | 'module';
+export type LearnRelation = 'contains' | 'imports' | 'references' | 'inherits';
+
+export interface LearnNode {
+  id: string;
+  label: string;
+  kind: LearnNodeKind;
+  file?: string;
+  communityId: string;
+  degree: number;
+}
+
+export interface LearnEdge {
+  source: string;
+  target: string;
+  relation: LearnRelation;
+}
+
+export interface LearnGodNode {
+  id: string;
+  label: string;
+  kind: LearnNodeKind;
+  file?: string;
+  degree: number;
+}
+
+export interface LearnBridge {
+  source: string;
+  target: string;
+  sourceLabel: string;
+  targetLabel: string;
+  sourceCommunity: string;
+  targetCommunity: string;
+  relation: LearnRelation;
+}
+
+export interface LearnCommunity {
+  id: string;
+  label: string;
+  summary: string;
+  entry?: { file: string; symbol?: string };
+  files: string[];
+  godNodes: string[];
+  cohesion: number;
+  nodeCount: number;
+}
+
+export interface LearnGraph {
+  nodes: LearnNode[];
+  edges: LearnEdge[];
+  communities: LearnCommunity[];
+  runtimePath: string[];
+  godNodes: LearnGodNode[];
+  bridges: LearnBridge[];
+  stats: {
+    filesParsed: number;
+    symbolCount: number;
+    edgeCount: number;
+    truncated: boolean;
+  };
 }
 
 // ------------------------------ AI domain ------------------------------
@@ -201,13 +273,13 @@ export interface AIProviderConfig extends AIPromptsConfig, AIRuntimeConfig {
 /** Server-side view: every field is optional because it arrives over the wire. */
 export type PartialAIProviderConfig = Partial<AIProviderConfig>;
 
-export type ScopeType = 'line' | 'chunk' | 'file' | 'commit';
+export type ScopeType = 'line' | 'chunk' | 'file' | 'commit' | 'repo';
 
 /**
  * Distinguishes formatting jobs (in-place pseudocode / NL reading) from a
  * free-form review so the server does not have to sniff the prompt text.
  */
-export type ExplainTask = 'review' | 'pseudocode' | 'natural_language';
+export type ExplainTask = 'review' | 'pseudocode' | 'natural_language' | 'learn';
 
 export interface TargetLineInfo {
   lineNumber?: number;
@@ -218,7 +290,7 @@ export interface TargetLineInfo {
 export interface ExplainRequest {
   scopeType?: ScopeType;
   targetLine?: TargetLineInfo;
-  diff: string;
+  diff?: string;
   filePath?: string;
   commitMessage?: string;
   userPrompt?: string;

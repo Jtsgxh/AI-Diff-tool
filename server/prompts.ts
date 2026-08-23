@@ -10,12 +10,14 @@ import {
 export interface PromptContext {
   scopeType?: ScopeType;
   targetLine?: TargetLineInfo;
-  diff: string;
+  diff?: string;
   filePath?: string;
   commitMessage?: string;
   userPrompt?: string;
   task?: ExplainTask;
   config?: PartialAIProviderConfig;
+  /** Deterministic code-graph digest, injected for learn tasks. */
+  graphDigest?: string;
 }
 
 const REVIEW_FORMAT_GUIDE = `### 🔄 核心改动前后对比 (Before vs After)
@@ -168,7 +170,8 @@ ${addList}
 // ------------------------------ Fast diff engine ------------------------------
 
 export function buildFastPrompts(ctx: PromptContext): { system: string; user: string } {
-  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } = ctx;
+  const { scopeType, targetLine, filePath, commitMessage, userPrompt, task, config } = ctx;
+  const diff = ctx.diff || '';
   const file = filePath || '当前文件';
   const message = commitMessage || '无';
   const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx, 'fast');
@@ -237,7 +240,56 @@ export function buildFastPrompts(ctx: PromptContext): { system: string; user: st
 
 // ------------------------------ Agent engine ------------------------------
 
+export function isLearnTask(ctx: PromptContext): boolean {
+  return ctx.task === 'learn' || ctx.scopeType === 'repo';
+}
+
+export function buildLearnSystemPrompt(ctx: PromptContext): string {
+  const isFollowUp = Boolean(ctx.userPrompt && ctx.userPrompt.trim());
+  if (isFollowUp) {
+    return `你是代码库导师。结构图谱已经由本地解析得到（节点=文件/类型，边=调用/引用/导入）。结合社区与枢纽节点回答。
+优先调用 search_code / read_file / repo_graph 核实后再回答。
+回答必须是给人读的中文，落到真实文件路径与符号名，讲清数据怎么流、谁调用谁。禁止输出 JSON。`;
+  }
+
+  return `你是代码库导师。界面会画出节点图；你负责把图读懂，写成可以跟着代码走的中文讲解。
+
+【结构事实】用户消息里有一份本地解析的结构图谱（EXTRACTED）。社区划分、枢纽节点、跨社区桥已经算好。禁止重新发明节点或边，禁止只根据文件夹名讲故事。
+
+【必须探查】对每个社区至少 read_file 1 个枢纽文件（优先 God nodes 列出的符号），用 search_code 核实该符号的调用方。没读到的类型不要编方法名。
+
+【给读者看的正文】只用中文，禁止 JSON / 花括号 / 字段名。必须写这些章节，每章都要点名真实符号与路径：
+1. 这是什么 — 这仓库实际在跑什么产品/服务/玩法，核心类型是哪几个
+2. 怎么跑 — 从入口符号逐步讲到主循环或请求处理，每一步：谁调用谁、数据是什么
+3. 各社区详解 — 每个社区单独一段（不是一句话）：职责、核心类型、关键数据、何时进入、和相邻社区如何交接
+4. 枢纽节点 — 度最高的符号为什么是枢纽，改它会波及谁
+5. 跨社区桥 — 解释图谱里的桥接边，为什么这两个社区会连
+6. 建议阅读顺序 — 按运行时，每步读哪个文件的哪个类型
+
+禁止空话（「负责业务逻辑」）、禁止把社区命名成 Scripts / Manager / Common / Utils。
+
+【机器数据】正文全部写完后，另起一行只输出一个围栏，语言标记必须是 learn-graph（禁止用 json），一行合法 JSON：
+{"communities":[{"id":"0","label":"业务名","summary":"至少三句，含真实类型名","entry":{"file":"相对路径","symbol":"类型名"}}],"runtimePath":["0","1"]}
+id 必须与图谱里的社区编号一致。label 用业务语义（登录/匹配/结算），不要用目录名。`;
+}
+
+export function buildLearnUserMessage(ctx: PromptContext): string {
+  const digest = ctx.graphDigest?.trim()
+    ? `\n\n${ctx.graphDigest.trim()}\n`
+    : '\n（结构图谱摘要缺失，请先调用 repo_graph）\n';
+  if (ctx.userPrompt && ctx.userPrompt.trim()) {
+    const focus = ctx.filePath ? `当前聚焦文件: ${ctx.filePath}\n\n` : '';
+    return `${focus}${digest}【用户提问】:\n${ctx.userPrompt.trim()}\n\n请调用工具核实后作答，指向真实文件和符号，讲清调用关系。`;
+  }
+  const focus = ctx.filePath
+    ? `\n请特别说明文件 ${ctx.filePath} 落在哪个社区、运行时何时进入、和哪些枢纽相连。\n`
+    : '';
+  return `请基于下面这份已解析的结构图谱学习当前仓库。先对每个社区的枢纽 read_file / search_code，再写详细中文讲解并给社区起业务名。${focus}${digest}`;
+}
+
 export function buildAgentSystemPrompt(ctx: PromptContext): string {
+  if (isLearnTask(ctx)) return buildLearnSystemPrompt(ctx);
+
   const isFollowUp = Boolean(ctx.userPrompt && ctx.userPrompt.trim());
 
   if (isFollowUp) {
@@ -276,7 +328,10 @@ ${REVIEW_FORMAT_GUIDE}`
 }
 
 export function buildAgentUserMessage(ctx: PromptContext): string {
-  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt } = ctx;
+  if (isLearnTask(ctx)) return buildLearnUserMessage(ctx);
+
+  const { scopeType, targetLine, filePath, commitMessage, userPrompt } = ctx;
+  const diff = ctx.diff || '';
   const message = commitMessage || '无';
   const { full: fullLimit, line: lineLimit } = resolveDiffBudget(ctx, 'agent');
 

@@ -16,6 +16,7 @@ import {
   ChevronRight,
   ChevronDown,
   PanelLeftClose,
+  MessageSquare,
 } from 'lucide-react';
 
 interface FilesPanelProps {
@@ -24,6 +25,7 @@ interface FilesPanelProps {
   onSelectFile: (filePath: string) => void;
   onExplainAll: () => void;
   onExplainFile: (file: DiffFile) => void;
+  onAskFile?: (file: DiffFile) => void;
   isLoading: boolean;
   onCollapse?: () => void;
 }
@@ -48,6 +50,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
   onSelectFile,
   onExplainAll,
   onExplainFile,
+  onAskFile,
   isLoading,
   onCollapse,
 }) => {
@@ -251,16 +254,29 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
           {file.additions > 0 && <span className="text-emerald-400">+{file.additions}</span>}
           {file.deletions > 0 && <span className="text-rose-400">-{file.deletions}</span>}
 
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onExplainFile(file);
-            }}
-            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-purple-500/20 text-purple-300 rounded transition ml-1"
-            title="使用 AI 语义解释该文件"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-          </button>
+          {onAskFile ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAskFile(file);
+              }}
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-amber-500/20 text-amber-300 rounded transition ml-1"
+              title="在学习页询问这个文件"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onExplainFile(file);
+              }}
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-purple-500/20 text-purple-300 rounded transition ml-1"
+              title="使用 AI 语义解释该文件"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -396,16 +412,29 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                   {file.additions > 0 && <span className="text-emerald-400">+{file.additions}</span>}
                   {file.deletions > 0 && <span className="text-rose-400">-{file.deletions}</span>}
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onExplainFile(file);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-purple-500/20 text-purple-300 rounded transition ml-1"
-                    title="使用 AI 语义解释该文件"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                  </button>
+                  {onAskFile ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAskFile(file);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-amber-500/20 text-amber-300 rounded transition ml-1"
+                      title="在学习页询问这个文件"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onExplainFile(file);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-purple-500/20 text-purple-300 rounded transition ml-1"
+                      title="使用 AI 语义解释该文件"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             );

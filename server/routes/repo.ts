@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { gitService } from '../gitService';
+import { buildLearnGraph } from '../learnGraphBuild';
 import { asyncHandler, badRequest } from '../http/errors';
 import { resolveRepoPath } from '../utils/paths';
 
@@ -57,6 +58,22 @@ repoRouter.get(
       target
     );
     res.json(diff);
+  })
+);
+
+repoRouter.get(
+  '/overview',
+  asyncHandler(async (req, res) => {
+    const overview = await gitService.getRepoOverview(resolveRepoPath(req.query.path as string));
+    res.json(overview);
+  })
+);
+
+repoRouter.get(
+  '/learn-graph',
+  asyncHandler(async (req, res) => {
+    const graph = await buildLearnGraph(resolveRepoPath(req.query.path as string));
+    res.json(graph);
   })
 );
 

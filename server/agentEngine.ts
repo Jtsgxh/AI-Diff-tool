@@ -19,8 +19,11 @@ import {
   buildAgentSystemPrompt,
   buildAgentUserMessage,
   buildSynthesisPrompt,
+  isLearnTask,
   type ExplorationEntry,
+  type PromptContext,
 } from './prompts';
+import { buildLearnGraph, formatLearnGraphDigest } from './learnGraphBuild';
 import {
   inferContextWindowTokens,
   MAX_OUTPUT_TOKENS,
@@ -133,9 +136,43 @@ export class CodexAgentEngine {
       execute: withLogging('find_files'),
     });
 
+    const repoOverviewTool = tool({
+      name: 'repo_overview',
+      description:
+        '获取仓库骨架：文件总数、顶层目录统计、主语言、README/工程清单摘录、疑似入口文件。学习一座陌生仓库时必须先调用。',
+      parameters: z.object({
+        note: z.string().optional().describe('可选备注，通常留空'),
+      }),
+      execute: withLogging('repo_overview'),
+    });
+
+    const repoGraphTool = tool({
+      name: 'repo_graph',
+      description:
+        '获取本地解析的代码结构图谱摘要：节点（文件/类型）、边（contains/imports/references/inherits）、社区、枢纽 God nodes、跨社区桥。学习仓库或追问调用关系时使用。',
+      parameters: z.object({
+        note: z.string().optional().describe('可选备注，通常留空'),
+      }),
+      execute: withLogging('repo_graph'),
+    });
+
     const isFollowUp = Boolean(options.userPrompt && options.userPrompt.trim());
-    const systemPrompt = buildAgentSystemPrompt(options);
-    const initialUserMsg = buildAgentUserMessage(options);
+    let promptCtx: PromptContext = options;
+    if (isLearnTask(options)) {
+      try {
+        stream.send({
+          type: 'status',
+          phase: 'initializing',
+          message: '正在解析代码结构图谱（节点 / 边 / 社区）...',
+        });
+        const structural = await buildLearnGraph(repoPath);
+        promptCtx = { ...options, graphDigest: formatLearnGraphDigest(structural) };
+      } catch {
+        promptCtx = options;
+      }
+    }
+    const systemPrompt = buildAgentSystemPrompt(promptCtx);
+    const initialUserMsg = buildAgentUserMessage(promptCtx);
     usedChars = systemPrompt.length + initialUserMsg.length;
 
     const headerTimeoutMs = clamp(
@@ -198,7 +235,9 @@ export class CodexAgentEngine {
         name: 'AutonomousCodexReviewer',
         instructions: systemPrompt,
         model,
-        tools: [readFileTool, searchCodeTool, findFilesTool],
+        tools: isLearnTask(options)
+          ? [repoOverviewTool, repoGraphTool, readFileTool, searchCodeTool, findFilesTool]
+          : [repoOverviewTool, readFileTool, searchCodeTool, findFilesTool],
         modelSettings: {
           maxTokens: MAX_OUTPUT_TOKENS,
           timeoutMs: MODEL_CALL_TIMEOUT_MS,

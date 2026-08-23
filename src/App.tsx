@@ -9,6 +9,7 @@ import { Header } from './components/Header';
 import { CommitGraph } from './components/CommitGraph/CommitGraph';
 import { FilesPanel } from './components/FilesPanel';
 import { DiffViewer } from './components/DiffViewer/DiffViewer';
+import { LearnWorkbench } from './components/Learn/LearnWorkbench';
 import {
   AIExplanationDrawer,
   type ExplanationScope,
@@ -53,6 +54,8 @@ export const App: React.FC = () => {
 
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'split' | 'unified' | 'natural'>('split');
+  const [workspaceMode, setWorkspaceMode] = useState<'diff' | 'learn'>('diff');
+  const [learnAskFile, setLearnAskFile] = useState<string | null>(null);
 
   const [isOpenRepoModal, setIsOpenRepoModal] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -312,6 +315,14 @@ export const App: React.FC = () => {
         onToggleFilesPanel={handleToggleFilesPanel}
         isExplanationOpen={isExplanationOpen}
         onToggleExplanation={() => setIsExplanationOpen((v) => !v)}
+        workspaceMode={workspaceMode}
+        onWorkspaceMode={(mode) => {
+          setWorkspaceMode(mode);
+          if (mode === 'learn') {
+            setIsSidebarCollapsed(true);
+            storage.set(STORAGE_KEYS.sidebarCollapsed, 'true');
+          }
+        }}
       />
 
       {repoError && (
@@ -397,6 +408,11 @@ export const App: React.FC = () => {
               onSelectFile={setSelectedFilePath}
               onExplainAll={handleExplainAll}
               onExplainFile={handleExplainFile}
+              onAskFile={
+                workspaceMode === 'learn'
+                  ? (file) => setLearnAskFile(file.newPath || file.oldPath)
+                  : undefined
+              }
               isLoading={isLoadingDiff}
               onCollapse={handleToggleFilesPanel}
             />
@@ -440,18 +456,29 @@ export const App: React.FC = () => {
         )}
 
         <div className="flex-1 h-full flex flex-col min-w-0">
-          <DiffViewer
-            file={selectedFile}
-            viewMode={viewMode}
-            onToggleViewMode={setViewMode}
-            onExplainHunk={handleExplainHunk}
-            onExplainMultipleHunks={handleExplainMultipleHunks}
-            onExplainFile={handleExplainFile}
-            aiConfig={aiConfig}
-          />
+          {workspaceMode === 'learn' ? (
+            <LearnWorkbench
+              repoPath={repoInfo?.path || repoPath}
+              repoName={repoInfo?.name}
+              headHash={repoInfo?.headHash}
+              aiConfig={aiConfig}
+              askAboutFile={learnAskFile}
+              onAskAboutFileConsumed={() => setLearnAskFile(null)}
+            />
+          ) : (
+            <DiffViewer
+              file={selectedFile}
+              viewMode={viewMode}
+              onToggleViewMode={setViewMode}
+              onExplainHunk={handleExplainHunk}
+              onExplainMultipleHunks={handleExplainMultipleHunks}
+              onExplainFile={handleExplainFile}
+              aiConfig={aiConfig}
+            />
+          )}
         </div>
 
-        {isExplanationOpen && (
+        {isExplanationOpen && workspaceMode !== 'learn' && (
           <ResizeGutter
             panelRef={aiPaneRef}
             min={AI_PANE.min}
@@ -468,7 +495,7 @@ export const App: React.FC = () => {
         <div
           ref={aiPaneRef}
           className="h-full min-h-0 shrink-0 overflow-hidden"
-          style={{ width: isExplanationOpen ? aiPaneWidth : 0 }}
+          style={{ width: isExplanationOpen && workspaceMode !== 'learn' ? aiPaneWidth : 0 }}
         >
           <AIExplanationDrawer
             isOpen={isExplanationOpen}

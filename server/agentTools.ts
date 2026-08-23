@@ -1,6 +1,8 @@
 import path from 'path';
 import fs from 'fs';
 import simpleGit, { SimpleGit } from 'simple-git';
+import { formatRepoOverview, gitService } from './gitService';
+import { buildLearnGraph, formatLearnGraphDigest } from './learnGraphBuild';
 
 export interface AgentToolsOptions {
   /** Lines returned per `read_file` call when no explicit range is given. */
@@ -78,6 +80,10 @@ export class AgentTools {
           return await this.searchCode(args.query, args.file_extension);
         case 'find_files':
           return await this.findFiles(args.pattern);
+        case 'repo_overview':
+          return await this.repoOverview();
+        case 'repo_graph':
+          return await this.repoGraph();
         default:
           return `未知工具: ${name}`;
       }
@@ -116,6 +122,16 @@ export class AgentTools {
       .join('\n');
 
     return `【文件: ${filePath} (第 ${start}-${end} 行 / 共 ${lines.length} 行)】\n\`\`\`\n${numberedContent}\n\`\`\``;
+  }
+
+  private async repoOverview(): Promise<string> {
+    const overview = await gitService.getRepoOverview(this.repoRoot);
+    return formatRepoOverview(overview);
+  }
+
+  private async repoGraph(): Promise<string> {
+    const graph = await buildLearnGraph(this.repoRoot);
+    return formatLearnGraphDigest(graph);
   }
 
   private async searchCode(query: string, fileExtension?: string): Promise<string> {

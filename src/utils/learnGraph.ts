@@ -1,0 +1,281 @@
+import type { LearnCommunity, LearnGraph } from '../types';
+
+export const COMMUNITY_COLORS = [
+  '#4e79a7',
+  '#f28e2b',
+  '#e15759',
+  '#76b7b2',
+  '#59a14f',
+  '#edc948',
+  '#b07aa1',
+  '#ff9da7',
+  '#9c755f',
+  '#bab0ac',
+  '#86bcb6',
+  '#d37295',
+];
+
+export function communityColor(id: string | number): string {
+  const n = typeof id === 'number' ? id : Number.parseInt(id, 10);
+  const i = Number.isFinite(n) ? n : Math.abs(hashCode(String(id)));
+  return COMMUNITY_COLORS[i % COMMUNITY_COLORS.length];
+}
+
+function hashCode(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
+
+const FENCES = [
+  /```learn-graph\s*([\s\S]*?)```/i,
+  /```json\s*([\s\S]*?)```/i,
+];
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function extractBalancedObject(text: string, from: number): string | null {
+  let depth = 0;
+  let start = -1;
+  for (let i = from; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function extractObjectContainingCommunities(text: string): string | null {
+  const idx = text.search(/"communities"\s*:/);
+  if (idx === -1) return null;
+  let start = -1;
+  let depth = 0;
+  for (let i = idx; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === '}') depth++;
+    else if (ch === '{') {
+      if (depth === 0) start = i;
+      else depth--;
+    }
+  }
+  if (start === -1) return null;
+  return extractBalancedObject(text, start);
+}
+
+function extractJsonCandidate(text: string): string | null {
+  for (const re of FENCES) {
+    const match = re.exec(text);
+    if (!match) continue;
+    const inner = match[1].trim();
+    if (/"communities"\s*:/.test(inner)) return inner;
+  }
+  return extractObjectContainingCommunities(text);
+}
+
+function parseJsonLoose(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const cleaned = raw.replace(/,\s*([}\]])/g, '$1');
+    try {
+      return JSON.parse(cleaned);
+    } catch {
+      return null;
+    }
+  }
+}
+
+export interface LearnLabelOverlay {
+  communities: Pick<LearnCommunity, 'id' | 'label' | 'summary' | 'entry' | 'files'>[];
+  runtimePath: string[];
+}
+
+function coerceOverlay(raw: unknown): LearnLabelOverlay | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const src = raw as { communities?: unknown; runtimePath?: unknown };
+  if (!Array.isArray(src.communities)) return null;
+  const communities: LearnLabelOverlay['communities'] = [];
+  const ids = new Set<string>();
+  for (const item of src.communities) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const id = asString(row.id);
+    const label = asString(row.label) || asString(row.name);
+    if (!id || !label || ids.has(id)) continue;
+    const files = Array.isArray(row.files)
+      ? row.files.map((f) => asString(f).replace(/\\/g, '/')).filter(Boolean)
+      : [];
+    let entry: LearnCommunity['entry'];
+    if (row.entry && typeof row.entry === 'object') {
+      const e = row.entry as Record<string, unknown>;
+      const file = asString(e.file).replace(/\\/g, '/');
+      if (file) entry = { file, symbol: asString(e.symbol) || undefined };
+    }
+    ids.add(id);
+    communities.push({ id, label, summary: asString(row.summary), entry, files });
+  }
+  if (communities.length === 0) return null;
+  const idSet = new Set(communities.map((c) => c.id));
+  const runtimePath = Array.isArray(src.runtimePath)
+    ? src.runtimePath.map((x) => asString(x)).filter((id) => idSet.has(id))
+    : communities.map((c) => c.id);
+  return { communities, runtimePath };
+}
+
+export function parseLearnOverlay(text: string): LearnLabelOverlay | null {
+  const candidate = extractJsonCandidate(text);
+  if (!candidate) return null;
+  return coerceOverlay(parseJsonLoose(candidate));
+}
+
+export function overlayCommunityLabels(base: LearnGraph, text: string): LearnGraph {
+  const overlay = parseLearnOverlay(text);
+  if (!overlay) return base;
+  const byId = new Map(overlay.communities.map((c) => [c.id, c]));
+  const communities = base.communities.map((c) => {
+    const o =
+      byId.get(c.id) ||
+      byId.get(String(Number(c.id))) ||
+      byId.get(c.id.replace(/^c/i, '')) ||
+      overlay.communities.find(
+        (x) => x.files.some((f) => c.files.includes(f)) && x.label
+      );
+    if (!o) return c;
+    return {
+      ...c,
+      label: o.label || c.label,
+      summary: o.summary || c.summary,
+      entry: o.entry || c.entry,
+    };
+  });
+  const idSet = new Set(communities.map((c) => c.id));
+  const runtimePath = overlay.runtimePath.filter((id) => idSet.has(id));
+  return {
+    ...base,
+    communities,
+    runtimePath: runtimePath.length ? runtimePath : base.runtimePath,
+  };
+}
+
+export function looksLikeJsonBlob(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.startsWith('{') || t.startsWith('[') || t.startsWith('```')) return true;
+  const afterProse = t.replace(/^[\s\S]*?(?=[{\[])/, '');
+  if (afterProse !== t && /"(communities|runtimePath)"\s*:/.test(afterProse)) return true;
+  if (/"(communities|runtimePath)"\s*:/.test(t) && t.includes('{')) return true;
+  const brace = (t.match(/[{}]/g) || []).length;
+  return brace >= 4 && /"(id|label|entry|files)"\s*:/.test(t);
+}
+
+function cutIncompleteGraphJson(text: string): string {
+  let s = text;
+  const fenceOpen = s.search(/```(?:learn-graph|json)\b/i);
+  if (fenceOpen !== -1 && !/```(?:learn-graph|json)\s*[\s\S]*?```/i.test(s.slice(fenceOpen))) {
+    s = s.slice(0, fenceOpen);
+  }
+  const idx = s.search(/"(?:communities|runtimePath)"\s*:/);
+  if (idx === -1) return s;
+  let start = -1;
+  let depth = 0;
+  for (let i = idx; i >= 0; i--) {
+    const ch = s[i];
+    if (ch === '}') depth++;
+    else if (ch === '{') {
+      if (depth === 0) start = i;
+      else depth--;
+    }
+  }
+  return start !== -1 ? s.slice(0, start) : s.slice(0, idx);
+}
+
+export function visibleLearnProse(text: string): string {
+  let s = text;
+  for (const re of FENCES) s = s.replace(re, '');
+  s = cutIncompleteGraphJson(s);
+  s = s.replace(/```[\s\S]*?```/g, (block) =>
+    /communities|runtimePath/.test(block) ? '' : block
+  );
+  s = s.trim();
+  if (!s || looksLikeJsonBlob(s)) return '';
+  return s;
+}
+
+export function briefingFromGraph(graph: LearnGraph): string {
+  const labels = graph.communities.map((c) => c.label).join('、');
+  const path =
+    graph.runtimePath
+      .map((id) => graph.communities.find((c) => c.id === id)?.label)
+      .filter(Boolean)
+      .join(' → ') || labels;
+  const gods = graph.godNodes
+    .slice(0, 6)
+    .map((g) => `- **${g.label}**（${g.kind}，度 ${g.degree}${g.file ? `，\`${g.file}\`` : ''}）`)
+    .join('\n');
+  const bridges = graph.bridges
+    .slice(0, 8)
+    .map((b) => {
+      const from = graph.communities.find((c) => c.id === b.sourceCommunity)?.label || b.sourceCommunity;
+      const to = graph.communities.find((c) => c.id === b.targetCommunity)?.label || b.targetCommunity;
+      return `- **${b.sourceLabel}** --${b.relation}--> **${b.targetLabel}**（${from} → ${to}）`;
+    })
+    .join('\n');
+  const order = graph.communities
+    .map((c, i) => {
+      const entry = c.entry
+        ? `（先读 \`${c.entry.file}${c.entry.symbol ? ` :: ${c.entry.symbol}` : ''}\`）`
+        : c.godNodes[0]
+          ? `（枢纽 ${c.godNodes[0]}）`
+          : '';
+      const extra = c.summary ? `：${c.summary}` : '';
+      return `${i + 1}. **${c.label}**${entry}${extra}`;
+    })
+    .join('\n');
+  const parts = [
+    `### 这是什么\n这座仓库按结构分成 ${graph.communities.length} 个社区：${labels}。图上 ${graph.nodes.length} 个节点、${graph.edges.length} 条边。`,
+    `### 怎么跑\n运行时主路径：${path}。点图上的节点看类型和文件。`,
+  ];
+  if (gods) parts.push(`### 枢纽节点\n${gods}`);
+  if (bridges) parts.push(`### 跨社区桥\n${bridges}`);
+  parts.push(`### 建议阅读顺序\n${order}`);
+  return parts.join('\n\n');
+}
+
+export function humanizeLearnReport(
+  text: string,
+  base?: LearnGraph | null
+): { graph: LearnGraph | null; prose: string } {
+  const prose = visibleLearnProse(text);
+  if (base && base.nodes.length + base.communities.length > 0) {
+    const graph = overlayCommunityLabels(base, text);
+    return { graph, prose: prose || briefingFromGraph(graph) };
+  }
+  const overlay = parseLearnOverlay(text);
+  if (!overlay) return { graph: base ?? null, prose };
+  const graph: LearnGraph = {
+    nodes: [],
+    edges: [],
+    communities: overlay.communities.map((c) => ({
+      id: c.id,
+      label: c.label,
+      summary: c.summary,
+      entry: c.entry,
+      files: c.files,
+      godNodes: [],
+      cohesion: 0,
+      nodeCount: c.files.length,
+    })),
+    runtimePath: overlay.runtimePath,
+    godNodes: [],
+    bridges: [],
+    stats: { filesParsed: 0, symbolCount: 0, edgeCount: 0, truncated: false },
+  };
+  return { graph, prose: prose || briefingFromGraph(graph) };
+}

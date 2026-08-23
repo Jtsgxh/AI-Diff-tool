@@ -6,6 +6,8 @@ import type {
   DiffResult,
   ExplainTask,
   RepoInfo,
+  LearnGraph,
+  RepoOverview,
   ScopeType,
   TargetLineInfo,
 } from '../types';
@@ -106,6 +108,20 @@ export function fetchCompareDiff(
       base
     )}&target=${encodeURIComponent(target)}`,
     'Failed to fetch comparison diff'
+  );
+}
+
+export function fetchRepoOverview(path: string): Promise<RepoOverview> {
+  return getJson(
+    `/repo/overview?path=${encodeURIComponent(path)}`,
+    'Failed to fetch repository overview'
+  );
+}
+
+export function fetchLearnGraph(path: string): Promise<LearnGraph> {
+  return getJson(
+    `/repo/learn-graph?path=${encodeURIComponent(path)}`,
+    'Failed to fetch code graph'
   );
 }
 

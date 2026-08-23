@@ -12,6 +12,7 @@ import {
   PanelLeftOpen,
   Terminal,
   FileDiff,
+  BookOpen,
 } from 'lucide-react';
 import { RepoInfo, SelectionState } from '../types';
 import { aiLogger } from '../services/aiLogger';
@@ -33,6 +34,8 @@ interface HeaderProps {
   onToggleFilesPanel?: () => void;
   isExplanationOpen?: boolean;
   onToggleExplanation?: () => void;
+  workspaceMode?: 'diff' | 'learn';
+  onWorkspaceMode?: (mode: 'diff' | 'learn') => void;
 }
 
 /**
@@ -55,6 +58,8 @@ export const Header = React.memo<HeaderProps>(({
   onToggleFilesPanel,
   isExplanationOpen,
   onToggleExplanation,
+  workspaceMode = 'diff',
+  onWorkspaceMode,
 }) => {
   const [sessions, setSessions] = useState(() => aiLogger.getSessions());
 
@@ -206,7 +211,24 @@ export const Header = React.memo<HeaderProps>(({
       {/* Right: Actions, AI Console & Settings */}
       <div className="flex items-center space-x-2">
         {/* AI Explanation Workspace Drawer Button */}
-        {onToggleExplanation && (
+        {onWorkspaceMode && (
+          <button
+            onClick={() => onWorkspaceMode(workspaceMode === 'learn' ? 'diff' : 'learn')}
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${
+              workspaceMode === 'learn'
+                ? 'bg-amber-600/30 text-white border-amber-500/50 shadow-amber-500/20'
+                : 'bg-[#1E2029] hover:bg-[#252834] text-slate-300 hover:text-white border-white/10 hover:border-amber-500/30'
+            }`}
+            title={workspaceMode === 'learn' ? '返回代码 Diff 审查' : '打开学习此仓库页面'}
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            <span className="font-semibold">
+              {workspaceMode === 'learn' ? '返回审查' : '学习此仓库'}
+            </span>
+          </button>
+        )}
+
+        {onToggleExplanation && workspaceMode !== 'learn' && (
           <button
             onClick={onToggleExplanation}
             className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${

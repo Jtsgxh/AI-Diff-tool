@@ -12,7 +12,8 @@ function readExplainRequest(body: any): ExplainRequest {
   const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } =
     body ?? {};
 
-  if (!diff && !targetLine) {
+  const isLearn = task === 'learn' || scopeType === 'repo';
+  if (!diff && !targetLine && !isLearn) {
     throw badRequest('Diff content or targetLine is required');
   }
 
