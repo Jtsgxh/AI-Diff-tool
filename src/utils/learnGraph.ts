@@ -150,14 +150,16 @@ function coerceOverlay(raw: unknown): LearnLabelOverlay | null {
       const description = asString(step.description);
       const relation = asString(step.relation);
       const evidence = asString(step.evidence);
-      if (!file || !stepLabel || !description || !relation || !evidence) continue;
+      const classSymbol = asString(step.classSymbol);
+      if (!file || !classSymbol || !stepLabel || !description || !relation || !evidence) continue;
       steps.push({
         label: stepLabel,
         description,
         relation,
         evidence,
         file,
-        symbol: asString(step.symbol) || undefined,
+        classSymbol,
+        methodSymbol: asString(step.methodSymbol) || undefined,
         communityId: asString(step.communityId) || undefined,
       });
     }
@@ -194,15 +196,10 @@ export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
     if (matches) matches.push(node);
     else nodesByFile.set(file, [node]);
   }
-  const findNode = (file: string, symbol?: string) => {
+  const findNode = (file: string, classSymbol: string) => {
     const candidates = nodesByFile.get(file.replace(/\\/g, '/')) || [];
-    if (!symbol) return candidates[0];
-    const normalized = symbol.toLowerCase();
-    return candidates.find(
-      (candidate) =>
-        candidate.label.toLowerCase() === normalized ||
-        candidate.symbols?.some((value) => value.toLowerCase() === normalized)
-    );
+    const normalized = classSymbol.toLowerCase();
+    return candidates.find((candidate) => candidate.label.toLowerCase() === normalized);
   };
   const overlayByCommunity = new Map(overlay.communities.map((community) => [community.id, community]));
   const communities = base.communities.map((c) => {
@@ -217,23 +214,25 @@ export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
   });
   const idSet = new Set(communities.map((c) => c.id));
   const runtimePath = overlay.runtimePath.filter((id) => idSet.has(id));
-  const businessRoutes = overlay.businessRoutes.map((route) => ({
-    ...route,
-    steps: route.steps.map((step) => {
-      const file = step.file.replace(/\\/g, '/');
-      const node = findNode(file, step.symbol);
-      const declaredCommunity = step.communityId && idSet.has(step.communityId)
-        ? step.communityId
-        : undefined;
-      const fileCommunity = communities.find((community) => community.files.includes(file));
-      return {
-        ...step,
-        file,
-        nodeId: node?.id,
-        communityId: node?.communityId || declaredCommunity || fileCommunity?.id,
-      };
-    }),
-  }));
+  const businessRoutes = overlay.businessRoutes
+    .map((route) => ({
+      ...route,
+      steps: route.steps.map((step) => {
+        const file = step.file.replace(/\\/g, '/');
+        const node = findNode(file, step.classSymbol);
+        const declaredCommunity = step.communityId && idSet.has(step.communityId)
+          ? step.communityId
+          : undefined;
+        const fileCommunity = communities.find((community) => community.files.includes(file));
+        return {
+          ...step,
+          file,
+          nodeId: node?.id,
+          communityId: node?.communityId || declaredCommunity || fileCommunity?.id,
+        };
+      }),
+    }))
+    .filter((route) => route.steps.every((step) => Boolean(step.nodeId)));
   return {
     ...base,
     communities,
@@ -296,7 +295,7 @@ export function briefingFromGraph(graph: LearnGraph): string {
   const routes = graph.businessRoutes
     .map((route) => {
       const steps = route.steps
-        .map((step, index) => `${index + 1}. **${step.label}**（${step.relation}，\`${step.file}${step.symbol ? ` :: ${step.symbol}` : ''}\`）${step.description}；证据：${step.evidence}`)
+        .map((step, index) => `${index + 1}. **${step.label}**（${step.relation}，\`${step.file} :: ${step.classSymbol}${step.methodSymbol ? `.${step.methodSymbol}` : ''}\`）${step.description}；证据：${step.evidence}`)
         .join('\n');
       return `#### ${route.label}\n${route.summary ? `${route.summary}\n\n` : ''}${steps}`;
     })
@@ -345,11 +344,17 @@ export function humanizeLearnReport(
       cohesion: 0,
       nodeCount: c.files.length,
     })),
-    businessRoutes: overlay.businessRoutes,
+    businessRoutes: [],
     runtimePath: overlay.runtimePath,
     godNodes: [],
     bridges: [],
-    stats: { filesParsed: 0, symbolCount: 0, edgeCount: 0, truncated: false },
+    stats: {
+      filesParsed: 0,
+      symbolCount: 0,
+      edgeCount: 0,
+      truncated: false,
+      sourceFingerprint: '',
+    },
   };
   return { graph, prose: prose || briefingFromGraph(graph) };
 }

@@ -120,7 +120,8 @@ export interface LearnBusinessRouteStep {
   relation: string;
   evidence: string;
   file: string;
-  symbol?: string;
+  classSymbol: string;
+  methodSymbol?: string;
   communityId?: string;
   nodeId?: string;
 }
@@ -145,6 +146,7 @@ export interface LearnGraph {
     symbolCount: number;
     edgeCount: number;
     truncated: boolean;
+    sourceFingerprint: string;
   };
 }
 

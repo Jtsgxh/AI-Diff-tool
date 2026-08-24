@@ -3,7 +3,6 @@ import type { AgentStatusEvent, AgentToolEvent, AIProviderConfig, LearnGraph, Re
 import { fetchLearnGraph, fetchRepoOverview, streamAgentExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
 import {
-  applyLearnAnalysis,
   humanizeLearnReport,
   parseLearnOverlay,
   visibleLearnProse,
@@ -18,10 +17,20 @@ export interface LearnChatTurn {
 
 const ELAPSED_TICK_MS = 500;
 
+function rejectedRouteLabels(report: string, graph: LearnGraph | null): string[] {
+  const overlay = parseLearnOverlay(report);
+  if (!overlay) return [];
+  const mappedRouteIds = new Set(graph?.businessRoutes.map((route) => route.id) || []);
+  return overlay.businessRoutes
+    .filter((route) => !mappedRouteIds.has(route.id))
+    .map((route) => route.label);
+}
+
 export function useLearnSession(
   repoPath: string,
   aiConfig: AIProviderConfig,
-  headHash?: string
+  headHash: string | undefined,
+  repositoryRevision: number
 ) {
   const [overview, setOverview] = useState<RepoOverview | null>(null);
   const [overviewError, setOverviewError] = useState<string | null>(null);
@@ -50,13 +59,16 @@ export function useLearnSession(
   const graphRef = useRef<LearnGraph | null>(null);
 
   const effectiveLearnPrompt = aiConfig.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
-  const cacheKey = aiCache.generateKey({
-    type: 'learn-v7',
-    filePath: repoPath,
-    diff: headHash || '',
-    userPrompt: effectiveLearnPrompt,
-    model: aiConfig.model,
-  });
+  const cacheKeyForGraph = useCallback(
+    (source: LearnGraph) => aiCache.generateKey({
+      type: 'learn-v8-class-routes',
+      filePath: repoPath,
+      diff: `${headHash || ''}:${source.stats.sourceFingerprint}`,
+      userPrompt: effectiveLearnPrompt,
+      model: aiConfig.model,
+    }),
+    [aiConfig.model, effectiveLearnPrompt, headHash, repoPath]
+  );
 
   useEffect(() => {
     graphRef.current = graph;
@@ -124,17 +136,8 @@ export function useLearnSession(
         if (cancelled) return;
         structuralRef.current = g;
         structuralPathRef.current = repoPath;
-        const cached = aiCache.get(cacheKey);
-        const merged = cached?.report?.trim() ? applyLearnAnalysis(g, cached.report) : g;
-        graphRef.current = merged;
-        setGraph(merged);
-        if (cached?.report?.trim() && parseLearnOverlay(cached.report)) {
-          const { prose } = humanizeLearnReport(cached.report, merged);
-          setBriefing(prose);
-          setSettled(true);
-        } else if (cached) {
-          aiCache.remove(cacheKey);
-        }
+        graphRef.current = g;
+        setGraph(g);
         setStructureReady(true);
       })
       .catch((err: Error) => {
@@ -146,7 +149,7 @@ export function useLearnSession(
     return () => {
       cancelled = true;
     };
-  }, [repoPath, headHash, cacheKey, cancelInFlight]);
+  }, [repoPath, headHash, repositoryRevision, cancelInFlight]);
 
   const runAgent = useCallback(
     async (opts: { userPrompt?: string; filePath?: string; force?: boolean }) => {
@@ -161,11 +164,19 @@ export function useLearnSession(
         return;
       }
 
+      if (!base) {
+        setError('代码结构不存在，无法绑定业务路线。');
+        return;
+      }
+
+      const cacheKey = cacheKeyForGraph(base);
+
       if (!isFollowUp && !opts.force) {
         const cached = aiCache.get(cacheKey);
         if (cached?.report?.trim()) {
           const { graph: next, prose } = humanizeLearnReport(cached.report, base);
-          if (parseLearnOverlay(cached.report)) {
+          const rejectedRoutes = rejectedRouteLabels(cached.report, next);
+          if (parseLearnOverlay(cached.report) && rejectedRoutes.length === 0) {
             graphRef.current = next;
             setGraph(next);
             setBriefing(prose);
@@ -258,7 +269,9 @@ export function useLearnSession(
               setFollowUpStream('');
             } else {
               setBriefing(prose);
-              if (parseLearnOverlay(raw)) {
+              const overlay = parseLearnOverlay(raw);
+              const rejectedRoutes = rejectedRouteLabels(raw, next);
+              if (overlay && rejectedRoutes.length === 0) {
                 graphRef.current = next;
                 setGraph(next);
                 aiCache.set(cacheKey, {
@@ -266,6 +279,12 @@ export function useLearnSession(
                   model: config.model,
                   provider: config.provider,
                 });
+              } else if (overlay) {
+                graphRef.current = base;
+                setGraph(base);
+                setError(
+                  `AI 返回的路线无法绑定到当前类图：${rejectedRoutes.join('、')}。已拒绝这份路线数据，请重新分析。`
+                );
               } else {
                 setError('AI 分析已结束，但没有返回有效的社区与路线数据。请重新分析。');
               }
@@ -291,7 +310,7 @@ export function useLearnSession(
         if (!isFollowUp) setSettled(true);
       }
     },
-    [cacheKey, cancelInFlight, repoPath, startTimer, stopTimer]
+    [cacheKeyForGraph, cancelInFlight, repoPath, startTimer, stopTimer]
   );
 
   const startBriefing = useCallback(
@@ -307,7 +326,7 @@ export function useLearnSession(
   useEffect(() => {
     if (!repoPath || !structureReady || structuralPathRef.current !== repoPath) return;
     startBriefing(false);
-  }, [repoPath, cacheKey, structureReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repoPath, startBriefing, structureReady]);
 
   return {
     overview,

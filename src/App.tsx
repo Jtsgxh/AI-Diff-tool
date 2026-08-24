@@ -42,6 +42,7 @@ export const App: React.FC = () => {
     recentRepos,
     removeRecentRepo,
     repoInfo,
+    repositoryRevision,
     commits,
     selection,
     setSelection,
@@ -461,6 +462,7 @@ export const App: React.FC = () => {
               repoPath={repoInfo?.path || repoPath}
               repoName={repoInfo?.name}
               headHash={repoInfo?.headHash}
+              repositoryRevision={repositoryRevision}
               aiConfig={aiConfig}
               askAboutFile={learnAskFile}
               onAskAboutFileConsumed={() => setLearnAskFile(null)}

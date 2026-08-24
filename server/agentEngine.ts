@@ -668,7 +668,33 @@ export function hasValidLearnGraphOutput(text: string): boolean {
   for (const match of matches) {
     try {
       const parsed = JSON.parse(match[1].trim());
-      if (Array.isArray(parsed?.communities) && Array.isArray(parsed?.businessRoutes)) return true;
+      if (!Array.isArray(parsed?.communities) || parsed.communities.length === 0) continue;
+      if (!parsed.communities.every(
+        (community: unknown) =>
+          Boolean(
+            community &&
+            typeof community === 'object' &&
+            typeof (community as Record<string, unknown>).id === 'string' &&
+            typeof (community as Record<string, unknown>).label === 'string'
+          )
+      )) continue;
+      if (!Array.isArray(parsed?.businessRoutes)) continue;
+      const routesValid = parsed.businessRoutes.every((route: unknown) => {
+        if (!route || typeof route !== 'object') return false;
+        const row = route as Record<string, unknown>;
+        if (typeof row.id !== 'string' || typeof row.label !== 'string') return false;
+        if (!Array.isArray(row.steps) || row.steps.length < 2) return false;
+        return row.steps.every((step: unknown) => {
+          if (!step || typeof step !== 'object') return false;
+          const item = step as Record<string, unknown>;
+          return ['label', 'file', 'classSymbol', 'relation', 'description', 'evidence', 'communityId']
+            .every((field) => {
+              const value = item[field];
+              return typeof value === 'string' && Boolean(value.trim());
+            });
+        });
+      });
+      if (routesValid) return true;
     } catch {
       // Keep scanning in case a later fence contains the corrected payload.
     }

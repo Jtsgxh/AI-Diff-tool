@@ -80,6 +80,7 @@ export function useRepository() {
   );
 
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
+  const [repositoryRevision, setRepositoryRevision] = useState(0);
   const [commits, setCommits] = useState<CommitNode[]>([]);
   const [selection, setSelection] = useState<SelectionState>({ type: 'commit', commitHash: '' });
   const [diffResult, setDiffResult] = useState<DiffResult | null>(null);
@@ -118,6 +119,7 @@ export function useRepository() {
       try {
         const [info, commitData] = await Promise.all([fetchRepoInfo(path), fetchCommits(path)]);
         setRepoInfo(info);
+        setRepositoryRevision((value) => value + 1);
         setCommits(commitData.commits);
 
         storage.set(STORAGE_KEYS.lastRepoPath, path);
@@ -181,6 +183,7 @@ export function useRepository() {
     recentRepos,
     removeRecentRepo,
     repoInfo,
+    repositoryRevision,
     commits,
     selection,
     setSelection,

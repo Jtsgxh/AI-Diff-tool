@@ -22,6 +22,7 @@ interface LearnWorkbenchProps {
   repoPath: string;
   repoName?: string;
   headHash?: string;
+  repositoryRevision: number;
   aiConfig: AIProviderConfig;
   askAboutFile?: string | null;
   onAskAboutFileConsumed?: () => void;
@@ -39,11 +40,12 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   repoPath,
   repoName,
   headHash,
+  repositoryRevision,
   aiConfig,
   askAboutFile,
   onAskAboutFileConsumed,
 }) => {
-  const session = useLearnSession(repoPath, aiConfig, headHash);
+  const session = useLearnSession(repoPath, aiConfig, headHash, repositoryRevision);
   const [draft, setDraft] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [graphPanePct, setGraphPanePct] = useState(() => {

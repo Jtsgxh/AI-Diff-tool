@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'crypto';
 import simpleGit from 'simple-git';
 import { LruCache } from './cache/lru';
 import type {
@@ -161,6 +162,17 @@ interface ExtractedFile {
   path: string;
   types: { name: string; kind: LearnNodeKind; bases: string[] }[];
   imports: string[];
+}
+
+function sourceFingerprintOf(files: { path: string; content: string }[]): string {
+  const hash = createHash('sha256');
+  for (const file of files.slice().sort((a, b) => a.path.localeCompare(b.path))) {
+    hash.update(file.path);
+    hash.update('\0');
+    hash.update(file.content);
+    hash.update('\0');
+  }
+  return hash.digest('hex');
 }
 
 interface ClassLevelOwner {
@@ -826,6 +838,7 @@ function cohesionOf(memberIds: Set<string>, edges: RawEdge[]): number {
 }
 
 export function buildLearnGraphFromFiles(files: { path: string; content: string }[]): LearnGraph {
+  const sourceFingerprint = sourceFingerprintOf(files);
   const fileSet = new Set(files.map((f) => f.path));
   const filesByStem = new Map<string, string[]>();
   for (const file of fileSet) {
@@ -999,7 +1012,13 @@ export function buildLearnGraphFromFiles(files: { path: string; content: string 
       runtimePath: [],
       godNodes: [],
       bridges: [],
-      stats: { filesParsed, symbolCount: 0, edgeCount: 0, truncated: false },
+      stats: {
+        filesParsed,
+        symbolCount: 0,
+        edgeCount: 0,
+        truncated: false,
+        sourceFingerprint,
+      },
     };
   }
 
@@ -1116,6 +1135,7 @@ export function buildLearnGraphFromFiles(files: { path: string; content: string 
       symbolCount: learnNodes.length,
       edgeCount: liveEdges.length,
       truncated: false,
+      sourceFingerprint,
     },
   };
 }
@@ -1208,6 +1228,15 @@ export function formatLearnGraphDigest(graph: LearnGraph): string {
         `- ${b.sourceLabel} --${b.relation}--> ${b.targetLabel}  (${commName(b.sourceCommunity)} → ${commName(b.targetCommunity)})`
       );
     }
+  }
+  lines.push('');
+  lines.push('可绑定类级节点（businessRoutes.step.classSymbol 只能逐字使用下列 label）：');
+  for (const node of graph.nodes
+    .slice()
+    .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label))) {
+    lines.push(
+      `- [社区 ${node.communityId}] label=${node.label}  kind=${node.kind}  file=${node.file || ''}`
+    );
   }
   lines.push('');
   for (const c of graph.communities) {
