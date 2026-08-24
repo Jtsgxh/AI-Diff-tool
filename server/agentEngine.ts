@@ -188,15 +188,18 @@ export class CodexAgentEngine {
     let actionCount = 0;
     let hitMaxTurns = false;
     let outputTruncated = false;
+    let synthesisStarted = false;
+
+    // DeepSeek Reasoner requires the reasoning produced by each assistant
+    // message when that message is replayed for a continuation request.
+    const isNativeDeepSeekReasoner =
+      (provider.provider === 'deepseek' || provider.baseUrl.includes('deepseek.com')) &&
+      (provider.model || '').toLowerCase().includes('reasoner');
 
     try {
       // DeepSeek's reasoner rejects assistant turns that lack `reasoning_content`
       // on subsequent tool-loop requests, so replay what we have seen so far.
       // Strictly scoped to that model: other providers reject the extra field.
-      const isNativeDeepSeekReasoner =
-        (provider.provider === 'deepseek' || provider.baseUrl.includes('deepseek.com')) &&
-        (provider.model || '').toLowerCase().includes('reasoner');
-
       const customFetch: typeof fetch = async (input, init) => {
         if (isNativeDeepSeekReasoner && typeof init?.body === 'string') {
           try {
@@ -340,6 +343,11 @@ export class CodexAgentEngine {
             }
           }
         }
+
+        // The Agents SDK exposes terminal errors through `completed` as well
+        // as the event iterator. Await it explicitly so a max-turn or provider
+        // failure can never be mistaken for a clean end of the event stream.
+        await streamedResult.completed;
       } catch (runErr: any) {
         // Hitting the turn ceiling is a normal stop condition: fall through to
         // synthesis so the user still gets a report.
@@ -362,6 +370,7 @@ export class CodexAgentEngine {
         ) &&
         !stream.isClosed
       ) {
+        synthesisStarted = true;
         await this.streamSynthesis({
           stream,
           openaiClient,
@@ -374,6 +383,7 @@ export class CodexAgentEngine {
           hasPartialContent: accumulatedContent.length > 0,
           contextChars,
           truncatedDraft: outputTruncated ? lastTurnContent || accumulatedContent : undefined,
+          preserveReasoningOnAssistant: isNativeDeepSeekReasoner,
           onReasoning: (chunk) => {
             accumulatedReasoningContent += chunk;
           },
@@ -393,7 +403,7 @@ export class CodexAgentEngine {
       if (
         openaiClient &&
         explorationLog.length > 0 &&
-        !looksLikeCompleteReport(lastTurnContent || accumulatedContent)
+        (synthesisStarted || !looksLikeCompleteReport(lastTurnContent || accumulatedContent))
       ) {
         try {
           await this.streamSynthesis({
@@ -408,6 +418,7 @@ export class CodexAgentEngine {
             hasPartialContent: accumulatedContent.length > 0,
             contextChars,
             truncatedDraft: lastTurnContent || accumulatedContent || undefined,
+            preserveReasoningOnAssistant: isNativeDeepSeekReasoner,
             onReasoning: (chunk) => {
               accumulatedReasoningContent += chunk;
             },
@@ -434,7 +445,6 @@ export class CodexAgentEngine {
           type: 'chunk',
           text: `\n\n❌ **智能体引擎异常**: ${err.message}\n> 💡 建议：可点击右上角重新生成，或在顶部切换为「⚡ 直接 Diff 解释」快速模式。`,
         });
-        stream.send({ type: 'done' });
       }
       stream.close();
     }
@@ -457,6 +467,7 @@ export class CodexAgentEngine {
     hasPartialContent: boolean;
     contextChars: number;
     truncatedDraft?: string;
+    preserveReasoningOnAssistant: boolean;
     onReasoning: (chunk: string) => void;
   }): Promise<void> {
     const { stream, openaiClient, model, explorationLog, contextChars } = params;
@@ -475,51 +486,93 @@ export class CodexAgentEngine {
       stream.send({ type: 'chunk', text: '\n\n---\n\n' });
     }
 
-    try {
+    const messages: any[] = [
+      { role: 'system', content: params.systemPrompt },
+      {
+        role: 'user',
+        content: clipChars(params.initialUserMsg, Math.round(contextChars * 0.35)),
+      },
+      {
+        role: 'user',
+        content: clipChars(
+          buildSynthesisPrompt(explorationLog, params.userPrompt, {
+            truncatedDraft: params.truncatedDraft
+              ? clipChars(params.truncatedDraft, 6_000)
+              : undefined,
+          }),
+          Math.round(contextChars * 0.4)
+        ),
+      },
+    ];
+
+    while (!stream.isClosed) {
+      let passText = '';
+      let passReasoning = '';
+      let finishReason: string | null = null;
+
       const synthesisStream = await openaiClient.chat.completions.create(
         {
           model,
           max_tokens: MAX_OUTPUT_TOKENS,
-          messages: [
-            { role: 'system', content: params.systemPrompt },
-            {
-              role: 'user',
-              content: clipChars(params.initialUserMsg, Math.round(contextChars * 0.35)),
-            },
-            {
-              role: 'user',
-              content: clipChars(
-                buildSynthesisPrompt(explorationLog, params.userPrompt, {
-                  truncatedDraft: params.truncatedDraft
-                    ? clipChars(params.truncatedDraft, 6_000)
-                    : undefined,
-                }),
-                Math.round(contextChars * 0.4)
-              ),
-            },
-          ],
+          messages,
           stream: true,
         },
         { signal: stream.signal }
       );
 
       for await (const chunk of synthesisStream) {
-        if (stream.isClosed) break;
+        if (stream.isClosed) return;
 
-        const delta = chunk.choices?.[0]?.delta as any;
+        const choice = chunk.choices?.[0];
+        const delta = choice?.delta as any;
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+
         const reasoningChunk = extractReasoningDelta(delta);
         if (reasoningChunk) {
+          passReasoning += reasoningChunk;
           params.onReasoning(reasoningChunk);
           stream.send({ type: 'thought', text: reasoningChunk });
         }
         if (delta?.content) {
+          passText += delta.content;
           stream.send({ type: 'chunk', text: delta.content });
         }
       }
-    } catch (synthesisErr: any) {
-      if (isClientGone(synthesisErr, stream) || synthesisErr?.name === 'AbortError') return;
-      console.error('Synthesis Stream Error:', synthesisErr);
-      stream.send({ type: 'chunk', text: `\n\n❌ 综合生成异常: ${synthesisErr.message}` });
+
+      if (finishReason === 'length') {
+        if (!passText && !passReasoning) {
+          throw new Error('综合输出达到单次长度上限，但没有返回可继续的内容');
+        }
+
+        const assistantMessage: any = { role: 'assistant', content: passText };
+        if (params.preserveReasoningOnAssistant) {
+          assistantMessage.reasoning_content = passReasoning;
+        }
+        messages.push(assistantMessage, {
+          role: 'user',
+          content: passText
+            ? '上一条回复因单次输出长度限制被截断。只从中断处继续输出剩余正文，不要重复已经输出的内容。'
+            : '上一条只完成了推理但尚未输出正文。现在直接输出最终报告正文，不要重新展开推理过程。',
+        });
+
+        stream.send({
+          type: 'status',
+          phase: 'reporting',
+          message: '单次输出达到模型长度上限，正在从中断处自动续写...',
+        });
+        continue;
+      }
+
+      if (!finishReason) {
+        throw new Error('综合生成流未返回结束原因，无法确认报告是否完整');
+      }
+      if (finishReason !== 'stop') {
+        throw new Error(`综合生成以非正常原因结束: ${finishReason}`);
+      }
+      if (!passText.trim()) {
+        throw new Error('综合生成已结束，但没有输出报告正文');
+      }
+      return;
     }
   }
 }
