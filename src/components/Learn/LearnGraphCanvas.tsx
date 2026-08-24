@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import type { LearnBusinessRoute, LearnGraph } from '../../types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { LearnGraph, LearnNode } from '../../types';
 import { communityColor } from '../../utils/learnGraph';
 
 interface LearnGraphCanvasProps {
@@ -10,126 +10,81 @@ interface LearnGraphCanvasProps {
   onSelectCommunity: (id: string | null) => void;
 }
 
-type DetailLevel = 'overview' | 'core' | 'expanded' | 'all';
-
-interface CommunityConnection {
-  key: string;
-  source: string;
-  target: string;
-  weight: number;
+interface SimNode extends LearnNode {
+  x: number;
+  y: number;
+  homeX: number;
+  homeY: number;
+  vx: number;
+  vy: number;
+  r: number;
 }
 
-const DETAIL_LEVELS: { id: DetailLevel; label: string; hint: string }[] = [
-  { id: 'overview', label: '概览', hint: '只看社区职责' },
-  { id: 'core', label: '核心', hint: '入口、枢纽、桥接与路线节点' },
-  { id: 'expanded', label: '扩展', hint: '核心节点及其一跳邻居' },
-  { id: 'all', label: '完整', hint: '该社区的全部节点与内部关系' },
-];
-
-function connectionKey(a: string, b: string): string {
-  return a < b ? `${a}|${b}` : `${b}|${a}`;
+interface Camera {
+  x: number;
+  y: number;
+  k: number;
 }
 
-function shorten(text: string, length: number): string {
-  return text.length > length ? `${text.slice(0, Math.max(1, length - 1))}…` : text;
+interface CommunityBox {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
-function buildCommunityConnections(graph: LearnGraph): CommunityConnection[] {
-  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
-  const grouped = new Map<string, CommunityConnection>();
-  for (const edge of graph.edges) {
-    const source = nodeById.get(edge.source)?.communityId;
-    const target = nodeById.get(edge.target)?.communityId;
-    if (!source || !target || source === target) continue;
-    const key = connectionKey(source, target);
-    const existing = grouped.get(key);
-    if (existing) existing.weight++;
-    else {
-      const [a, b] = key.split('|');
-      grouped.set(key, { key, source: a, target: b, weight: 1 });
-    }
+type GraphDensity = 'simple' | 'rich';
+
+const MIN_ZOOM = 0.01;
+const NODE_SPACING = 52;
+const COMMUNITY_GAP = 40;
+const COMMUNITY_PADDING_X = 48;
+const COMMUNITY_PADDING_TOP = 58;
+const COMMUNITY_PADDING_BOTTOM = 36;
+
+const fitCameraToNodes = (
+  nodes: SimNode[],
+  width: number,
+  height: number
+): Camera | null => {
+  if (!nodes.length || width <= 0 || height <= 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x - node.r);
+    minY = Math.min(minY, node.y - node.r);
+    maxX = Math.max(maxX, node.x + node.r);
+    maxY = Math.max(maxY, node.y + node.r);
   }
-  return [...grouped.values()].sort(
-    (a, b) => b.weight - a.weight || a.key.localeCompare(b.key)
+  const padding = 72;
+  const graphWidth = Math.max(1, maxX - minX);
+  const graphHeight = Math.max(1, maxY - minY);
+  const zoom = Math.min(
+    1,
+    Math.max(
+      MIN_ZOOM,
+      Math.min(
+        Math.max(1, width - padding * 2) / graphWidth,
+        Math.max(1, height - padding * 2) / graphHeight
+      )
+    )
   );
-}
-
-function buildBackboneKeys(
-  communityIds: string[],
-  connections: CommunityConnection[]
-): Set<string> {
-  const parent = new Map(communityIds.map((id) => [id, id]));
-  const find = (id: string): string => {
-    const current = parent.get(id) || id;
-    if (current === id) return id;
-    const root = find(current);
-    parent.set(id, root);
-    return root;
+  return {
+    x: -(minX + maxX) / 2,
+    y: -(minY + maxY) / 2,
+    k: zoom,
   };
-  const backbone = new Set<string>();
-  for (const connection of connections) {
-    const sourceRoot = find(connection.source);
-    const targetRoot = find(connection.target);
-    if (sourceRoot === targetRoot) continue;
-    parent.set(sourceRoot, targetRoot);
-    backbone.add(connection.key);
-  }
-  for (const id of communityIds) {
-    const strongest = connections.find(
-      (connection) =>
-        !backbone.has(connection.key) &&
-        (connection.source === id || connection.target === id)
-    );
-    if (strongest) backbone.add(strongest.key);
-  }
-  return backbone;
-}
+};
 
-function orderCommunities(
-  ids: string[],
-  connections: CommunityConnection[]
-): string[] {
-  const adjacency = new Map<string, { id: string; weight: number }[]>();
-  const weights = new Map<string, number>();
-  for (const id of ids) adjacency.set(id, []);
-  for (const connection of connections) {
-    adjacency.get(connection.source)?.push({ id: connection.target, weight: connection.weight });
-    adjacency.get(connection.target)?.push({ id: connection.source, weight: connection.weight });
-    weights.set(connection.source, (weights.get(connection.source) || 0) + connection.weight);
-    weights.set(connection.target, (weights.get(connection.target) || 0) + connection.weight);
-  }
-  const remaining = new Set(ids);
-  const ordered: string[] = [];
-  while (remaining.size > 0) {
-    const root = [...remaining].sort(
-      (a, b) => (weights.get(b) || 0) - (weights.get(a) || 0) || a.localeCompare(b)
-    )[0];
-    const queue = [root];
-    remaining.delete(root);
-    for (let cursor = 0; cursor < queue.length; cursor++) {
-      const id = queue[cursor];
-      ordered.push(id);
-      const neighbors = (adjacency.get(id) || [])
-        .filter((neighbor) => remaining.has(neighbor.id))
-        .sort((a, b) => b.weight - a.weight || a.id.localeCompare(b.id));
-      for (const neighbor of neighbors) {
-        if (!remaining.delete(neighbor.id)) continue;
-        queue.push(neighbor.id);
-      }
-    }
-  }
-  return ordered;
-}
-
-function routeCommunityIds(route: LearnBusinessRoute | null): string[] {
-  if (!route) return [];
-  const ids: string[] = [];
-  for (const step of route.steps) {
-    if (!step.communityId || ids[ids.length - 1] === step.communityId) continue;
-    ids.push(step.communityId);
-  }
-  return ids;
-}
+const EDGE_COLOR: Record<string, string> = {
+  contains: 'rgba(148,163,184,0.18)',
+  imports: 'rgba(56,189,248,0.28)',
+  inherits: 'rgba(251,191,36,0.35)',
+  references: 'rgba(255,255,255,0.10)',
+};
 
 export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   graph,
@@ -138,584 +93,738 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   onSelectNode,
   onSelectCommunity,
 }) => {
-  const [activeRouteId, setActiveRouteId] = useState<string | null>(null);
-  const [detailLevel, setDetailLevel] = useState<DetailLevel>('core');
-  const [hoveredCommunityId, setHoveredCommunityId] = useState<string | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const simRef = useRef<SimNode[]>([]);
+  const communityBoxesRef = useRef<CommunityBox[]>([]);
+  const camRef = useRef({ x: 0, y: 0, k: 1 });
+  const cameraTouchedRef = useRef(false);
+  const dragRef = useRef<{ lx: number; ly: number } | null>(null);
+  const hoverRef = useRef<string | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [density, setDensity] = useState<GraphDensity>('simple');
+  const [activeRouteId, setActiveRouteId] = useState('');
+  const rafRef = useRef(0);
+  const ticksRef = useRef(0);
+  const neighborRef = useRef<Set<string>>(new Set());
+
+  const activeRoute = useMemo(
+    () => graph.businessRoutes.find((route) => route.id === activeRouteId) || null,
+    [activeRouteId, graph.businessRoutes]
+  );
 
   useEffect(() => {
-    if (activeRouteId && !graph.businessRoutes.some((route) => route.id === activeRouteId)) {
-      setActiveRouteId(null);
-    }
-  }, [activeRouteId, graph.businessRoutes]);
+    if (activeRouteId && !activeRoute) setActiveRouteId('');
+  }, [activeRoute, activeRouteId]);
 
-  const nodeById = useMemo(
-    () => new Map(graph.nodes.map((node) => [node.id, node])),
-    [graph.nodes]
-  );
-  const communityById = useMemo(
-    () => new Map(graph.communities.map((community) => [community.id, community])),
-    [graph.communities]
-  );
-  const connections = useMemo(() => buildCommunityConnections(graph), [graph]);
-  const backboneKeys = useMemo(
-    () => buildBackboneKeys(graph.communities.map((community) => community.id), connections),
-    [connections, graph.communities]
-  );
-  const orderedIds = useMemo(
-    () => orderCommunities(graph.communities.map((community) => community.id), connections),
-    [connections, graph.communities]
-  );
-  const activeRoute =
-    graph.businessRoutes.find((route) => route.id === activeRouteId) || null;
-  const activeRouteCommunities = useMemo(
-    () => routeCommunityIds(activeRoute),
+  const searchHit = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    return new Set(
+      graph.nodes
+        .filter(
+          (node) =>
+            node.label.toLowerCase().includes(q) ||
+            (node.file || '').toLowerCase().includes(q)
+        )
+        .map((node) => node.id)
+    );
+  }, [graph.nodes, query]);
+
+  const routeNodeIds = useMemo(
+    () => new Set(activeRoute?.steps.map((step) => step.nodeId).filter(Boolean) as string[]),
     [activeRoute]
   );
-  const activeRouteSet = useMemo(
-    () => new Set(activeRouteCommunities),
-    [activeRouteCommunities]
-  );
-  const activeRouteConnectionKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (let index = 1; index < activeRouteCommunities.length; index++) {
-      keys.add(connectionKey(activeRouteCommunities[index - 1], activeRouteCommunities[index]));
-    }
-    return keys;
-  }, [activeRouteCommunities]);
 
-  const columns = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, orderedIds.length) * 1.6)));
-  const rows = Math.max(1, Math.ceil(orderedIds.length / columns));
-  const overviewWidth = Math.max(760, columns * 220 + 80);
-  const overviewHeight = Math.max(330, rows * 126 + 70);
-  const communityPositions = useMemo(() => {
-    const positions = new Map<string, { x: number; y: number }>();
-    orderedIds.forEach((id, index) => {
-      const row = Math.floor(index / columns);
-      const countInRow = Math.min(columns, orderedIds.length - row * columns);
-      const column = index % columns;
-      const rowWidth = Math.max(0, (countInRow - 1) * 220);
-      positions.set(id, {
-        x: overviewWidth / 2 - rowWidth / 2 + column * 220,
-        y: 62 + row * 126,
-      });
-    });
-    return positions;
-  }, [columns, orderedIds, overviewWidth]);
-
-  const visibleConnections = useMemo(() => {
-    return connections.filter((connection) => {
-      if (backboneKeys.has(connection.key)) return true;
-      if (activeRouteConnectionKeys.has(connection.key)) return true;
-      const focus = selectedCommunityId || hoveredCommunityId;
-      return Boolean(focus && (connection.source === focus || connection.target === focus));
-    });
-  }, [
-    activeRouteConnectionKeys,
-    backboneKeys,
-    connections,
-    hoveredCommunityId,
-    selectedCommunityId,
-  ]);
-
-  const selectedCommunity = selectedCommunityId
-    ? communityById.get(selectedCommunityId) || null
-    : null;
-  const communityNodes = useMemo(
-    () =>
-      selectedCommunityId
-        ? graph.nodes
-            .filter((node) => node.communityId === selectedCommunityId)
-            .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label))
-        : [],
-    [graph.nodes, selectedCommunityId]
-  );
-
-  const coreNodeIds = useMemo(() => {
+  const simplifiedNodeIds = useMemo(() => {
     const ids = new Set<string>();
-    if (!selectedCommunity) return ids;
-    const addMatching = (file?: string, symbol?: string) => {
-      const normalizedFile = file?.replace(/\\/g, '/');
-      const match = communityNodes.find(
-        (node) =>
-          (!normalizedFile || node.file?.replace(/\\/g, '/') === normalizedFile) &&
-          (!symbol || node.label.toLowerCase() === symbol.toLowerCase())
-      );
-      if (match) ids.add(match.id);
-    };
-    addMatching(selectedCommunity.entry?.file, selectedCommunity.entry?.symbol);
-    for (const label of selectedCommunity.godNodes) addMatching(undefined, label);
-    for (const bridge of graph.bridges) {
-      if (bridge.sourceCommunity === selectedCommunity.id) ids.add(bridge.source);
-      if (bridge.targetCommunity === selectedCommunity.id) ids.add(bridge.target);
+    const nodesByCommunity = new Map<string, LearnNode[]>();
+    for (const node of graph.nodes) {
+      const members = nodesByCommunity.get(node.communityId);
+      if (members) members.push(node);
+      else nodesByCommunity.set(node.communityId, [node]);
     }
-    if (activeRoute) {
-      for (const step of activeRoute.steps) {
-        if (step.communityId !== selectedCommunity.id) continue;
-        if (step.nodeId) ids.add(step.nodeId);
-        else addMatching(step.file, step.symbol);
+    for (const community of graph.communities) {
+      const members = (nodesByCommunity.get(community.id) || [])
+        .slice()
+        .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label));
+      const coreLabels = new Set(community.godNodes.map((label) => label.toLowerCase()));
+      for (const node of members) {
+        if (coreLabels.has(node.label.toLowerCase())) ids.add(node.id);
       }
+      if (community.entry) {
+        const entryFile = community.entry.file.replace(/\\/g, '/');
+        const entry = members.find(
+          (node) =>
+            node.file?.replace(/\\/g, '/') === entryFile &&
+            (!community.entry?.symbol ||
+              node.label.toLowerCase() === community.entry.symbol.toLowerCase())
+        ) || members.find(
+          (node) => node.file?.replace(/\\/g, '/') === entryFile && node.kind === 'file'
+        );
+        if (entry) ids.add(entry.id);
+      }
+      if (!members.some((node) => ids.has(node.id)) && members[0]) ids.add(members[0].id);
     }
-    if (selectedNodeId && nodeById.get(selectedNodeId)?.communityId === selectedCommunity.id) {
-      ids.add(selectedNodeId);
+    for (const bridge of graph.bridges) {
+      ids.add(bridge.source);
+      ids.add(bridge.target);
     }
-    if (ids.size === 0) {
-      for (const node of communityNodes.slice(0, 4)) ids.add(node.id);
-    }
+    for (const id of routeNodeIds) ids.add(id);
+    if (selectedNodeId) ids.add(selectedNodeId);
+    for (const id of searchHit || []) ids.add(id);
     return ids;
   }, [
-    communityNodes,
-    activeRoute,
     graph.bridges,
-    nodeById,
-    selectedCommunity,
+    graph.communities,
+    graph.nodes,
+    routeNodeIds,
+    searchHit,
     selectedNodeId,
   ]);
 
-  const detailNodes = useMemo(() => {
-    if (detailLevel === 'overview') return [];
-    if (detailLevel === 'all') return communityNodes;
-    const ids = new Set(coreNodeIds);
-    if (detailLevel === 'expanded') {
-      for (const edge of graph.edges) {
-        const source = nodeById.get(edge.source);
-        const target = nodeById.get(edge.target);
-        if (
-          source?.communityId !== selectedCommunityId ||
-          target?.communityId !== selectedCommunityId
-        ) {
-          continue;
-        }
-        if (coreNodeIds.has(edge.source)) ids.add(edge.target);
-        if (coreNodeIds.has(edge.target)) ids.add(edge.source);
-      }
-    }
-    return communityNodes.filter((node) => ids.has(node.id));
-  }, [
-    communityNodes,
-    coreNodeIds,
-    detailLevel,
-    graph.edges,
-    nodeById,
-    selectedCommunityId,
-  ]);
-  const detailNodeIds = useMemo(
-    () => new Set(detailNodes.map((node) => node.id)),
-    [detailNodes]
+  const visibleNodes = useMemo(
+    () => density === 'rich'
+      ? graph.nodes
+      : graph.nodes.filter((node) => simplifiedNodeIds.has(node.id)),
+    [density, graph.nodes, simplifiedNodeIds]
   );
-  const detailEdges = useMemo(
-    () =>
-      graph.edges.filter((edge) => {
-        if (!detailNodeIds.has(edge.source) || !detailNodeIds.has(edge.target)) return false;
-        if (detailLevel !== 'expanded') return true;
-        return coreNodeIds.has(edge.source) || coreNodeIds.has(edge.target);
-      }),
-    [coreNodeIds, detailLevel, detailNodeIds, graph.edges]
+  const visibleNodeIds = useMemo(
+    () => new Set(visibleNodes.map((node) => node.id)),
+    [visibleNodes]
+  );
+  const visibleEdges = useMemo(
+    () => density === 'rich'
+      ? graph.edges
+      : graph.edges.filter(
+          (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
+        ),
+    [density, graph.edges, visibleNodeIds]
   );
 
-  const detailColumns = detailNodes.length > 18 ? 4 : detailNodes.length > 7 ? 3 : 2;
-  const detailRows = Math.max(1, Math.ceil(detailNodes.length / detailColumns));
-  const detailWidth = 420;
-  const detailHeight = Math.max(230, detailRows * 68 + 42);
-  const detailPositions = useMemo(() => {
-    const positions = new Map<string, { x: number; y: number }>();
-    const horizontal = detailWidth / detailColumns;
-    detailNodes.forEach((node, index) => {
-      const row = Math.floor(index / detailColumns);
-      const countInRow = Math.min(detailColumns, detailNodes.length - row * detailColumns);
-      const column = index % detailColumns;
-      const rowWidth = countInRow * horizontal;
-      positions.set(node.id, {
-        x: (detailWidth - rowWidth) / 2 + horizontal * (column + 0.5),
-        y: 34 + row * 68,
+  const maxDegree = useMemo(
+    () => Math.max(1, ...graph.nodes.map((n) => n.degree)),
+    [graph.nodes]
+  );
+  const layoutKey = useMemo(
+    () =>
+      visibleNodes.map((n) => n.id).join('\n') +
+      '#' +
+      visibleEdges.map((e) => `${e.source}>${e.target}:${e.relation}`).join('\n'),
+    [visibleEdges, visibleNodes]
+  );
+
+  useEffect(() => {
+    const maxD = Math.max(1, ...visibleNodes.map((n) => n.degree));
+    const wrap = wrapRef.current;
+    const viewportAspect = Math.max(
+      1,
+      (wrap?.clientWidth || 1600) / Math.max(1, wrap?.clientHeight || 450)
+    );
+    const byId = new Map(visibleNodes.map((n) => [n.id, n]));
+    const adjacency = new Map<string, string[]>();
+    for (const edge of visibleEdges) {
+      if (!byId.has(edge.source) || !byId.has(edge.target)) continue;
+      const sourceNeighbors = adjacency.get(edge.source);
+      if (sourceNeighbors) sourceNeighbors.push(edge.target);
+      else adjacency.set(edge.source, [edge.target]);
+      const targetNeighbors = adjacency.get(edge.target);
+      if (targetNeighbors) targetNeighbors.push(edge.source);
+      else adjacency.set(edge.target, [edge.source]);
+    }
+    const grouped = new Map<string, LearnNode[]>();
+    for (const node of visibleNodes) {
+      const members = grouped.get(node.communityId);
+      if (members) members.push(node);
+      else grouped.set(node.communityId, [node]);
+    }
+    const entries: [string, LearnNode[]][] = [];
+    for (const community of graph.communities) {
+      const members = grouped.get(community.id);
+      if (!members?.length) continue;
+      entries.push([community.id, members]);
+      grouped.delete(community.id);
+    }
+    entries.push(...grouped.entries());
+
+    const communityRows = Math.max(
+      1,
+      Math.ceil(Math.sqrt(entries.length / viewportAspect))
+    );
+    const communityColumns = Math.max(1, Math.ceil(entries.length / communityRows));
+    const communityAspect = Math.max(
+      1,
+      viewportAspect / Math.max(1, communityColumns / communityRows)
+    );
+
+    const layouts = entries.map(([id, members]) => {
+      const memberIds = new Set(members.map((node) => node.id));
+      const ranked = members
+        .slice()
+        .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label));
+      const ordered: LearnNode[] = [];
+      const seen = new Set<string>();
+      for (const seed of ranked) {
+        if (seen.has(seed.id)) continue;
+        const queue = [seed.id];
+        seen.add(seed.id);
+        for (let cursor = 0; cursor < queue.length; cursor++) {
+          const nodeId = queue[cursor];
+          const node = byId.get(nodeId);
+          if (node) ordered.push(node);
+          const neighbors = (adjacency.get(nodeId) || [])
+            .filter((neighborId) => memberIds.has(neighborId) && !seen.has(neighborId))
+            .sort((a, b) => (byId.get(b)?.degree || 0) - (byId.get(a)?.degree || 0));
+          for (const neighborId of neighbors) {
+            if (seen.has(neighborId)) continue;
+            seen.add(neighborId);
+            queue.push(neighborId);
+          }
+        }
+      }
+      const columns = Math.max(1, Math.ceil(Math.sqrt(ordered.length * communityAspect)));
+      const rows = Math.max(1, Math.ceil(ordered.length / columns));
+      return { id, nodes: ordered, columns, rows };
+    });
+
+    const boxWidth =
+      Math.max(0, ...layouts.map((layout) => (layout.columns - 1) * NODE_SPACING)) +
+      COMMUNITY_PADDING_X * 2;
+    const boxHeight =
+      Math.max(0, ...layouts.map((layout) => (layout.rows - 1) * NODE_SPACING)) +
+      COMMUNITY_PADDING_TOP +
+      COMMUNITY_PADDING_BOTTOM;
+    const cellWidth = boxWidth + COMMUNITY_GAP;
+    const cellHeight = boxHeight + COMMUNITY_GAP;
+    const sim: SimNode[] = [];
+    const boxes: CommunityBox[] = [];
+
+    layouts.forEach((layout, communityIndex) => {
+      const communityRow = Math.floor(communityIndex / communityColumns);
+      const columnOffset = communityIndex % communityColumns;
+      const rowSize = Math.min(
+        communityColumns,
+        layouts.length - communityRow * communityColumns
+      );
+      const centerX = (columnOffset - (rowSize - 1) / 2) * cellWidth;
+      const centerY = (communityRow - (communityRows - 1) / 2) * cellHeight;
+      boxes.push({ id: layout.id, x: centerX, y: centerY, width: boxWidth, height: boxHeight });
+
+      layout.nodes.forEach((node, nodeIndex) => {
+        const row = Math.floor(nodeIndex / layout.columns);
+        const offsetInRow = nodeIndex % layout.columns;
+        const rowNodeCount = Math.min(
+          layout.columns,
+          layout.nodes.length - row * layout.columns
+        );
+        const column = row % 2 === 0 ? offsetInRow : rowNodeCount - 1 - offsetInRow;
+        const x = centerX + (column - (rowNodeCount - 1) / 2) * NODE_SPACING;
+        const contentCenterOffset = (COMMUNITY_PADDING_TOP - COMMUNITY_PADDING_BOTTOM) / 2;
+        const y =
+          centerY +
+          (row - (layout.rows - 1) / 2) * NODE_SPACING +
+          contentCenterOffset;
+        sim.push({
+          ...node,
+          x,
+          y,
+          homeX: x,
+          homeY: y,
+          vx: 0,
+          vy: 0,
+          r: 3.5 + 9.5 * Math.sqrt(node.degree / maxD),
+        });
       });
     });
-    return positions;
-  }, [detailColumns, detailNodes]);
-
-  const routeStepsByCommunity = useMemo(() => {
-    const grouped = new Map<string, number[]>();
-    activeRoute?.steps.forEach((step, index) => {
-      if (!step.communityId) return;
-      const steps = grouped.get(step.communityId) || [];
-      steps.push(index + 1);
-      grouped.set(step.communityId, steps);
+    simRef.current = sim;
+    communityBoxesRef.current = boxes;
+    ticksRef.current = 0;
+    cameraTouchedRef.current = false;
+    const fitFrame = requestAnimationFrame(() => {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+      const camera = fitCameraToNodes(simRef.current, wrap.clientWidth, wrap.clientHeight);
+      if (camera) camRef.current = camera;
     });
-    return grouped;
-  }, [activeRoute]);
+    return () => cancelAnimationFrame(fitFrame);
+  }, [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const nbs = new Set<string>();
+    if (selectedNodeId) {
+      nbs.add(selectedNodeId);
+      for (const e of graph.edges) {
+        if (e.source === selectedNodeId) nbs.add(e.target);
+        if (e.target === selectedNodeId) nbs.add(e.source);
+      }
+    }
+    neighborRef.current = nbs;
+  }, [graph.edges, selectedNodeId]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return;
+
+    const step = () => {
+      const sim = simRef.current;
+      const tickCap = sim.length > 220 ? 180 : 420;
+      const alpha = Math.max(0.015, 0.12 * Math.pow(0.985, ticksRef.current));
+      let layoutUpdated = false;
+      if (ticksRef.current < tickCap && sim.length) {
+        const range = sim.length > 220 ? 120 : 180;
+        const cellSize = range;
+        const buckets = new Map<string, number[]>();
+        for (let i = 0; i < sim.length; i++) {
+          const cellX = Math.floor(sim[i].x / cellSize);
+          const cellY = Math.floor(sim[i].y / cellSize);
+          const key = `${cellX},${cellY}`;
+          const bucket = buckets.get(key);
+          if (bucket) bucket.push(i);
+          else buckets.set(key, [i]);
+        }
+        for (let i = 0; i < sim.length; i++) {
+          const cellX = Math.floor(sim[i].x / cellSize);
+          const cellY = Math.floor(sim[i].y / cellSize);
+          const nearby: number[] = [];
+          for (let ox = -1; ox <= 1; ox++) {
+            for (let oy = -1; oy <= 1; oy++) {
+              const bucket = buckets.get(`${cellX + ox},${cellY + oy}`);
+              if (bucket) nearby.push(...bucket);
+            }
+          }
+          for (const j of nearby) {
+            if (j <= i) continue;
+            const a = sim[i];
+            const b = sim[j];
+            if (Math.abs(a.x - b.x) > range || Math.abs(a.y - b.y) > range) continue;
+            let dx = a.x - b.x;
+            let dy = a.y - b.y;
+            let d2 = dx * dx + dy * dy;
+            if (d2 < 0.01) {
+              dx = Math.random() - 0.5;
+              dy = Math.random() - 0.5;
+              d2 = dx * dx + dy * dy;
+            }
+            const dist = Math.sqrt(d2);
+            const minDistance = a.r + b.r + 18;
+            const collisionPush =
+              dist < minDistance ? (minDistance - dist) * 0.08 : 0;
+            const f = Math.max(collisionPush, Math.min(1.8, (alpha * 1400) / d2));
+            const fx = (dx / dist) * f;
+            const fy = (dy / dist) * f;
+            a.vx += fx;
+            a.vy += fy;
+            b.vx -= fx;
+            b.vy -= fy;
+          }
+        }
+
+        const byId = new Map(sim.map((n) => [n.id, n]));
+        for (const e of visibleEdges) {
+          const a = byId.get(e.source);
+          const b = byId.get(e.target);
+          if (!a || !b) continue;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          const sameCommunity = a.communityId === b.communityId;
+          const rest = sameCommunity
+            ? e.relation === 'contains'
+              ? 82
+              : 108
+            : 180;
+          const f = alpha * (sameCommunity ? 0.04 : 0.006) * (dist - rest);
+          const fx = (dx / dist) * f;
+          const fy = (dy / dist) * f;
+          a.vx += fx;
+          a.vy += fy;
+          b.vx -= fx;
+          b.vy -= fy;
+        }
+
+        for (const n of sim) {
+          n.vx += (n.homeX - n.x) * 0.018;
+          n.vy += (n.homeY - n.y) * 0.018;
+          n.vx *= 0.72;
+          n.vy *= 0.72;
+          const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+          if (speed > 8) {
+            n.vx = (n.vx / speed) * 8;
+            n.vy = (n.vy / speed) * 8;
+          }
+          n.x += n.vx;
+          n.y += n.vy;
+        }
+        ticksRef.current++;
+        layoutUpdated = true;
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+        if (!cameraTouchedRef.current) {
+          const camera = fitCameraToNodes(sim, w, h);
+          if (camera) camRef.current = camera;
+        }
+      } else if (
+        !cameraTouchedRef.current &&
+        layoutUpdated &&
+        ticksRef.current > 0 &&
+        (ticksRef.current % 12 === 0 || ticksRef.current === tickCap)
+      ) {
+        const camera = fitCameraToNodes(sim, w, h);
+        if (camera) camRef.current = camera;
+      }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        rafRef.current = requestAnimationFrame(step);
+        return;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#12131A';
+      ctx.fillRect(0, 0, w, h);
+
+      const cam = camRef.current;
+      const toScreen = (x: number, y: number) => ({
+        x: (x + cam.x) * cam.k + w / 2,
+        y: (y + cam.y) * cam.k + h / 2,
+      });
+
+      const hiddenComms = hidden;
+      const selected = selectedNodeId;
+      const neighbors = neighborRef.current;
+      const byId = new Map(sim.map((n) => [n.id, n]));
+      const communityById = new Map(graph.communities.map((community) => [community.id, community]));
+
+      for (const box of communityBoxesRef.current) {
+        if (hiddenComms.has(box.id)) continue;
+        const topLeft = toScreen(box.x - box.width / 2, box.y - box.height / 2);
+        const width = box.width * cam.k;
+        const height = box.height * cam.k;
+        const dimmed = Boolean(selectedCommunityId && selectedCommunityId !== box.id);
+        const color = communityColor(box.id);
+        ctx.globalAlpha = dimmed ? 0.015 : 0.055;
+        ctx.fillStyle = color;
+        ctx.fillRect(topLeft.x, topLeft.y, width, height);
+        ctx.globalAlpha = dimmed ? 0.08 : 0.32;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = selectedCommunityId === box.id ? 2 : 1;
+        ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+        const community = communityById.get(box.id);
+        ctx.globalAlpha = dimmed ? 0.25 : 0.9;
+        ctx.fillStyle = color;
+        ctx.font = '600 11px ui-sans-serif, system-ui';
+        ctx.fillText(
+          `${community?.label || `社区 ${box.id}`}${community ? ` · ${community.nodeCount}` : ''}`,
+          topLeft.x + 10,
+          topLeft.y + 18
+        );
+        ctx.globalAlpha = 1;
+      }
+
+      ctx.lineWidth = 1;
+      for (const e of visibleEdges) {
+        const a = byId.get(e.source);
+        const b = byId.get(e.target);
+        if (!a || !b) continue;
+        if (hiddenComms.has(a.communityId) || hiddenComms.has(b.communityId)) continue;
+        const pa = toScreen(a.x, a.y);
+        const pb = toScreen(b.x, b.y);
+        const hot =
+          selected && (e.source === selected || e.target === selected);
+        ctx.strokeStyle = hot ? 'rgba(251,191,36,0.7)' : EDGE_COLOR[e.relation] || EDGE_COLOR.references;
+        ctx.globalAlpha = selected && !hot ? 0.18 : 1;
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      if (activeRoute) {
+        ctx.strokeStyle = 'rgba(52,211,153,0.82)';
+        ctx.lineWidth = 3;
+        for (let index = 1; index < activeRoute.steps.length; index++) {
+          const previousId = activeRoute.steps[index - 1].nodeId;
+          const currentId = activeRoute.steps[index].nodeId;
+          if (!previousId || !currentId) continue;
+          const previous = byId.get(previousId);
+          const current = byId.get(currentId);
+          if (!previous || !current) continue;
+          const from = toScreen(previous.x, previous.y);
+          const to = toScreen(current.x, current.y);
+          ctx.beginPath();
+          ctx.moveTo(from.x, from.y);
+          ctx.lineTo(to.x, to.y);
+          ctx.stroke();
+        }
+      }
+
+      const showLabels = cam.k > 1.35;
+      for (const n of sim) {
+        if (hiddenComms.has(n.communityId)) continue;
+        const p = toScreen(n.x, n.y);
+        const r = n.r * Math.sqrt(cam.k);
+        const isSel = n.id === selected;
+        const isNb = neighbors.has(n.id);
+        const isHover = n.id === hoverRef.current;
+        const isRoute = routeNodeIds.has(n.id);
+        const commSel = selectedCommunityId && n.communityId === selectedCommunityId;
+        const dim = Boolean((selected && !isNb) || (selectedCommunityId && !commSel));
+        const hitSearch = searchHit?.has(n.id);
+        ctx.globalAlpha = dim && !hitSearch ? 0.22 : 1;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = communityColor(n.communityId);
+        ctx.fill();
+        if (n.kind !== 'file' && n.degree >= maxDegree * 0.55) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        } else if (n.kind === 'file') {
+          ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        if (isSel || isHover || hitSearch || isRoute) {
+          ctx.strokeStyle = isRoute && !isSel && !isHover && !hitSearch ? '#34d399' : '#fbbf24';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        const label =
+          isSel || isHover || hitSearch || isRoute || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
+        if (label) {
+          ctx.font = `${isSel || isHover ? 12 : 10}px ui-sans-serif, system-ui`;
+          ctx.fillStyle = '#e2e8f0';
+          ctx.globalAlpha = dim && !hitSearch ? 0.35 : 1;
+          ctx.fillText(n.label, p.x + r + 4, p.y + 3);
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      rafRef.current = requestAnimationFrame(step);
+    };
+
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [
+    activeRoute,
+    graph.communities,
+    hidden,
+    maxDegree,
+    routeNodeIds,
+    searchHit,
+    selectedCommunityId,
+    selectedNodeId,
+    visibleEdges,
+  ]);
+
+  const hitTest = (sx: number, sy: number): SimNode | null => {
+    const wrap = wrapRef.current;
+    if (!wrap) return null;
+    const w = wrap.clientWidth;
+    const h = wrap.clientHeight;
+    const cam = camRef.current;
+    const wx = (sx - w / 2) / cam.k - cam.x;
+    const wy = (sy - h / 2) / cam.k - cam.y;
+    let best: SimNode | null = null;
+    let bestD = Infinity;
+    for (const n of simRef.current) {
+      if (hidden.has(n.communityId)) continue;
+      const dx = n.x - wx;
+      const dy = n.y - wy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < n.r + 4 / cam.k && d < bestD) {
+        best = n;
+        bestD = d;
+      }
+    }
+    return best;
+  };
+
+  const onWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    cameraTouchedRef.current = true;
+    const cam = camRef.current;
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    cam.k = Math.min(4, Math.max(MIN_ZOOM, cam.k * factor));
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const node = hitTest(x, y);
+    if (node) {
+      onSelectNode(node.id);
+      onSelectCommunity(node.communityId);
+    } else {
+      onSelectNode(null);
+    }
+    dragRef.current = { lx: x, ly: y };
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const drag = dragRef.current;
+    if (drag) {
+      cameraTouchedRef.current = true;
+      const cam = camRef.current;
+      cam.x += (x - drag.lx) / cam.k;
+      cam.y += (y - drag.ly) / cam.k;
+      drag.lx = x;
+      drag.ly = y;
+      return;
+    }
+    const node = hitTest(x, y);
+    const id = node?.id || null;
+    if (id !== hoverRef.current) {
+      hoverRef.current = id;
+      setHover(id);
+    }
+  };
+
+  const onPointerUp = () => {
+    dragRef.current = null;
+  };
+
+  const hovered = hover ? graph.nodes.find((n) => n.id === hover) : null;
+
+  const fitToView = () => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const visible = simRef.current.filter((node) => !hidden.has(node.communityId));
+    const camera = fitCameraToNodes(visible, wrap.clientWidth, wrap.clientHeight);
+    if (camera) camRef.current = camera;
+    cameraTouchedRef.current = false;
+  };
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#12131A] text-slate-200">
-      <div className="shrink-0 border-b border-white/10 px-3 py-2">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold text-slate-100">社区结构与业务路线</div>
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              社区连线已按依赖聚合；选择路线只做高亮，不替代确定性的结构图。
-            </p>
-          </div>
-          <span className="shrink-0 text-[10px] text-slate-500 border border-white/10 rounded-full px-2 py-0.5">
-            {graph.communities.length} 社区 · {graph.nodes.length} 节点
-          </span>
-        </div>
-        <div className="mt-2 flex items-center gap-1.5 overflow-x-auto pb-0.5">
+    <div className="relative w-full h-full min-h-[280px] bg-[#12131A]" ref={wrapRef}>
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full cursor-grab active:cursor-grabbing"
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      />
+      <div className="absolute top-2 left-2 right-2 flex flex-wrap items-center gap-1.5 pointer-events-none">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="搜索节点"
+          className="pointer-events-auto w-36 bg-black/50 border border-white/10 rounded-md px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-500"
+        />
+        <button
+          type="button"
+          onClick={fitToView}
+          className="pointer-events-auto text-[10px] px-2 py-0.5 rounded-md border border-white/10 bg-black/50 text-slate-300 hover:text-white hover:border-white/30"
+        >
+          适应视图
+        </button>
+        <div className="pointer-events-auto flex items-center rounded-md border border-white/10 bg-black/50 p-0.5">
           <button
             type="button"
-            onClick={() => setActiveRouteId(null)}
-            className={`shrink-0 rounded-md border px-2 py-1 text-[10px] transition ${
-              !activeRouteId
-                ? 'border-amber-400/70 bg-amber-500/15 text-amber-100'
-                : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-slate-200'
+            aria-pressed={density === 'simple'}
+            onClick={() => setDensity('simple')}
+            className={`rounded px-2 py-0.5 text-[10px] ${
+              density === 'simple'
+                ? 'bg-amber-500/20 text-amber-100'
+                : 'text-slate-500 hover:text-slate-200'
             }`}
           >
-            结构总览
+            简化
           </button>
-          {graph.businessRoutes.map((route) => (
-            <button
-              key={route.id}
-              type="button"
-              onClick={() => setActiveRouteId(route.id)}
-              className={`shrink-0 rounded-md border px-2 py-1 text-[10px] transition ${
-                activeRouteId === route.id
-                  ? 'border-emerald-400/70 bg-emerald-500/15 text-emerald-100'
-                  : 'border-white/10 bg-white/[0.03] text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {route.label}
-            </button>
-          ))}
-          {!graph.businessRoutes.length && (
-            <span className="text-[10px] text-slate-600 px-1">AI 路线分析中，社区结构已可浏览</span>
-          )}
-        </div>
-        {activeRoute?.summary && (
-          <p className="mt-1.5 text-[10px] text-emerald-200/70 leading-relaxed">
-            {activeRoute.summary}
-          </p>
-        )}
-        {activeRoute && (
-          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
-            {activeRoute.steps.map((step, index) => (
-              <button
-                key={`${activeRoute.id}-${index}-${step.file}-${step.symbol || ''}`}
-                type="button"
-                onClick={() => {
-                  onSelectCommunity(step.communityId || null);
-                  onSelectNode(step.nodeId || null);
-                }}
-                className="w-[190px] shrink-0 rounded-md border border-emerald-500/20 bg-emerald-500/[0.04] p-1.5 text-left hover:border-emerald-400/50"
-              >
-                <span className="block text-[10px] font-semibold text-slate-200 truncate">
-                  {index + 1}. {step.label}
-                </span>
-                <span className="block mt-0.5 text-[9px] text-emerald-300/70 truncate">
-                  {step.relation} · {step.symbol || step.file}
-                </span>
-                <span className="block mt-1 text-[9px] text-slate-500 leading-snug line-clamp-2">
-                  {step.evidence}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex-1 min-h-0 flex overflow-hidden">
-        <div className="flex-1 min-w-0 overflow-auto">
-          <svg
-            width={overviewWidth}
-            height={overviewHeight}
-            viewBox={`0 0 ${overviewWidth} ${overviewHeight}`}
-            role="img"
-            aria-label="代码社区聚合关系图"
-            onClick={() => {
-              onSelectNode(null);
-              onSelectCommunity(null);
-            }}
+          <button
+            type="button"
+            aria-pressed={density === 'rich'}
+            onClick={() => setDensity('rich')}
+            className={`rounded px-2 py-0.5 text-[10px] ${
+              density === 'rich'
+                ? 'bg-amber-500/20 text-amber-100'
+                : 'text-slate-500 hover:text-slate-200'
+            }`}
           >
-            <title>代码社区聚合关系图</title>
-            {visibleConnections.map((connection) => {
-              const source = communityPositions.get(connection.source);
-              const target = communityPositions.get(connection.target);
-              if (!source || !target) return null;
-              const routeHot = activeRouteConnectionKeys.has(connection.key);
-              const focus = selectedCommunityId || hoveredCommunityId;
-              const focused = Boolean(
-                focus && (connection.source === focus || connection.target === focus)
-              );
-              const dimmed = Boolean(activeRoute && !routeHot && !focused);
-              return (
-                <g key={connection.key}>
-                  <line
-                    x1={source.x}
-                    y1={source.y}
-                    x2={target.x}
-                    y2={target.y}
-                    stroke={routeHot ? '#34d399' : focused ? '#fbbf24' : '#64748b'}
-                    strokeOpacity={dimmed ? 0.08 : routeHot || focused ? 0.78 : 0.24}
-                    strokeWidth={routeHot ? 4 : Math.min(3, 1 + Math.log2(connection.weight + 1) * 0.45)}
-                  />
-                  {(routeHot || focused || backboneKeys.has(connection.key)) && (
-                    <text
-                      x={(source.x + target.x) / 2}
-                      y={(source.y + target.y) / 2 - 5}
-                      textAnchor="middle"
-                      fill={routeHot ? '#a7f3d0' : '#94a3b8'}
-                      fontSize="10"
-                    >
-                      {connection.weight}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-
-            {orderedIds.map((id) => {
-              const community = communityById.get(id);
-              const position = communityPositions.get(id);
-              if (!community || !position) return null;
-              const selected = selectedCommunityId === id;
-              const hovered = hoveredCommunityId === id;
-              const routeHot = activeRouteSet.has(id);
-              const dimmed = Boolean(activeRoute && !routeHot);
-              const color = communityColor(id);
-              const steps = routeStepsByCommunity.get(id) || [];
-              return (
-                <g
-                  key={id}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`社区 ${community.label}，${community.nodeCount} 个节点`}
-                  transform={`translate(${position.x - 88} ${position.y - 34})`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSelectNode(null);
-                    onSelectCommunity(id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Enter' && event.key !== ' ') return;
-                    event.preventDefault();
-                    onSelectNode(null);
-                    onSelectCommunity(id);
-                  }}
-                  onMouseEnter={() => setHoveredCommunityId(id)}
-                  onMouseLeave={() => setHoveredCommunityId(null)}
-                  className="cursor-pointer outline-none"
-                >
-                  <rect
-                    width="176"
-                    height="68"
-                    rx="10"
-                    fill={color}
-                    fillOpacity={selected ? 0.25 : routeHot ? 0.18 : dimmed ? 0.035 : 0.1}
-                    stroke={selected ? '#fbbf24' : routeHot ? '#34d399' : color}
-                    strokeOpacity={selected || routeHot || hovered ? 0.95 : dimmed ? 0.12 : 0.48}
-                    strokeWidth={selected || routeHot ? 2.5 : 1.2}
-                  />
-                  <text x="12" y="22" fill="#f1f5f9" fontSize="12" fontWeight="600">
-                    {shorten(community.label, 20)}
-                  </text>
-                  <text x="12" y="41" fill="#94a3b8" fontSize="9.5">
-                    {community.nodeCount} 节点
-                    {community.godNodes[0]
-                      ? ` · ${shorten(community.godNodes[0], 15)}`
-                      : ''}
-                  </text>
-                  {steps.length > 0 && (
-                    <text x="12" y="57" fill="#a7f3d0" fontSize="9.5">
-                      路线步骤 {steps.join('、')}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </svg>
+            丰富
+          </button>
         </div>
-
-        {selectedCommunity && (
-          <aside className="w-[42%] min-w-[330px] max-w-[520px] shrink-0 border-l border-white/10 bg-[#151620] flex flex-col overflow-hidden">
-            <div className="shrink-0 p-3 border-b border-white/10">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-xs font-bold text-slate-100 truncate">
-                    {selectedCommunity.label}
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                    {selectedCommunity.summary ||
-                      `${selectedCommunity.nodeCount} 个节点，凝聚力 ${selectedCommunity.cohesion.toFixed(2)}`}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectNode(null);
-                    onSelectCommunity(null);
-                  }}
-                  className="text-[10px] text-slate-500 hover:text-slate-200 shrink-0"
-                >
-                  收起
-                </button>
-              </div>
-              <div className="mt-2 grid grid-cols-4 gap-1">
-                {DETAIL_LEVELS.map((level) => (
-                  <button
-                    key={level.id}
-                    type="button"
-                    title={level.hint}
-                    onClick={() => setDetailLevel(level.id)}
-                    className={`rounded-md border px-1.5 py-1 text-[9.5px] transition ${
-                      detailLevel === level.id
-                        ? 'border-amber-400/70 bg-amber-500/15 text-amber-100'
-                        : 'border-white/10 text-slate-500 hover:text-slate-200'
-                    }`}
-                  >
-                    {level.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex-1 min-h-0 overflow-auto p-3">
-              {detailLevel === 'overview' ? (
-                <div className="space-y-3 text-[10px]">
-                  {selectedCommunity.entry && (
-                    <div>
-                      <div className="text-slate-500 mb-1">候选入口</div>
-                      <div className="font-mono text-amber-200/80 break-all">
-                        {selectedCommunity.entry.file}
-                        {selectedCommunity.entry.symbol
-                          ? ` :: ${selectedCommunity.entry.symbol}`
-                          : ''}
-                      </div>
-                    </div>
-                  )}
-                  <div>
-                    <div className="text-slate-500 mb-1">核心符号</div>
-                    <div className="flex flex-wrap gap-1">
-                      {selectedCommunity.godNodes.map((name) => (
-                        <span key={name} className="rounded bg-white/5 px-1.5 py-0.5 text-slate-300">
-                          {name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-slate-500 mb-1">文件范围</div>
-                    <ul className="space-y-0.5 font-mono text-slate-500">
-                      {selectedCommunity.files.map((file) => (
-                        <li key={file} className="break-all">{file}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              ) : detailNodes.length > 0 ? (
-                <>
-                  <div className="flex items-center justify-between text-[9.5px] text-slate-500 mb-2">
-                    <span>{detailNodes.length} 节点 · {detailEdges.length} 内部关系</span>
-                    <span>{DETAIL_LEVELS.find((level) => level.id === detailLevel)?.hint}</span>
-                  </div>
-                  <svg
-                    width="100%"
-                    height={detailHeight}
-                    viewBox={`0 0 ${detailWidth} ${detailHeight}`}
-                    role="img"
-                    aria-label={`${selectedCommunity.label}社区内部关系`}
-                  >
-                    <title>{`${selectedCommunity.label}社区内部关系`}</title>
-                    {detailEdges.map((edge) => {
-                      const source = detailPositions.get(edge.source);
-                      const target = detailPositions.get(edge.target);
-                      if (!source || !target) return null;
-                      const hot =
-                        selectedNodeId === edge.source || selectedNodeId === edge.target;
-                      return (
-                        <line
-                          key={`${edge.source}-${edge.target}-${edge.relation}`}
-                          x1={source.x}
-                          y1={source.y}
-                          x2={target.x}
-                          y2={target.y}
-                          stroke={hot ? '#fbbf24' : '#64748b'}
-                          strokeOpacity={hot ? 0.75 : 0.2}
-                          strokeWidth={hot ? 2 : 1}
-                        />
-                      );
-                    })}
-                    {detailNodes.map((node) => {
-                      const position = detailPositions.get(node.id);
-                      if (!position) return null;
-                      const selected = selectedNodeId === node.id;
-                      const isCore = coreNodeIds.has(node.id);
-                      const routeStep = activeRoute?.steps.findIndex(
-                        (step) => step.nodeId === node.id
-                      );
-                      const showLabel = detailNodes.length <= 28 || isCore || selected;
-                      return (
-                        <g
-                          key={node.id}
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`${node.label}，${node.kind}，度 ${node.degree}`}
-                          onClick={() => onSelectNode(node.id)}
-                          onKeyDown={(event) => {
-                            if (event.key !== 'Enter' && event.key !== ' ') return;
-                            event.preventDefault();
-                            onSelectNode(node.id);
-                          }}
-                          className="cursor-pointer outline-none"
-                        >
-                          <title>{`${node.label}${node.file ? ` · ${node.file}` : ''}`}</title>
-                          {node.kind === 'file' ? (
-                            <rect
-                              x={position.x - 7}
-                              y={position.y - 7}
-                              width="14"
-                              height="14"
-                              rx="3"
-                              fill={selected ? '#fbbf24' : communityColor(node.communityId)}
-                              fillOpacity={selected ? 1 : isCore ? 0.9 : 0.55}
-                            />
-                          ) : (
-                            <circle
-                              cx={position.x}
-                              cy={position.y}
-                              r={selected ? 8 : isCore ? 7 : 5}
-                              fill={selected ? '#fbbf24' : communityColor(node.communityId)}
-                              fillOpacity={selected ? 1 : isCore ? 0.9 : 0.55}
-                            />
-                          )}
-                          {typeof routeStep === 'number' && routeStep >= 0 && (
-                            <text
-                              x={position.x + 8}
-                              y={position.y - 8}
-                              fill="#a7f3d0"
-                              fontSize="9"
-                            >
-                              {routeStep + 1}
-                            </text>
-                          )}
-                          {showLabel && (
-                            <text
-                              x={position.x}
-                              y={position.y + 18}
-                              textAnchor="middle"
-                              fill={selected ? '#fde68a' : '#cbd5e1'}
-                              fontSize="8.5"
-                            >
-                              {shorten(node.label, 16)}
-                            </text>
-                          )}
-                        </g>
-                      );
-                    })}
-                  </svg>
-                </>
-              ) : (
-                <p className="text-[10px] text-slate-500">这个展开层级没有可显示的节点。</p>
-              )}
-            </div>
-          </aside>
+        {graph.businessRoutes.length > 0 && (
+          <select
+            aria-label="AI 业务路线高亮"
+            value={activeRouteId}
+            onChange={(event) => setActiveRouteId(event.target.value)}
+            className="pointer-events-auto max-w-52 rounded-md border border-white/10 bg-black/50 px-2 py-1 text-[10px] text-slate-300"
+          >
+            <option value="">不高亮 AI 路线</option>
+            {graph.businessRoutes.map((route) => (
+              <option key={route.id} value={route.id}>{route.label}</option>
+            ))}
+          </select>
         )}
+        {graph.communities.map((c) => {
+          const on = !hidden.has(c.id);
+          const active = selectedCommunityId === c.id;
+          return (
+            <button
+              key={c.id}
+              type="button"
+              onClick={(ev) => {
+                if (ev.shiftKey) {
+                  setHidden((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(c.id)) next.delete(c.id);
+                    else next.add(c.id);
+                    return next;
+                  });
+                  return;
+                }
+                onSelectCommunity(selectedCommunityId === c.id ? null : c.id);
+              }}
+              className={`pointer-events-auto text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                active ? 'text-white border-white/40' : 'text-slate-300 border-white/10'
+              } ${on ? 'bg-black/50' : 'bg-black/20 opacity-40'}`}
+            >
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ background: communityColor(c.id) }}
+              />
+              {c.label}
+              <span className="text-slate-500">{c.nodeCount}</span>
+            </button>
+          );
+        })}
       </div>
+      <div className="absolute bottom-2 left-2 text-[10px] text-slate-500 pointer-events-none">
+        {density === 'simple'
+          ? `简化 · ${visibleNodes.length}/${graph.nodes.length} 节点 · ${visibleEdges.length}/${graph.edges.length} 边`
+          : `丰富 · ${graph.stats.symbolCount} 符号 · ${graph.nodes.length} 节点 · ${graph.edges.length} 边`}
+        {graph.stats.truncated ? ' · 已裁大图' : ''}
+        {activeRoute ? ` · 路线 ${activeRoute.label}` : ''}
+        <span className="ml-2 text-slate-600">滚轮缩放 · 拖动画布 · 点击节点</span>
+      </div>
+      {hovered && (
+        <div className="absolute bottom-2 right-2 max-w-[240px] bg-black/70 border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 pointer-events-none">
+          <div className="font-semibold text-slate-100">{hovered.label}</div>
+          <div className="text-slate-400">
+            {hovered.kind} · 度 {hovered.degree}
+            {hovered.file ? ` · ${hovered.file}` : ''}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
