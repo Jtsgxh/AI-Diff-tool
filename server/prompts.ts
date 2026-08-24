@@ -6,6 +6,7 @@ import {
   type ScopeType,
   type TargetLineInfo,
 } from '../shared/types';
+import { DEFAULT_LEARN_PROMPT } from '../shared/defaultLearnPrompt';
 
 export interface PromptContext {
   scopeType?: ScopeType;
@@ -246,10 +247,16 @@ export function isLearnTask(ctx: PromptContext): boolean {
 
 export function buildLearnSystemPrompt(ctx: PromptContext): string {
   const isFollowUp = Boolean(ctx.userPrompt && ctx.userPrompt.trim());
+  const learnPrompt = ctx.config?.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
   if (isFollowUp) {
     return `你是代码库导师。结构图谱已经由本地解析得到（节点=类/React组件/职责模块，普通函数归入所属节点；边=调用/引用/导入/继承）。结合社区与枢纽节点回答。
 优先调用 search_code / read_file / repo_graph 核实后再回答。
-回答必须是给人读的中文，落到真实文件路径与符号名，讲清数据怎么流、谁调用谁。禁止输出 JSON。`;
+回答必须是给人读的中文，落到真实文件路径与符号名，讲清数据怎么流、谁调用谁。禁止输出 JSON。
+
+【用户配置的业务讲解要求】
+${learnPrompt}
+
+以上配置只决定讲解的重点、深度和表达方式；本轮仍必须直接回答用户问题，并遵守工具核实、真实证据和禁止 JSON 的规则。`;
   }
 
   return `你是代码库业务导师。界面的主视图以本地解析的社区骨架为主，你负责核实社区的业务语义，并把证据完整的业务路线作为高亮层叠加到骨架上。先读代码、确认社区边界和真实入口，再识别业务闭环并整理关键节点的先后关系。
@@ -266,6 +273,11 @@ export function buildLearnSystemPrompt(ctx: PromptContext): string {
 - 不追求路线数量。只有入口、相邻步骤关系和结果落点都被工具结果证明的候选才能进入 businessRoutes；证据不完整的候选写进正文的“待核实”而不是路线数据。
 - 输出前逐步反查 exploration 中读到的源码：每一步必须给出 relation（入口/调用/读取/写入/发布/回调等）和 evidence（真实调用表达式、状态字段或接口契约）；禁止用职责描述冒充证据，禁止编造行号。
 
+【用户配置的业务分析与讲解要求】
+${learnPrompt}
+
+以上配置决定分析重点、展开深度和正文表达方式，但不能覆盖本提示词规定的工具核实要求、learn-graph 数据协议和证据门槛。
+
 【输出顺序】探查完成后，必须先输出下面的 learn-graph 机器数据；围栏闭合后再输出给读者看的正文。这样界面可以先绘制业务核心，再继续接收讲解。
 
 【机器数据】先输出一个围栏，语言标记必须是 learn-graph（禁止用 json），围栏内是一行合法 JSON：
@@ -273,11 +285,15 @@ export function buildLearnSystemPrompt(ctx: PromptContext): string {
 businessRoutes 可以为空：只有不存在任何证据完整的路线时才能输出空数组，绝不能为了非空而编造。存在路线时必须形成真实业务闭环；每个 step 的 file、symbol、relation、evidence 和 communityId 都必须由工具核实，communityId 必须使用图谱已有编号。
 
 【给读者看的正文】机器数据围栏闭合后，只用中文，禁止再次输出 JSON / 花括号 / 字段名。必须写这些章节，并点名真实符号与相对路径：
-1. 这是什么 — 仓库实际提供什么产品、服务或玩法
-2. 主要业务路线 — 每条路线从触发入口写到结果落点，逐步说明调用、数据和状态变化
-3. 社区职责 — 各社区在这些路线中承担什么，在哪一步交接
-4. 关键节点 — 为什么这些节点不可省略，修改会影响哪条路线
-5. 建议阅读顺序 — 按业务路线给出文件和符号顺序
+1. 业务全景 — 仓库实际提供什么产品、服务或玩法；谁触发、主要输入、最终产出和系统边界是什么
+2. 主要业务路线 — 每条路线独立成节，先讲业务价值，再从触发入口开始按编号逐步写到结果落点；每一步都说明 caller -> callee、关键参数或对象、状态变化、进入下一步的条件和源码证据
+3. 关键分支与失败处理 — 点明条件分支、提前返回、异常，以及源码中存在的重试、幂等、回滚或补偿；证据不足的内容放到待核实
+4. 数据与状态 — 汇总关键 DTO、消息、实体、配置、缓存或持久化对象，说明谁写、谁读、生命周期如何
+5. 社区职责与路线交接 — 各社区在路线中承担什么，跨社区时由哪个真实调用、事件或数据对象完成交接
+6. 外部依赖与边界 — 数据库、缓存、消息系统、网络协议、第三方服务或前后端边界，以及可观察到的副作用
+7. 关键节点与修改影响 — 为什么这些节点不可省略，修改会影响哪条路线、状态或调用方
+8. 待核实问题 — 明确列出源码证据尚未闭合的候选，不得把猜测写成结论
+9. 建议阅读顺序 — 按业务路线给出文件和符号顺序，并说明每一站要看懂什么
 
 禁止空话（「负责业务逻辑」）、禁止把社区命名成 Scripts / Manager / Common / Utils，也禁止把所有静态边塞进业务路线。`;
 }

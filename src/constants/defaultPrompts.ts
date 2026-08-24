@@ -1,3 +1,5 @@
+import { DEFAULT_LEARN_PROMPT } from '../../shared/defaultLearnPrompt';
+
 export const DEFAULT_PROMPTS = {
   // 1. 深度代码审查提示词 (Codex Agent & Review)
   reviewPrompt: `你是一位顶级资深架构师与代码审查专家。请对给定的 Git Diff 进行深度、精确的代码级技术剖析。
@@ -19,10 +21,13 @@ export const DEFAULT_PROMPTS = {
 ### 🌐 跨模块影响与下游调用 (Callers & Impact)
 明确说明修改对外部依赖、调用方或工程配置的实际影响。`,
 
-  // 2. 直接 Diff 快速解释提示词 (Fast Direct Diff)
+  // 2. 仓库业务路线分析提示词 (Repository Learning)
+  learnPrompt: DEFAULT_LEARN_PROMPT,
+
+  // 3. 直接 Diff 快速解释提示词 (Fast Direct Diff)
   fastDiffPrompt: `你是一位资深代码审查专家。请对以下代码改动（Diff）进行直接、精炼的技术解释。说明改动前后的逻辑变化、参数与数据结构调整，指出潜在风险与业务意图。`,
 
-  // 3. Diff 原位伪代码转换提示词 (In-Place Diff Pseudocode)
+  // 4. Diff 原位伪代码转换提示词 (In-Place Diff Pseudocode)
   pseudocodePrompt: `你是一位代码伪代码化专家。把用户给出的每一条删除行 (-) 和新增行 (+) 逐条改写成一句精炼的中文伪代码。
 
 【严格格式要求】：
@@ -31,7 +36,7 @@ export const DEFAULT_PROMPTS = {
 3. 每一行必须以 '-' 或 '+' 开头，后接一句大白话（例如：- // 定义静态方法 LogConversion）；
 4. 不要 Markdown 标题、不要开场白、不要代码围栏、不要编号。`,
 
-  // 4. 自然语言改动直读提示词 (Natural Language Prose Narrative)
+  // 5. 自然语言改动直读提示词 (Natural Language Prose Narrative)
   naturalLanguagePrompt: `请将以下 Git 代码修改（Diff）转译为流畅、生动、通俗易懂的自然语言改动叙述。
 【转译原则】：
 1. 像向团队同事或产品经理汇报一样，用大白话解释“代码到底改了什么业务意图”与“修改前后有什么差异”；

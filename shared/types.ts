@@ -155,11 +155,13 @@ export type AIProvider = 'deepseek' | 'openai' | 'gemini' | 'openrouter' | 'olla
 export interface AIPromptsConfig {
   /** 1. Codex 深度代码审查提示词 */
   reviewPrompt?: string;
-  /** 2. 直接 Diff 快速解释提示词 */
+  /** 2. 仓库业务路线分析提示词 */
+  learnPrompt?: string;
+  /** 3. 直接 Diff 快速解释提示词 */
   fastDiffPrompt?: string;
-  /** 3. 概括性伪代码提炼提示词 */
+  /** 4. 概括性伪代码提炼提示词 */
   pseudocodePrompt?: string;
-  /** 4. 自然语言改动直读提示词 */
+  /** 5. 自然语言改动直读提示词 */
   naturalLanguagePrompt?: string;
 }
 

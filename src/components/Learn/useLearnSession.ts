@@ -9,6 +9,7 @@ import {
   visibleLearnProse,
 } from '../../utils/learnGraph';
 import { flushStreamsNow, scheduleStreamFlush } from '../../services/streamScheduler';
+import { DEFAULT_LEARN_PROMPT } from '../../../shared/defaultLearnPrompt';
 
 export interface LearnChatTurn {
   role: 'user' | 'assistant';
@@ -48,7 +49,14 @@ export function useLearnSession(
   const structuralPathRef = useRef('');
   const graphRef = useRef<LearnGraph | null>(null);
 
-  const cacheKey = `learn-v6::${repoPath}::${headHash || ''}::${aiConfig.model}`;
+  const effectiveLearnPrompt = aiConfig.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
+  const cacheKey = aiCache.generateKey({
+    type: 'learn-v7',
+    filePath: repoPath,
+    diff: headHash || '',
+    userPrompt: effectiveLearnPrompt,
+    model: aiConfig.model,
+  });
 
   useEffect(() => {
     graphRef.current = graph;
@@ -299,7 +307,7 @@ export function useLearnSession(
   useEffect(() => {
     if (!repoPath || !structureReady || structuralPathRef.current !== repoPath) return;
     startBriefing(false);
-  }, [repoPath, headHash, aiConfig.model, structureReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repoPath, cacheKey, structureReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     overview,
