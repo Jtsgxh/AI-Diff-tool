@@ -48,7 +48,7 @@ export function useLearnSession(
   const structuralPathRef = useRef('');
   const graphRef = useRef<LearnGraph | null>(null);
 
-  const cacheKey = `learn-v4::${repoPath}::${headHash || ''}::${aiConfig.model}`;
+  const cacheKey = `learn-v5::${repoPath}::${headHash || ''}::${aiConfig.model}`;
 
   useEffect(() => {
     graphRef.current = graph;

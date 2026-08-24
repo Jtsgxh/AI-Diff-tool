@@ -66,14 +66,15 @@ export interface RepoOverview {
   entryCandidates: string[];
 }
 
-export type LearnNodeKind = 'file' | 'class' | 'function' | 'interface' | 'enum' | 'module';
-export type LearnRelation = 'contains' | 'imports' | 'references' | 'inherits';
+export type LearnNodeKind = 'file' | 'class' | 'component' | 'function' | 'interface' | 'enum' | 'module';
+export type LearnRelation = 'calls' | 'imports' | 'references' | 'inherits';
 
 export interface LearnNode {
   id: string;
   label: string;
   kind: LearnNodeKind;
   file?: string;
+  symbols?: string[];
   communityId: string;
   degree: number;
 }

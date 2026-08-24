@@ -80,7 +80,7 @@ const fitCameraToNodes = (
 };
 
 const EDGE_COLOR: Record<string, string> = {
-  contains: 'rgba(148,163,184,0.18)',
+  calls: 'rgba(52,211,153,0.38)',
   imports: 'rgba(56,189,248,0.28)',
   inherits: 'rgba(251,191,36,0.35)',
   references: 'rgba(255,255,255,0.10)',
@@ -127,6 +127,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         .filter(
           (node) =>
             node.label.toLowerCase().includes(q) ||
+            node.symbols?.some((symbol) => symbol.toLowerCase().includes(q)) ||
             (node.file || '').toLowerCase().includes(q)
         )
         .map((node) => node.id)
@@ -137,6 +138,16 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     () => new Set(activeRoute?.steps.map((step) => step.nodeId).filter(Boolean) as string[]),
     [activeRoute]
   );
+
+  const activityNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const edge of graph.edges) {
+      if (edge.relation !== 'calls') continue;
+      ids.add(edge.source);
+      ids.add(edge.target);
+    }
+    return ids;
+  }, [graph.edges]);
 
   const simplifiedNodeIds = useMemo(() => {
     const ids = new Set<string>();
@@ -152,7 +163,9 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label));
       const coreLabels = new Set(community.godNodes.map((label) => label.toLowerCase()));
       for (const node of members) {
-        if (coreLabels.has(node.label.toLowerCase())) ids.add(node.id);
+        if (activityNodeIds.has(node.id) && coreLabels.has(node.label.toLowerCase())) {
+          ids.add(node.id);
+        }
       }
       if (community.entry) {
         const entryFile = community.entry.file.replace(/\\/g, '/');
@@ -160,15 +173,22 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           (node) =>
             node.file?.replace(/\\/g, '/') === entryFile &&
             (!community.entry?.symbol ||
-              node.label.toLowerCase() === community.entry.symbol.toLowerCase())
+              node.label.toLowerCase() === community.entry.symbol.toLowerCase() ||
+              node.symbols?.some(
+                (symbol) => symbol.toLowerCase() === community.entry!.symbol!.toLowerCase()
+              ))
         ) || members.find(
-          (node) => node.file?.replace(/\\/g, '/') === entryFile && node.kind === 'file'
+          (node) => node.file?.replace(/\\/g, '/') === entryFile
         );
-        if (entry) ids.add(entry.id);
+        if (entry && activityNodeIds.has(entry.id)) ids.add(entry.id);
       }
-      if (!members.some((node) => ids.has(node.id)) && members[0]) ids.add(members[0].id);
+      if (!members.some((node) => ids.has(node.id))) {
+        const activityMember = members.find((node) => activityNodeIds.has(node.id));
+        if (activityMember) ids.add(activityMember.id);
+      }
     }
     for (const bridge of graph.bridges) {
+      if (bridge.relation !== 'calls') continue;
       ids.add(bridge.source);
       ids.add(bridge.target);
     }
@@ -177,6 +197,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     for (const id of searchHit || []) ids.add(id);
     return ids;
   }, [
+    activityNodeIds,
     graph.bridges,
     graph.communities,
     graph.nodes,
@@ -191,6 +212,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       : graph.nodes.filter((node) => simplifiedNodeIds.has(node.id)),
     [density, graph.nodes, simplifiedNodeIds]
   );
+  const visibleCommunityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of visibleNodes) {
+      counts.set(node.communityId, (counts.get(node.communityId) || 0) + 1);
+    }
+    return counts;
+  }, [visibleNodes]);
   const visibleNodeIds = useMemo(
     () => new Set(visibleNodes.map((node) => node.id)),
     [visibleNodes]
@@ -199,7 +227,10 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     () => density === 'rich'
       ? graph.edges
       : graph.edges.filter(
-          (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
+          (edge) =>
+            edge.relation === 'calls' &&
+            visibleNodeIds.has(edge.source) &&
+            visibleNodeIds.has(edge.target)
         ),
     [density, graph.edges, visibleNodeIds]
   );
@@ -432,7 +463,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
           const sameCommunity = a.communityId === b.communityId;
           const rest = sameCommunity
-            ? e.relation === 'contains'
+            ? e.relation === 'calls'
               ? 82
               : 108
             : 180;
@@ -524,7 +555,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.fillStyle = color;
         ctx.font = '600 11px ui-sans-serif, system-ui';
         ctx.fillText(
-          `${community?.label || `社区 ${box.id}`}${community ? ` · ${community.nodeCount}` : ''}`,
+          `${community?.label || `社区 ${box.id}`} · ${visibleCommunityCounts.get(box.id) || 0}`,
           topLeft.x + 10,
           topLeft.y + 18
         );
@@ -586,13 +617,9 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ctx.fillStyle = communityColor(n.communityId);
         ctx.fill();
-        if (n.kind !== 'file' && n.degree >= maxDegree * 0.55) {
+        if (n.degree >= maxDegree * 0.55) {
           ctx.strokeStyle = 'rgba(255,255,255,0.85)';
           ctx.lineWidth = 1.5;
-          ctx.stroke();
-        } else if (n.kind === 'file') {
-          ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-          ctx.lineWidth = 1;
           ctx.stroke();
         }
         if (isSel || isHover || hitSearch || isRoute) {
@@ -626,6 +653,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     selectedCommunityId,
     selectedNodeId,
     visibleEdges,
+    visibleCommunityCounts,
   ]);
 
   const hitTest = (sx: number, sy: number): SimNode | null => {
@@ -739,6 +767,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         <div className="pointer-events-auto flex items-center rounded-md border border-white/10 bg-black/50 p-0.5">
           <button
             type="button"
+            title="只显示主要跨类调用活动"
             aria-pressed={density === 'simple'}
             onClick={() => setDensity('simple')}
             className={`rounded px-2 py-0.5 text-[10px] ${
@@ -751,6 +780,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           </button>
           <button
             type="button"
+            title="显示有行为的辅助类以及继承、引用、导入关系"
             aria-pressed={density === 'rich'}
             onClick={() => setDensity('rich')}
             className={`rounded px-2 py-0.5 text-[10px] ${
@@ -803,15 +833,19 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
                 style={{ background: communityColor(c.id) }}
               />
               {c.label}
-              <span className="text-slate-500">{c.nodeCount}</span>
+              <span className="text-slate-500">
+                {density === 'simple'
+                  ? `${visibleCommunityCounts.get(c.id) || 0}/${c.nodeCount}`
+                  : c.nodeCount}
+              </span>
             </button>
           );
         })}
       </div>
       <div className="absolute bottom-2 left-2 text-[10px] text-slate-500 pointer-events-none">
         {density === 'simple'
-          ? `简化 · ${visibleNodes.length}/${graph.nodes.length} 节点 · ${visibleEdges.length}/${graph.edges.length} 边`
-          : `丰富 · ${graph.stats.symbolCount} 符号 · ${graph.nodes.length} 节点 · ${graph.edges.length} 边`}
+          ? `简化（调用链）· ${visibleNodes.length}/${graph.nodes.length} 类级节点 · ${visibleEdges.length}/${graph.edges.length} 边`
+          : `丰富 · ${graph.nodes.length} 类级节点 · ${graph.edges.length} 边`}
         {graph.stats.truncated ? ' · 已裁大图' : ''}
         {activeRoute ? ` · 路线 ${activeRoute.label}` : ''}
         <span className="ml-2 text-slate-600">滚轮缩放 · 拖动画布 · 点击节点</span>

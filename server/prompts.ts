@@ -247,7 +247,7 @@ export function isLearnTask(ctx: PromptContext): boolean {
 export function buildLearnSystemPrompt(ctx: PromptContext): string {
   const isFollowUp = Boolean(ctx.userPrompt && ctx.userPrompt.trim());
   if (isFollowUp) {
-    return `你是代码库导师。结构图谱已经由本地解析得到（节点=文件/类型，边=调用/引用/导入）。结合社区与枢纽节点回答。
+    return `你是代码库导师。结构图谱已经由本地解析得到（节点=类/React组件/职责模块，普通函数归入所属节点；边=调用/引用/导入/继承）。结合社区与枢纽节点回答。
 优先调用 search_code / read_file / repo_graph 核实后再回答。
 回答必须是给人读的中文，落到真实文件路径与符号名，讲清数据怎么流、谁调用谁。禁止输出 JSON。`;
   }

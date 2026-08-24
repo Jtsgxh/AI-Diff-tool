@@ -210,8 +210,14 @@ export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
       const file = step.file.replace(/\\/g, '/');
       const candidates = base.nodes.filter((node) => node.file?.replace(/\\/g, '/') === file);
       const node = step.symbol
-        ? candidates.find((candidate) => candidate.label.toLowerCase() === step.symbol!.toLowerCase())
-        : candidates.find((candidate) => candidate.kind === 'file');
+        ? candidates.find(
+            (candidate) =>
+              candidate.label.toLowerCase() === step.symbol!.toLowerCase() ||
+              candidate.symbols?.some(
+                (symbol) => symbol.toLowerCase() === step.symbol!.toLowerCase()
+              )
+          )
+        : candidates[0];
       const declaredCommunity = step.communityId && idSet.has(step.communityId)
         ? step.communityId
         : undefined;

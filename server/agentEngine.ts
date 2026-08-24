@@ -192,7 +192,7 @@ export class CodexAgentEngine {
     const repoGraphTool = tool({
       name: 'repo_graph',
       description:
-        '获取本地解析的代码结构图谱摘要：节点（文件/类型）、边（contains/imports/references/inherits）、社区、枢纽 God nodes、跨社区桥。学习仓库或追问调用关系时使用。',
+        '获取本地解析的类级代码图谱摘要：节点（类/React 组件/职责模块，普通函数归入所属节点）、边（calls/imports/references/inherits）、社区、活动枢纽和跨社区桥。学习仓库或追问调用关系时使用。',
       parameters: z.object({
         note: z.string().optional().describe('可选备注，通常留空'),
       }),
