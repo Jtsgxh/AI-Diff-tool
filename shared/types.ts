@@ -239,13 +239,6 @@ export const REQUEST_TIMEOUT_SECONDS = {
   max: 600,
 } as const;
 
-/**
- * Output cap sent on chat-completions / agent turns. 8k is accepted by
- * DeepSeek and most OpenAI-compatible gateways; the previous implicit
- * provider default (often 4k) cut long Chinese reviews off mid-sentence.
- */
-export const MAX_OUTPUT_TOKENS = 8_192;
-
 export interface AIRuntimeConfig {
   maxExplorationTurns?: number;
   timeoutSeconds?: number;

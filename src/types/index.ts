@@ -32,7 +32,6 @@ export type {
 
 export {
   CONTEXT_WINDOW_TOKENS,
-  MAX_OUTPUT_TOKENS,
   REQUEST_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   inferContextWindowTokens,

@@ -8,7 +8,6 @@ import {
 } from './config/providers';
 import { readSseJson, SseStream } from './http/sse';
 import { buildFastPrompts } from './prompts';
-import { MAX_OUTPUT_TOKENS } from '../shared/types';
 import type { ExplainRequest, PartialAIProviderConfig } from '../shared/types';
 
 export type { TargetLineInfo } from '../shared/types';
@@ -48,7 +47,6 @@ export class AIService {
             { role: 'user', content: user },
           ],
           stream: true,
-          max_tokens: MAX_OUTPUT_TOKENS,
         }),
         // Stop pulling tokens once the browser is gone. Closing the drawer
         // does NOT do this — the drawer stays mounted and its reviews keep

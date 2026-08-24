@@ -26,7 +26,6 @@ import {
 import { buildLearnGraph, formatLearnGraphDigest } from './learnGraphBuild';
 import {
   inferContextWindowTokens,
-  MAX_OUTPUT_TOKENS,
   REQUEST_TIMEOUT_SECONDS,
   totalContextChars,
 } from '../shared/types';
@@ -242,7 +241,6 @@ export class CodexAgentEngine {
           ? [repoOverviewTool, repoGraphTool, readFileTool, searchCodeTool, findFilesTool]
           : [repoOverviewTool, readFileTool, searchCodeTool, findFilesTool],
         modelSettings: {
-          maxTokens: MAX_OUTPUT_TOKENS,
           timeoutMs: MODEL_CALL_TIMEOUT_MS,
         },
       });
@@ -513,7 +511,6 @@ export class CodexAgentEngine {
       const synthesisStream = await openaiClient.chat.completions.create(
         {
           model,
-          max_tokens: MAX_OUTPUT_TOKENS,
           messages,
           stream: true,
         },
