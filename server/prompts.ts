@@ -266,18 +266,20 @@ export function buildLearnSystemPrompt(ctx: PromptContext): string {
 - 不追求路线数量。只有入口、相邻步骤关系和结果落点都被工具结果证明的候选才能进入 businessRoutes；证据不完整的候选写进正文的“待核实”而不是路线数据。
 - 输出前逐步反查 exploration 中读到的源码：每一步必须给出 relation（入口/调用/读取/写入/发布/回调等）和 evidence（真实调用表达式、状态字段或接口契约）；禁止用职责描述冒充证据，禁止编造行号。
 
-【给读者看的正文】只用中文，禁止 JSON / 花括号 / 字段名。必须写这些章节，并点名真实符号与相对路径：
+【输出顺序】探查完成后，必须先输出下面的 learn-graph 机器数据；围栏闭合后再输出给读者看的正文。这样界面可以先绘制业务核心，再继续接收讲解。
+
+【机器数据】先输出一个围栏，语言标记必须是 learn-graph（禁止用 json），围栏内是一行合法 JSON：
+{"communities":[{"id":"0","label":"业务名","summary":"职责与路线交接说明","entry":{"file":"相对路径","symbol":"真实符号"}}],"businessRoutes":[{"id":"route-1","label":"业务路线名称","summary":"触发条件、核心结果和适用场景","steps":[{"label":"业务动作","file":"相对路径","symbol":"真实符号","relation":"入口/调用/读取/写入/发布/回调","description":"输入或状态如何处理，以及下一步去哪里","evidence":"源码中实际出现的调用表达式、状态字段或接口契约","communityId":"0"}]}],"runtimePath":["0","1"]}
+businessRoutes 可以为空：只有不存在任何证据完整的路线时才能输出空数组，绝不能为了非空而编造。存在路线时必须形成真实业务闭环；每个 step 的 file、symbol、relation、evidence 和 communityId 都必须由工具核实，communityId 必须使用图谱已有编号。
+
+【给读者看的正文】机器数据围栏闭合后，只用中文，禁止再次输出 JSON / 花括号 / 字段名。必须写这些章节，并点名真实符号与相对路径：
 1. 这是什么 — 仓库实际提供什么产品、服务或玩法
 2. 主要业务路线 — 每条路线从触发入口写到结果落点，逐步说明调用、数据和状态变化
 3. 社区职责 — 各社区在这些路线中承担什么，在哪一步交接
 4. 关键节点 — 为什么这些节点不可省略，修改会影响哪条路线
 5. 建议阅读顺序 — 按业务路线给出文件和符号顺序
 
-禁止空话（「负责业务逻辑」）、禁止把社区命名成 Scripts / Manager / Common / Utils，也禁止把所有静态边塞进业务路线。
-
-【机器数据】正文全部写完后，另起一行只输出一个围栏，语言标记必须是 learn-graph（禁止用 json），围栏内是一行合法 JSON：
-{"communities":[{"id":"0","label":"业务名","summary":"职责与路线交接说明","entry":{"file":"相对路径","symbol":"真实符号"}}],"businessRoutes":[{"id":"route-1","label":"业务路线名称","summary":"触发条件、核心结果和适用场景","steps":[{"label":"业务动作","file":"相对路径","symbol":"真实符号","relation":"入口/调用/读取/写入/发布/回调","description":"输入或状态如何处理，以及下一步去哪里","evidence":"源码中实际出现的调用表达式、状态字段或接口契约","communityId":"0"}]}],"runtimePath":["0","1"]}
-businessRoutes 可以为空：只有不存在任何证据完整的路线时才能输出空数组，绝不能为了非空而编造。存在路线时必须形成真实业务闭环；每个 step 的 file、symbol、relation、evidence 和 communityId 都必须由工具核实，communityId 必须使用图谱已有编号。`;
+禁止空话（「负责业务逻辑」）、禁止把社区命名成 Scripts / Manager / Common / Utils，也禁止把所有静态边塞进业务路线。`;
 }
 
 export function buildLearnUserMessage(ctx: PromptContext): string {
@@ -291,7 +293,7 @@ export function buildLearnUserMessage(ctx: PromptContext): string {
   const focus = ctx.filePath
     ? `\n请特别说明文件 ${ctx.filePath} 落在哪个社区、运行时何时进入、和哪些枢纽相连。\n`
     : '';
-  return `请先分析当前仓库真正的业务入口和主要业务闭环。结构图谱只是候选证据；请用 read_file / search_code 沿调用和数据状态核实每条路线，再输出业务讲解及可供界面绘制的 businessRoutes。${focus}${digest}`;
+  return `请先分析当前仓库真正的业务入口和主要业务闭环。结构图谱只是候选证据；请用 read_file / search_code 沿调用和数据状态核实每条路线，再按规定先输出可供界面绘制的 businessRoutes 机器数据，随后输出业务讲解。${focus}${digest}`;
 }
 
 export function buildAgentSystemPrompt(ctx: PromptContext): string {
@@ -393,7 +395,7 @@ export function buildSynthesisPrompt(
     body = isFollowUp
       ? `【用户追问】:\n${userPrompt?.trim()}\n\n请直接针对用户的追问给出精准、专业、详尽的 Markdown 解答。`
       : isLearn
-        ? '【探查阶段已结束】请严格按照系统规定，输出仓库业务讲解，并在末尾给出包含 businessRoutes 数组的 learn-graph 机器数据；没有证据完整的路线时输出空数组。'
+        ? '【探查阶段已结束】请严格按照系统规定，先输出包含 businessRoutes 数组的 learn-graph 机器数据，再输出仓库业务讲解；没有证据完整的路线时输出空数组。'
         : '【探查阶段已结束】请根据上述代码修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。';
   } else {
     const contextSummary = explorationLog
@@ -406,7 +408,7 @@ export function buildSynthesisPrompt(
     body = isFollowUp
       ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`
       : isLearn
-        ? `【探查阶段已结束】已在代码库中核实以下源码与调用上下文：\n\n${contextSummary}\n\n请从真实入口、调用、数据和状态变化中提炼主要业务路线。严格按照系统规定输出正文，并在末尾给出包含 businessRoutes 数组的 learn-graph 机器数据；没有证据完整的路线时输出空数组。`
+        ? `【探查阶段已结束】已在代码库中核实以下源码与调用上下文：\n\n${contextSummary}\n\n请从真实入口、调用、数据和状态变化中提炼主要业务路线。严格按照系统规定，先输出包含 businessRoutes 数组的 learn-graph 机器数据，再输出正文；没有证据完整的路线时输出空数组。`
         : `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`;
   }
 

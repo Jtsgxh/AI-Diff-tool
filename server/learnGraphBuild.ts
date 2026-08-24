@@ -17,7 +17,6 @@ import type {
 // previous limits were sized for small demos and silently hid most real repos.
 const MAX_FILES = 5_000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const MAX_VIZ_NODES = 1_500;
 const MAX_REF_EDGES_PER_FILE = 128;
 const DIGEST_CHARS = 120_000;
 
@@ -968,7 +967,7 @@ export function buildLearnGraphFromFiles(files: { path: string; content: string 
     calledClassIds.add(edge.source);
     calledClassIds.add(edge.target);
   }
-  let nodeList = owners
+  const nodeList = owners
     .filter(
       (owner) => owner.kind !== 'class' || owner.hasBehavior || calledClassIds.has(owner.id)
     )
@@ -1004,17 +1003,6 @@ export function buildLearnGraphFromFiles(files: { path: string; content: string 
     };
   }
 
-  let truncated = false;
-  if (nodeList.length > MAX_VIZ_NODES) {
-    truncated = true;
-    nodeList.sort(
-      (a, b) =>
-        (activityDegree.get(b) || 0) - (activityDegree.get(a) || 0) ||
-        (degree.get(b) || 0) - (degree.get(a) || 0)
-    );
-    const keep = new Set(nodeList.slice(0, MAX_VIZ_NODES));
-    nodeList = nodeList.filter((id) => keep.has(id));
-  }
   const keepSet = new Set(nodeList);
   const liveEdges = edges.filter((e) => keepSet.has(e.source) && keepSet.has(e.target));
 
@@ -1127,7 +1115,7 @@ export function buildLearnGraphFromFiles(files: { path: string; content: string 
       filesParsed,
       symbolCount: learnNodes.length,
       edgeCount: liveEdges.length,
-      truncated,
+      truncated: false,
     },
   };
 }

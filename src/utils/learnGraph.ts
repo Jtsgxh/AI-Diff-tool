@@ -2,6 +2,7 @@ import type {
   LearnBusinessRoute,
   LearnCommunity,
   LearnGraph,
+  LearnNode,
 } from '../types';
 
 export const COMMUNITY_COLORS = [
@@ -185,15 +186,27 @@ export function parseLearnOverlay(text: string): LearnLabelOverlay | null {
 export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
   const overlay = parseLearnOverlay(text);
   if (!overlay) return base;
-  const byId = new Map(overlay.communities.map((c) => [c.id, c]));
+  const nodesByFile = new Map<string, LearnNode[]>();
+  for (const node of base.nodes) {
+    const file = node.file?.replace(/\\/g, '/');
+    if (!file) continue;
+    const matches = nodesByFile.get(file);
+    if (matches) matches.push(node);
+    else nodesByFile.set(file, [node]);
+  }
+  const findNode = (file: string, symbol?: string) => {
+    const candidates = nodesByFile.get(file.replace(/\\/g, '/')) || [];
+    if (!symbol) return candidates[0];
+    const normalized = symbol.toLowerCase();
+    return candidates.find(
+      (candidate) =>
+        candidate.label.toLowerCase() === normalized ||
+        candidate.symbols?.some((value) => value.toLowerCase() === normalized)
+    );
+  };
+  const overlayByCommunity = new Map(overlay.communities.map((community) => [community.id, community]));
   const communities = base.communities.map((c) => {
-    const o =
-      byId.get(c.id) ||
-      byId.get(String(Number(c.id))) ||
-      byId.get(c.id.replace(/^c/i, '')) ||
-      overlay.communities.find(
-        (x) => x.files.some((f) => c.files.includes(f)) && x.label
-      );
+    const o = overlayByCommunity.get(c.id);
     if (!o) return c;
     return {
       ...c,
@@ -208,16 +221,7 @@ export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
     ...route,
     steps: route.steps.map((step) => {
       const file = step.file.replace(/\\/g, '/');
-      const candidates = base.nodes.filter((node) => node.file?.replace(/\\/g, '/') === file);
-      const node = step.symbol
-        ? candidates.find(
-            (candidate) =>
-              candidate.label.toLowerCase() === step.symbol!.toLowerCase() ||
-              candidate.symbols?.some(
-                (symbol) => symbol.toLowerCase() === step.symbol!.toLowerCase()
-              )
-          )
-        : candidates[0];
+      const node = findNode(file, step.symbol);
       const declaredCommunity = step.communityId && idSet.has(step.communityId)
         ? step.communityId
         : undefined;

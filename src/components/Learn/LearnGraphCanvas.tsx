@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { LearnGraph, LearnNode } from '../../types';
+import type { LearnEdge, LearnGraph, LearnNode } from '../../types';
 import { communityColor } from '../../utils/learnGraph';
 
 interface LearnGraphCanvasProps {
@@ -106,6 +106,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [density, setDensity] = useState<GraphDensity>('simple');
   const [activeRouteId, setActiveRouteId] = useState('');
+  const routeSetRef = useRef('');
   const rafRef = useRef(0);
   const ticksRef = useRef(0);
   const neighborRef = useRef<Set<string>>(new Set());
@@ -116,8 +117,17 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   );
 
   useEffect(() => {
+    const routeSet = graph.businessRoutes.map((route) => route.id).join('\n');
+    if (routeSet !== routeSetRef.current) {
+      routeSetRef.current = routeSet;
+      const nextRouteId = graph.businessRoutes.some((route) => route.id === activeRouteId)
+        ? activeRouteId
+        : graph.businessRoutes[0]?.id || '';
+      if (nextRouteId !== activeRouteId) setActiveRouteId(nextRouteId);
+      return;
+    }
     if (activeRouteId && !activeRoute) setActiveRouteId('');
-  }, [activeRoute, activeRouteId]);
+  }, [activeRoute, activeRouteId, graph.businessRoutes]);
 
   const searchHit = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -134,9 +144,18 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     );
   }, [graph.nodes, query]);
 
-  const routeNodeIds = useMemo(
+  const activeRouteNodeIds = useMemo(
     () => new Set(activeRoute?.steps.map((step) => step.nodeId).filter(Boolean) as string[]),
     [activeRoute]
+  );
+
+  const businessCoreNodeIds = useMemo(
+    () => new Set(
+      graph.businessRoutes.flatMap((route) =>
+        route.steps.map((step) => step.nodeId).filter(Boolean) as string[]
+      )
+    ),
+    [graph.businessRoutes]
   );
 
   const activityNodeIds = useMemo(() => {
@@ -192,7 +211,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       ids.add(bridge.source);
       ids.add(bridge.target);
     }
-    for (const id of routeNodeIds) ids.add(id);
+    for (const id of businessCoreNodeIds) ids.add(id);
     if (selectedNodeId) ids.add(selectedNodeId);
     for (const id of searchHit || []) ids.add(id);
     return ids;
@@ -201,7 +220,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     graph.bridges,
     graph.communities,
     graph.nodes,
-    routeNodeIds,
+    businessCoreNodeIds,
     searchHit,
     selectedNodeId,
   ]);
@@ -224,15 +243,57 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     [visibleNodes]
   );
   const visibleEdges = useMemo(
-    () => density === 'rich'
-      ? graph.edges
-      : graph.edges.filter(
+    () => {
+      if (density === 'rich') return graph.edges;
+      const nodesById = new Map(visibleNodes.map((node) => [node.id, node]));
+      const candidates = graph.edges
+        .filter(
           (edge) =>
             edge.relation === 'calls' &&
             visibleNodeIds.has(edge.source) &&
             visibleNodeIds.has(edge.target)
-        ),
-    [density, graph.edges, visibleNodeIds]
+        )
+        .sort((a, b) => {
+          const aSource = nodesById.get(a.source);
+          const aTarget = nodesById.get(a.target);
+          const bSource = nodesById.get(b.source);
+          const bTarget = nodesById.get(b.target);
+          const aCross = aSource?.communityId !== aTarget?.communityId ? 1 : 0;
+          const bCross = bSource?.communityId !== bTarget?.communityId ? 1 : 0;
+          return bCross - aCross ||
+            (bSource?.degree || 0) + (bTarget?.degree || 0) -
+              (aSource?.degree || 0) - (aTarget?.degree || 0);
+        });
+      if (candidates.length <= visibleNodes.length * 2) return candidates;
+
+      const kept: LearnEdge[] = [];
+      const keptKeys = new Set<string>();
+      const incidence = new Map<string, number>();
+      const add = (edge: LearnEdge) => {
+        const key = `${edge.source}|${edge.target}`;
+        if (keptKeys.has(key)) return;
+        keptKeys.add(key);
+        kept.push(edge);
+        incidence.set(edge.source, (incidence.get(edge.source) || 0) + 1);
+        incidence.set(edge.target, (incidence.get(edge.target) || 0) + 1);
+      };
+      for (const edge of candidates) {
+        if ((incidence.get(edge.source) || 0) >= 2) continue;
+        if ((incidence.get(edge.target) || 0) >= 2) continue;
+        add(edge);
+      }
+      for (const node of visibleNodes) {
+        if ((incidence.get(node.id) || 0) > 0) continue;
+        const edge = candidates.find(
+          (candidate) =>
+            !keptKeys.has(`${candidate.source}|${candidate.target}`) &&
+            (candidate.source === node.id || candidate.target === node.id)
+        );
+        if (edge) add(edge);
+      }
+      return kept;
+    },
+    [density, graph.edges, visibleNodeIds, visibleNodes]
   );
 
   const maxDegree = useMemo(
@@ -581,12 +642,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.globalAlpha = 1;
       }
 
-      if (activeRoute) {
-        ctx.strokeStyle = 'rgba(52,211,153,0.82)';
-        ctx.lineWidth = 3;
-        for (let index = 1; index < activeRoute.steps.length; index++) {
-          const previousId = activeRoute.steps[index - 1].nodeId;
-          const currentId = activeRoute.steps[index].nodeId;
+      for (const route of graph.businessRoutes) {
+        const isActive = route.id === activeRouteId;
+        ctx.strokeStyle = isActive ? 'rgba(52,211,153,0.88)' : 'rgba(251,191,36,0.34)';
+        ctx.lineWidth = isActive ? 3 : 1.5;
+        for (let index = 1; index < route.steps.length; index++) {
+          const previousId = route.steps[index - 1].nodeId;
+          const currentId = route.steps[index].nodeId;
           if (!previousId || !currentId) continue;
           const previous = byId.get(previousId);
           const current = byId.get(currentId);
@@ -608,7 +670,8 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         const isSel = n.id === selected;
         const isNb = neighbors.has(n.id);
         const isHover = n.id === hoverRef.current;
-        const isRoute = routeNodeIds.has(n.id);
+        const isBusinessCore = businessCoreNodeIds.has(n.id);
+        const isActiveRoute = activeRouteNodeIds.has(n.id);
         const commSel = selectedCommunityId && n.communityId === selectedCommunityId;
         const dim = Boolean((selected && !isNb) || (selectedCommunityId && !commSel));
         const hitSearch = searchHit?.has(n.id);
@@ -622,13 +685,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
-        if (isSel || isHover || hitSearch || isRoute) {
-          ctx.strokeStyle = isRoute && !isSel && !isHover && !hitSearch ? '#34d399' : '#fbbf24';
+        if (isSel || isHover || hitSearch || isBusinessCore) {
+          ctx.strokeStyle = isActiveRoute && !isSel && !isHover && !hitSearch ? '#34d399' : '#fbbf24';
           ctx.lineWidth = 2;
           ctx.stroke();
         }
         const label =
-          isSel || isHover || hitSearch || isRoute || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
+          isSel || isHover || hitSearch || isBusinessCore || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
         if (label) {
           ctx.font = `${isSel || isHover ? 12 : 10}px ui-sans-serif, system-ui`;
           ctx.fillStyle = '#e2e8f0';
@@ -644,11 +707,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     rafRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafRef.current);
   }, [
-    activeRoute,
+    activeRouteId,
+    graph.businessRoutes,
     graph.communities,
     hidden,
     maxDegree,
-    routeNodeIds,
+    activeRouteNodeIds,
+    businessCoreNodeIds,
     searchHit,
     selectedCommunityId,
     selectedNodeId,
@@ -844,7 +909,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       </div>
       <div className="absolute bottom-2 left-2 text-[10px] text-slate-500 pointer-events-none">
         {density === 'simple'
-          ? `简化（调用链）· ${visibleNodes.length}/${graph.nodes.length} 类级节点 · ${visibleEdges.length}/${graph.edges.length} 边`
+          ? `简化（${businessCoreNodeIds.size ? 'AI 业务核心' : '候选调用骨架'}）· ${visibleNodes.length}/${graph.nodes.length} 类级节点 · ${visibleEdges.length}/${graph.edges.length} 边`
           : `丰富 · ${graph.nodes.length} 类级节点 · ${graph.edges.length} 边`}
         {graph.stats.truncated ? ' · 已裁大图' : ''}
         {activeRoute ? ` · 路线 ${activeRoute.label}` : ''}

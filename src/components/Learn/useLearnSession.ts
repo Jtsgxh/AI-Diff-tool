@@ -48,7 +48,7 @@ export function useLearnSession(
   const structuralPathRef = useRef('');
   const graphRef = useRef<LearnGraph | null>(null);
 
-  const cacheKey = `learn-v5::${repoPath}::${headHash || ''}::${aiConfig.model}`;
+  const cacheKey = `learn-v6::${repoPath}::${headHash || ''}::${aiConfig.model}`;
 
   useEffect(() => {
     graphRef.current = graph;
@@ -118,6 +118,7 @@ export function useLearnSession(
         structuralPathRef.current = repoPath;
         const cached = aiCache.get(cacheKey);
         const merged = cached?.report?.trim() ? applyLearnAnalysis(g, cached.report) : g;
+        graphRef.current = merged;
         setGraph(merged);
         if (cached?.report?.trim() && parseLearnOverlay(cached.report)) {
           const { prose } = humanizeLearnReport(cached.report, merged);
@@ -157,6 +158,7 @@ export function useLearnSession(
         if (cached?.report?.trim()) {
           const { graph: next, prose } = humanizeLearnReport(cached.report, base);
           if (parseLearnOverlay(cached.report)) {
+            graphRef.current = next;
             setGraph(next);
             setBriefing(prose);
             setError(null);
@@ -175,14 +177,16 @@ export function useLearnSession(
         setFollowUpStream('');
         setChat((prev) => [...prev, { role: 'user', content: opts.userPrompt!.trim() }]);
       } else {
-        setBriefing('');
+        const previous = graphRef.current;
+        const hasPreviousRoutes = Boolean(previous?.businessRoutes.length);
+        if (!hasPreviousRoutes) setBriefing('');
         setToolEvents([]);
         setChat([]);
         setSettled(false);
         if (base) {
-          const structural = { ...base, businessRoutes: [] };
-          graphRef.current = structural;
-          setGraph(structural);
+          const visible = hasPreviousRoutes && previous ? previous : base;
+          graphRef.current = visible;
+          setGraph(visible);
         }
       }
       textRef.current = '';
@@ -196,7 +200,10 @@ export function useLearnSession(
         }
         const { graph: next, prose } = humanizeLearnReport(raw, base);
         setBriefing(prose);
-        if (parseLearnOverlay(raw)) setGraph(next);
+        if (parseLearnOverlay(raw)) {
+          graphRef.current = next;
+          setGraph(next);
+        }
       };
 
       try {
@@ -244,6 +251,7 @@ export function useLearnSession(
             } else {
               setBriefing(prose);
               if (parseLearnOverlay(raw)) {
+                graphRef.current = next;
                 setGraph(next);
                 aiCache.set(cacheKey, {
                   report: raw,
