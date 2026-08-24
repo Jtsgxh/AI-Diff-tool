@@ -399,7 +399,8 @@ export class CodexAgentEngine {
           lastTurnContent,
           accumulatedContent,
           hitMaxTurns,
-          outputTruncated
+          outputTruncated,
+          isLearnTask(options)
         ) &&
         !stream.isClosed
       ) {
@@ -412,6 +413,7 @@ export class CodexAgentEngine {
           explorationLog,
           userPrompt: options.userPrompt,
           isFollowUp,
+          isLearn: isLearnTask(options),
           hasPartialContent: accumulatedContent.length > 0,
           contextChars,
           truncatedDraft: outputTruncated ? lastTurnContent || accumulatedContent : undefined,
@@ -422,7 +424,11 @@ export class CodexAgentEngine {
         });
       }
 
-      stream.send({ type: 'status', phase: 'completed', message: 'Codex 智能体审查已完成' });
+      stream.send({
+        type: 'status',
+        phase: 'completed',
+        message: isLearnTask(options) ? '仓库主要业务路线分析已完成' : 'Codex 智能体审查已完成',
+      });
       stream.send({ type: 'done' });
       stream.close();
     } catch (err: any) {
@@ -450,6 +456,7 @@ export class CodexAgentEngine {
     explorationLog: ExplorationEntry[];
     userPrompt?: string;
     isFollowUp: boolean;
+    isLearn: boolean;
     hasPartialContent: boolean;
     contextChars: number;
     truncatedDraft?: string;
@@ -462,9 +469,9 @@ export class CodexAgentEngine {
       type: 'status',
       phase: 'reporting',
       message: params.truncatedDraft
-        ? `终审报告不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
+        ? `${params.isLearn ? '业务路线报告' : '终审报告'}不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
         : `Codex 探查阶段结束（已获取 ${explorationLog.length} 处上下文），正在实时流式输出${
-            params.isFollowUp ? '追问解答' : '深度审查报告'
+            params.isFollowUp ? '追问解答' : params.isLearn ? '业务路线报告' : '深度审查报告'
           }...`,
     });
 
@@ -474,6 +481,7 @@ export class CodexAgentEngine {
 
     const fullSynthesisPrompt = buildSynthesisPrompt(explorationLog, params.userPrompt, {
       truncatedDraft: params.truncatedDraft,
+      learnTask: params.isLearn,
     });
     const inputBudget = Math.round(contextChars * SYNTHESIS_INPUT_FRACTION);
     const userBudget = inputBudget - params.systemPrompt.length;
@@ -580,10 +588,13 @@ function shouldRunSynthesis(
   lastTurn: string,
   accumulated: string,
   hitMaxTurns: boolean,
-  outputTruncated: boolean
+  outputTruncated: boolean,
+  learnTask: boolean
 ): boolean {
   if (hitMaxTurns || outputTruncated) return true;
-  return !(lastTurn || accumulated).trim();
+  const output = (lastTurn || accumulated).trim();
+  if (!output) return true;
+  return learnTask && !/"businessRoutes"\s*:/.test(output);
 }
 
 function isClientGone(_err: unknown, stream: SseStream): boolean {

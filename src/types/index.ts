@@ -18,6 +18,8 @@ export type {
   DiffSummary,
   ExplainTask,
   LearnBridge,
+  LearnBusinessRoute,
+  LearnBusinessRouteStep,
   LearnCommunity,
   LearnEdge,
   LearnGodNode,

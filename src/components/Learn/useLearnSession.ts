@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentStatusEvent, AgentToolEvent, AIProviderConfig, LearnGraph, RepoOverview } from '../../types';
 import { fetchLearnGraph, fetchRepoOverview, streamAgentExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
-import { humanizeLearnReport, overlayCommunityLabels, visibleLearnProse } from '../../utils/learnGraph';
+import { applyLearnAnalysis, humanizeLearnReport, visibleLearnProse } from '../../utils/learnGraph';
 import { flushStreamsNow, scheduleStreamFlush } from '../../services/streamScheduler';
 
 export interface LearnChatTurn {
@@ -32,6 +32,7 @@ export function useLearnSession(
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
   const [settled, setSettled] = useState(false);
+  const [structureReady, setStructureReady] = useState(false);
 
   const abortRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -39,8 +40,14 @@ export function useLearnSession(
   configRef.current = aiConfig;
   const textRef = useRef('');
   const structuralRef = useRef<LearnGraph | null>(null);
+  const structuralPathRef = useRef('');
+  const graphRef = useRef<LearnGraph | null>(null);
 
-  const cacheKey = `learn-v2::${repoPath}::${headHash || ''}::${aiConfig.model}`;
+  const cacheKey = `learn-v3::${repoPath}::${headHash || ''}::${aiConfig.model}`;
+
+  useEffect(() => {
+    graphRef.current = graph;
+  }, [graph]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -86,20 +93,35 @@ export function useLearnSession(
   useEffect(() => {
     if (!repoPath) return;
     let cancelled = false;
+    cancelInFlight();
+    structuralRef.current = null;
+    structuralPathRef.current = '';
+    setStructureReady(false);
+    setIsStreaming(false);
+    setGraph(null);
+    setBriefing('');
+    setError(null);
+    setChat([]);
+    setSelectedCommunityId(null);
+    setSettled(false);
     setGraphLoading(true);
     setGraphError(null);
     fetchLearnGraph(repoPath)
       .then((g) => {
         if (cancelled) return;
         structuralRef.current = g;
+        structuralPathRef.current = repoPath;
         const cached = aiCache.get(cacheKey);
-        const merged = cached?.report?.trim() ? overlayCommunityLabels(g, cached.report) : g;
+        const merged = cached?.report?.trim() ? applyLearnAnalysis(g, cached.report) : g;
         setGraph(merged);
-        if (cached?.report?.trim()) {
+        if (cached?.report?.trim() && merged.businessRoutes.length > 0) {
           const { prose } = humanizeLearnReport(cached.report, merged);
           setBriefing(prose);
           setSettled(true);
+        } else if (cached) {
+          aiCache.remove(cacheKey);
         }
+        setStructureReady(true);
       })
       .catch((err: Error) => {
         if (!cancelled) setGraphError(err.message || '无法解析代码图谱');
@@ -110,23 +132,33 @@ export function useLearnSession(
     return () => {
       cancelled = true;
     };
-  }, [repoPath, headHash, cacheKey]);
+  }, [repoPath, headHash, cacheKey, cancelInFlight]);
 
   const runAgent = useCallback(
     async (opts: { userPrompt?: string; filePath?: string; force?: boolean }) => {
       const config = configRef.current;
       const isFollowUp = Boolean(opts.userPrompt?.trim());
-      const base = structuralRef.current;
+      const base = isFollowUp
+        ? graphRef.current || structuralRef.current
+        : structuralRef.current;
+
+      if (!isFollowUp && (!base || structuralPathRef.current !== repoPath)) {
+        setError('候选代码结构尚未准备完成，无法开始业务路线分析。');
+        return;
+      }
 
       if (!isFollowUp && !opts.force) {
         const cached = aiCache.get(cacheKey);
         if (cached?.report?.trim()) {
           const { graph: next, prose } = humanizeLearnReport(cached.report, base);
-          if (next) setGraph(next);
-          setBriefing(prose);
-          setError(null);
-          setSettled(true);
-          return;
+          if (next?.businessRoutes.length) {
+            setGraph(next);
+            setBriefing(prose);
+            setError(null);
+            setSettled(true);
+            return;
+          }
+          aiCache.remove(cacheKey);
         }
       }
 
@@ -142,6 +174,11 @@ export function useLearnSession(
         setToolEvents([]);
         setChat([]);
         setSettled(false);
+        if (base) {
+          const structural = { ...base, businessRoutes: [] };
+          graphRef.current = structural;
+          setGraph(structural);
+        }
       }
       textRef.current = '';
       startTimer();
@@ -154,7 +191,7 @@ export function useLearnSession(
         }
         const { graph: next, prose } = humanizeLearnReport(raw, base);
         setBriefing(prose);
-        if (next) setGraph(next);
+        if (next?.businessRoutes.length) setGraph(next);
       };
 
       try {
@@ -200,14 +237,16 @@ export function useLearnSession(
               setChat((prev) => [...prev, { role: 'assistant', content: reply }]);
               setFollowUpStream('');
             } else {
-              if (next) setGraph(next);
               setBriefing(prose);
-              if (raw.trim()) {
+              if (next?.businessRoutes.length) {
+                setGraph(next);
                 aiCache.set(cacheKey, {
                   report: raw,
                   model: config.model,
                   provider: config.provider,
                 });
+              } else {
+                setError('AI 分析已结束，但没有返回可用的主要业务路线。请重新分析。');
               }
             }
             setIsStreaming(false);
@@ -245,9 +284,9 @@ export function useLearnSession(
   );
 
   useEffect(() => {
-    if (!repoPath) return;
+    if (!repoPath || !structureReady || structuralPathRef.current !== repoPath) return;
     startBriefing(false);
-  }, [repoPath, headHash, aiConfig.model]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [repoPath, headHash, aiConfig.model, structureReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     overview,

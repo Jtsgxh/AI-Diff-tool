@@ -113,10 +113,27 @@ export interface LearnCommunity {
   nodeCount: number;
 }
 
+export interface LearnBusinessRouteStep {
+  label: string;
+  description: string;
+  file: string;
+  symbol?: string;
+  communityId?: string;
+  nodeId?: string;
+}
+
+export interface LearnBusinessRoute {
+  id: string;
+  label: string;
+  summary: string;
+  steps: LearnBusinessRouteStep[];
+}
+
 export interface LearnGraph {
   nodes: LearnNode[];
   edges: LearnEdge[];
   communities: LearnCommunity[];
+  businessRoutes: LearnBusinessRoute[];
   runtimePath: string[];
   godNodes: LearnGodNode[];
   bridges: LearnBridge[];

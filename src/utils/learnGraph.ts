@@ -1,4 +1,8 @@
-import type { LearnCommunity, LearnGraph } from '../types';
+import type {
+  LearnBusinessRoute,
+  LearnCommunity,
+  LearnGraph,
+} from '../types';
 
 export const COMMUNITY_COLORS = [
   '#4e79a7',
@@ -70,13 +74,13 @@ function extractObjectContainingCommunities(text: string): string | null {
 }
 
 function extractJsonCandidate(text: string): string | null {
-  for (const re of FENCES) {
-    const match = re.exec(text);
-    if (!match) continue;
+  let candidate: string | null = null;
+  const matches = text.matchAll(/```(?:learn-graph|json)\s*([\s\S]*?)```/gi);
+  for (const match of matches) {
     const inner = match[1].trim();
-    if (/"communities"\s*:/.test(inner)) return inner;
+    if (/"communities"\s*:/.test(inner)) candidate = inner;
   }
-  return extractObjectContainingCommunities(text);
+  return candidate || extractObjectContainingCommunities(text);
 }
 
 function parseJsonLoose(raw: string): unknown {
@@ -94,12 +98,17 @@ function parseJsonLoose(raw: string): unknown {
 
 export interface LearnLabelOverlay {
   communities: Pick<LearnCommunity, 'id' | 'label' | 'summary' | 'entry' | 'files'>[];
+  businessRoutes: LearnBusinessRoute[];
   runtimePath: string[];
 }
 
 function coerceOverlay(raw: unknown): LearnLabelOverlay | null {
   if (!raw || typeof raw !== 'object') return null;
-  const src = raw as { communities?: unknown; runtimePath?: unknown };
+  const src = raw as {
+    communities?: unknown;
+    businessRoutes?: unknown;
+    runtimePath?: unknown;
+  };
   if (!Array.isArray(src.communities)) return null;
   const communities: LearnLabelOverlay['communities'] = [];
   const ids = new Set<string>();
@@ -122,11 +131,46 @@ function coerceOverlay(raw: unknown): LearnLabelOverlay | null {
     communities.push({ id, label, summary: asString(row.summary), entry, files });
   }
   if (communities.length === 0) return null;
+  if (!Array.isArray(src.businessRoutes)) return null;
+  const businessRoutes: LearnBusinessRoute[] = [];
+  const routeIds = new Set<string>();
+  for (const item of src.businessRoutes) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const id = asString(row.id);
+    const label = asString(row.label);
+    if (!id || !label || routeIds.has(id) || !Array.isArray(row.steps)) continue;
+    const steps: LearnBusinessRoute['steps'] = [];
+    for (const value of row.steps) {
+      if (!value || typeof value !== 'object') continue;
+      const step = value as Record<string, unknown>;
+      const file = asString(step.file).replace(/\\/g, '/');
+      const stepLabel = asString(step.label);
+      const description = asString(step.description);
+      if (!file || !stepLabel || !description) continue;
+      steps.push({
+        label: stepLabel,
+        description,
+        file,
+        symbol: asString(step.symbol) || undefined,
+        communityId: asString(step.communityId) || undefined,
+      });
+    }
+    if (steps.length < 2) continue;
+    routeIds.add(id);
+    businessRoutes.push({
+      id,
+      label,
+      summary: asString(row.summary),
+      steps,
+    });
+  }
+  if (businessRoutes.length === 0) return null;
   const idSet = new Set(communities.map((c) => c.id));
   const runtimePath = Array.isArray(src.runtimePath)
     ? src.runtimePath.map((x) => asString(x)).filter((id) => idSet.has(id))
     : communities.map((c) => c.id);
-  return { communities, runtimePath };
+  return { communities, businessRoutes, runtimePath };
 }
 
 export function parseLearnOverlay(text: string): LearnLabelOverlay | null {
@@ -135,7 +179,7 @@ export function parseLearnOverlay(text: string): LearnLabelOverlay | null {
   return coerceOverlay(parseJsonLoose(candidate));
 }
 
-export function overlayCommunityLabels(base: LearnGraph, text: string): LearnGraph {
+export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
   const overlay = parseLearnOverlay(text);
   if (!overlay) return base;
   const byId = new Map(overlay.communities.map((c) => [c.id, c]));
@@ -157,9 +201,30 @@ export function overlayCommunityLabels(base: LearnGraph, text: string): LearnGra
   });
   const idSet = new Set(communities.map((c) => c.id));
   const runtimePath = overlay.runtimePath.filter((id) => idSet.has(id));
+  const businessRoutes = overlay.businessRoutes.map((route) => ({
+    ...route,
+    steps: route.steps.map((step) => {
+      const file = step.file.replace(/\\/g, '/');
+      const candidates = base.nodes.filter((node) => node.file?.replace(/\\/g, '/') === file);
+      const node = step.symbol
+        ? candidates.find((candidate) => candidate.label.toLowerCase() === step.symbol!.toLowerCase())
+        : candidates.find((candidate) => candidate.kind === 'file');
+      const declaredCommunity = step.communityId && idSet.has(step.communityId)
+        ? step.communityId
+        : undefined;
+      const fileCommunity = communities.find((community) => community.files.includes(file));
+      return {
+        ...step,
+        file,
+        nodeId: node?.id,
+        communityId: node?.communityId || declaredCommunity || fileCommunity?.id,
+      };
+    }),
+  }));
   return {
     ...base,
     communities,
+    businessRoutes,
     runtimePath: runtimePath.length ? runtimePath : base.runtimePath,
   };
 }
@@ -169,8 +234,8 @@ export function looksLikeJsonBlob(text: string): boolean {
   if (!t) return false;
   if (t.startsWith('{') || t.startsWith('[') || t.startsWith('```')) return true;
   const afterProse = t.replace(/^[\s\S]*?(?=[{\[])/, '');
-  if (afterProse !== t && /"(communities|runtimePath)"\s*:/.test(afterProse)) return true;
-  if (/"(communities|runtimePath)"\s*:/.test(t) && t.includes('{')) return true;
+  if (afterProse !== t && /"(communities|businessRoutes|runtimePath)"\s*:/.test(afterProse)) return true;
+  if (/"(communities|businessRoutes|runtimePath)"\s*:/.test(t) && t.includes('{')) return true;
   const brace = (t.match(/[{}]/g) || []).length;
   return brace >= 4 && /"(id|label|entry|files)"\s*:/.test(t);
 }
@@ -181,7 +246,7 @@ function cutIncompleteGraphJson(text: string): string {
   if (fenceOpen !== -1 && !/```(?:learn-graph|json)\s*[\s\S]*?```/i.test(s.slice(fenceOpen))) {
     s = s.slice(0, fenceOpen);
   }
-  const idx = s.search(/"(?:communities|runtimePath)"\s*:/);
+  const idx = s.search(/"(?:communities|businessRoutes|runtimePath)"\s*:/);
   if (idx === -1) return s;
   let start = -1;
   let depth = 0;
@@ -201,7 +266,7 @@ export function visibleLearnProse(text: string): string {
   for (const re of FENCES) s = s.replace(re, '');
   s = cutIncompleteGraphJson(s);
   s = s.replace(/```[\s\S]*?```/g, (block) =>
-    /communities|runtimePath/.test(block) ? '' : block
+    /communities|businessRoutes|runtimePath/.test(block) ? '' : block
   );
   s = s.trim();
   if (!s || looksLikeJsonBlob(s)) return '';
@@ -215,18 +280,14 @@ export function briefingFromGraph(graph: LearnGraph): string {
       .map((id) => graph.communities.find((c) => c.id === id)?.label)
       .filter(Boolean)
       .join(' → ') || labels;
-  const gods = graph.godNodes
-    .slice(0, 6)
-    .map((g) => `- **${g.label}**（${g.kind}，度 ${g.degree}${g.file ? `，\`${g.file}\`` : ''}）`)
-    .join('\n');
-  const bridges = graph.bridges
-    .slice(0, 8)
-    .map((b) => {
-      const from = graph.communities.find((c) => c.id === b.sourceCommunity)?.label || b.sourceCommunity;
-      const to = graph.communities.find((c) => c.id === b.targetCommunity)?.label || b.targetCommunity;
-      return `- **${b.sourceLabel}** --${b.relation}--> **${b.targetLabel}**（${from} → ${to}）`;
+  const routes = graph.businessRoutes
+    .map((route) => {
+      const steps = route.steps
+        .map((step, index) => `${index + 1}. **${step.label}**（\`${step.file}${step.symbol ? ` :: ${step.symbol}` : ''}\`）${step.description ? `：${step.description}` : ''}`)
+        .join('\n');
+      return `#### ${route.label}\n${route.summary ? `${route.summary}\n\n` : ''}${steps}`;
     })
-    .join('\n');
+    .join('\n\n');
   const order = graph.communities
     .map((c, i) => {
       const entry = c.entry
@@ -239,11 +300,10 @@ export function briefingFromGraph(graph: LearnGraph): string {
     })
     .join('\n');
   const parts = [
-    `### 这是什么\n这座仓库按结构分成 ${graph.communities.length} 个社区：${labels}。图上 ${graph.nodes.length} 个节点、${graph.edges.length} 条边。`,
-    `### 怎么跑\n运行时主路径：${path}。点图上的节点看类型和文件。`,
+    `### 这是什么\nAI 从源码中识别出 ${graph.businessRoutes.length} 条主要业务路线，涉及这些职责社区：${labels}。`,
+    `### 社区主路径\n${path}`,
   ];
-  if (gods) parts.push(`### 枢纽节点\n${gods}`);
-  if (bridges) parts.push(`### 跨社区桥\n${bridges}`);
+  if (routes) parts.push(`### 主要业务路线\n${routes}`);
   parts.push(`### 建议阅读顺序\n${order}`);
   return parts.join('\n\n');
 }
@@ -254,7 +314,7 @@ export function humanizeLearnReport(
 ): { graph: LearnGraph | null; prose: string } {
   const prose = visibleLearnProse(text);
   if (base && base.nodes.length + base.communities.length > 0) {
-    const graph = overlayCommunityLabels(base, text);
+    const graph = applyLearnAnalysis(base, text);
     return { graph, prose: prose || briefingFromGraph(graph) };
   }
   const overlay = parseLearnOverlay(text);
@@ -272,6 +332,7 @@ export function humanizeLearnReport(
       cohesion: 0,
       nodeCount: c.files.length,
     })),
+    businessRoutes: overlay.businessRoutes,
     runtimePath: overlay.runtimePath,
     godNodes: [],
     bridges: [],

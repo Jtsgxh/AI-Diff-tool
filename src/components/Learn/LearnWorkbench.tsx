@@ -34,6 +34,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   const session = useLearnSession(repoPath, aiConfig, headHash);
   const [draft, setDraft] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const plainError = session.error?.replace(/^#+\s*/, '').replace(/\*\*/g, '');
 
   React.useEffect(() => {
     if (!askAboutFile) return;
@@ -55,7 +56,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
     [draft, session]
   );
 
-  const pathCommunities = session.graph
+  const pathCommunities = session.graph?.businessRoutes.length
     ? session.graph.runtimePath
         .map((id) => session.graph!.communities.find((c) => c.id === id))
         .filter((c): c is LearnCommunity => Boolean(c))
@@ -96,12 +97,12 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             学习 {repoName || '此仓库'}
           </span>
           {session.graphLoading && (
-            <span className="text-[11px] font-mono text-sky-400">解析图谱…</span>
+            <span className="text-[11px] font-mono text-sky-400">准备候选结构…</span>
           )}
           {session.isStreaming && (
             <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
               <Activity className="w-3.5 h-3.5 animate-spin" />
-              {session.elapsedSeconds}s
+              AI 分析业务路线 {session.elapsedSeconds}s
             </span>
           )}
         </div>
@@ -112,12 +113,12 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${session.isStreaming ? 'animate-spin' : ''}`} />
-          重新开仓
+          重新分析
         </button>
       </div>
 
       <div className="h-[46%] min-h-[260px] shrink-0 border-b border-white/10 relative">
-        {session.graph && session.graph.nodes.length > 0 ? (
+        {session.graph?.businessRoutes.length ? (
           <LearnGraphCanvas
             graph={session.graph}
             selectedNodeId={selectedNodeId}
@@ -127,8 +128,22 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           />
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs gap-2">
-            <Network className="w-6 h-6 text-slate-600" />
-            {session.graphError || '正在从源码抽出节点和边…'}
+            {session.isStreaming ? (
+              <Activity className="w-6 h-6 text-emerald-500 animate-spin" />
+            ) : (
+              <Network className="w-6 h-6 text-slate-600" />
+            )}
+            <span className="max-w-lg text-center leading-relaxed">
+              {session.graphLoading
+                ? '正在从源码构建 AI 分析所需的候选结构…'
+                : session.isStreaming
+                  ? session.status?.message || 'AI 正在核实入口、调用链和主要业务闭环…'
+                  : plainError ||
+                    session.graphError ||
+                    (session.settled
+                      ? 'AI 没有返回可用的主要业务路线，请点击右上角重新分析。'
+                      : '等待 AI 分析主要业务路线…')}
+            </span>
           </div>
         )}
       </div>
@@ -222,59 +237,23 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           </div>
         )}
 
-        {session.graph && session.graph.godNodes.length > 0 && (
-          <div>
-            <div className="text-[11px] font-semibold text-slate-400 mb-1.5">枢纽 God nodes</div>
-            <div className="flex flex-wrap gap-1.5">
-              {session.graph.godNodes.map((g) => (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedNodeId(g.id);
-                    const n = session.graph?.nodes.find((x) => x.id === g.id);
-                    if (n) session.setSelectedCommunityId(n.communityId);
-                  }}
-                  className="text-[11px] px-2 py-1 rounded-lg bg-[#171822] border border-white/10 text-slate-200 hover:border-amber-400/50"
-                >
-                  {g.label}
-                  <span className="text-slate-500 ml-1">度{g.degree}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {session.graph && session.graph.bridges.length > 0 && !session.briefing && (
-          <div>
-            <div className="text-[11px] font-semibold text-slate-400 mb-1.5">跨社区桥</div>
-            <ul className="text-[11px] text-slate-400 space-y-0.5">
-              {session.graph.bridges.slice(0, 8).map((b, i) => (
-                <li key={`${b.source}-${b.target}-${i}`}>
-                  {b.sourceLabel} <span className="text-slate-600">--{b.relation}--</span> {b.targetLabel}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         {session.status?.message && session.isStreaming && (
           <p className="text-[11px] font-mono text-purple-300 truncate">{session.status.message}</p>
         )}
 
-        {session.error && (
+        {session.error && session.graph?.businessRoutes.length ? (
           <div className="flex items-start gap-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{session.error}</span>
+            <span>{plainError}</span>
           </div>
-        )}
+        ) : null}
 
         {session.settled &&
           !session.isStreaming &&
           !session.briefing &&
           !session.error &&
-          !session.graph?.nodes.length && (
-            <p className="text-xs text-slate-500">没能抽出图谱。点右上角「重新开仓」再试一次。</p>
+          !session.graph?.businessRoutes.length && (
+            <p className="text-xs text-slate-500">没能整理出业务路线。点右上角「重新分析」再试一次。</p>
           )}
 
         {session.briefing && !looksLikeJsonBlob(session.briefing) && (
