@@ -122,7 +122,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       routeSetRef.current = routeSet;
       const nextRouteId = graph.businessRoutes.some((route) => route.id === activeRouteId)
         ? activeRouteId
-        : graph.businessRoutes[0]?.id || '';
+        : '';
       if (nextRouteId !== activeRouteId) setActiveRouteId(nextRouteId);
       return;
     }
@@ -147,6 +147,38 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   const activeRouteNodeIds = useMemo(
     () => new Set(activeRoute?.steps.map((step) => step.nodeId).filter(Boolean) as string[]),
     [activeRoute]
+  );
+
+  const activeRouteStepNumbers = useMemo(() => {
+    const numbers = new Map<string, number[]>();
+    activeRoute?.steps.forEach((step, index) => {
+      if (!step.nodeId) return;
+      const nodeSteps = numbers.get(step.nodeId);
+      if (nodeSteps) nodeSteps.push(index + 1);
+      else numbers.set(step.nodeId, [index + 1]);
+    });
+    return numbers;
+  }, [activeRoute]);
+
+  const activeRouteCommunityIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const step of activeRoute?.steps || []) {
+      if (step.communityId) ids.add(step.communityId);
+    }
+    for (const node of graph.nodes) {
+      if (activeRouteNodeIds.has(node.id)) ids.add(node.communityId);
+    }
+    return ids;
+  }, [activeRoute, activeRouteNodeIds, graph.nodes]);
+
+  const routeMappedStepCounts = useMemo(
+    () => new Map(
+      graph.businessRoutes.map((route) => [
+        route.id,
+        route.steps.filter((step) => Boolean(step.nodeId)).length,
+      ])
+    ),
+    [graph.businessRoutes]
   );
 
   const businessCoreNodeIds = useMemo(
@@ -444,6 +476,22 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   }, [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+      const targetNodes = simRef.current.filter(
+        (node) =>
+          !hidden.has(node.communityId) &&
+          (!activeRoute || activeRouteNodeIds.has(node.id))
+      );
+      const camera = fitCameraToNodes(targetNodes, wrap.clientWidth, wrap.clientHeight);
+      if (camera) camRef.current = camera;
+      cameraTouchedRef.current = Boolean(activeRoute);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeRoute, activeRouteNodeIds, hidden, layoutKey]);
+
+  useEffect(() => {
     const nbs = new Set<string>();
     if (selectedNodeId) {
       nbs.add(selectedNodeId);
@@ -602,7 +650,10 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         const topLeft = toScreen(box.x - box.width / 2, box.y - box.height / 2);
         const width = box.width * cam.k;
         const height = box.height * cam.k;
-        const dimmed = Boolean(selectedCommunityId && selectedCommunityId !== box.id);
+        const dimmed = Boolean(
+          (selectedCommunityId && selectedCommunityId !== box.id) ||
+          (activeRoute && !activeRouteCommunityIds.has(box.id))
+        );
         const color = communityColor(box.id);
         ctx.globalAlpha = dimmed ? 0.015 : 0.055;
         ctx.fillStyle = color;
@@ -634,7 +685,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         const hot =
           selected && (e.source === selected || e.target === selected);
         ctx.strokeStyle = hot ? 'rgba(251,191,36,0.7)' : EDGE_COLOR[e.relation] || EDGE_COLOR.references;
-        ctx.globalAlpha = selected && !hot ? 0.18 : 1;
+        ctx.globalAlpha = activeRoute ? (hot ? 0.34 : 0.07) : selected && !hot ? 0.18 : 1;
         ctx.beginPath();
         ctx.moveTo(pa.x, pa.y);
         ctx.lineTo(pb.x, pb.y);
@@ -642,23 +693,51 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.globalAlpha = 1;
       }
 
-      for (const route of graph.businessRoutes) {
-        const isActive = route.id === activeRouteId;
-        ctx.strokeStyle = isActive ? 'rgba(52,211,153,0.88)' : 'rgba(251,191,36,0.34)';
-        ctx.lineWidth = isActive ? 3 : 1.5;
-        for (let index = 1; index < route.steps.length; index++) {
-          const previousId = route.steps[index - 1].nodeId;
-          const currentId = route.steps[index].nodeId;
-          if (!previousId || !currentId) continue;
+      if (activeRoute) {
+        ctx.strokeStyle = 'rgba(52,211,153,0.92)';
+        ctx.fillStyle = 'rgba(52,211,153,0.92)';
+        ctx.lineWidth = 3;
+        for (let index = 1; index < activeRoute.steps.length; index++) {
+          const previousId = activeRoute.steps[index - 1].nodeId;
+          const currentId = activeRoute.steps[index].nodeId;
+          if (!previousId || !currentId || previousId === currentId) continue;
           const previous = byId.get(previousId);
           const current = byId.get(currentId);
           if (!previous || !current) continue;
+          if (hiddenComms.has(previous.communityId) || hiddenComms.has(current.communityId)) continue;
           const from = toScreen(previous.x, previous.y);
           const to = toScreen(current.x, current.y);
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance < 1) continue;
+          const ux = dx / distance;
+          const uy = dy / distance;
+          const fromRadius = previous.r * Math.sqrt(cam.k) + 3;
+          const toRadius = current.r * Math.sqrt(cam.k) + 5;
+          const startX = from.x + ux * fromRadius;
+          const startY = from.y + uy * fromRadius;
+          const endX = to.x - ux * toRadius;
+          const endY = to.y - uy * toRadius;
           ctx.beginPath();
-          ctx.moveTo(from.x, from.y);
-          ctx.lineTo(to.x, to.y);
+          ctx.moveTo(startX, startY);
+          ctx.lineTo(endX, endY);
           ctx.stroke();
+
+          const angle = Math.atan2(dy, dx);
+          const arrowSize = 7;
+          ctx.beginPath();
+          ctx.moveTo(endX, endY);
+          ctx.lineTo(
+            endX - arrowSize * Math.cos(angle - Math.PI / 6),
+            endY - arrowSize * Math.sin(angle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            endX - arrowSize * Math.cos(angle + Math.PI / 6),
+            endY - arrowSize * Math.sin(angle + Math.PI / 6)
+          );
+          ctx.closePath();
+          ctx.fill();
         }
       }
 
@@ -673,9 +752,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         const isBusinessCore = businessCoreNodeIds.has(n.id);
         const isActiveRoute = activeRouteNodeIds.has(n.id);
         const commSel = selectedCommunityId && n.communityId === selectedCommunityId;
-        const dim = Boolean((selected && !isNb) || (selectedCommunityId && !commSel));
+        const dim = Boolean(
+          (selected && !isNb) ||
+          (selectedCommunityId && !commSel) ||
+          (activeRoute && !isActiveRoute)
+        );
         const hitSearch = searchHit?.has(n.id);
-        ctx.globalAlpha = dim && !hitSearch ? 0.22 : 1;
+        ctx.globalAlpha = dim && !hitSearch ? (activeRoute ? 0.09 : 0.22) : 1;
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ctx.fillStyle = communityColor(n.communityId);
@@ -685,18 +768,38 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
-        if (isSel || isHover || hitSearch || isBusinessCore) {
+        if (isSel || isHover || hitSearch || isActiveRoute || (!activeRoute && isBusinessCore)) {
           ctx.strokeStyle = isActiveRoute && !isSel && !isHover && !hitSearch ? '#34d399' : '#fbbf24';
           ctx.lineWidth = 2;
           ctx.stroke();
         }
         const label =
-          isSel || isHover || hitSearch || isBusinessCore || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
+          isSel || isHover || hitSearch || isActiveRoute ||
+          (!activeRoute && isBusinessCore) || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
         if (label) {
           ctx.font = `${isSel || isHover ? 12 : 10}px ui-sans-serif, system-ui`;
           ctx.fillStyle = '#e2e8f0';
-          ctx.globalAlpha = dim && !hitSearch ? 0.35 : 1;
+          ctx.globalAlpha = dim && !hitSearch ? (activeRoute ? 0.08 : 0.35) : 1;
           ctx.fillText(n.label, p.x + r + 4, p.y + 3);
+        }
+        const stepNumbers = activeRouteStepNumbers.get(n.id);
+        if (stepNumbers) {
+          const stepText = stepNumbers.join('·');
+          const badgeRadius = Math.max(7, 4 + stepText.length * 2.5);
+          const badgeX = p.x - r - 5;
+          const badgeY = p.y - r - 5;
+          ctx.globalAlpha = 1;
+          ctx.beginPath();
+          ctx.arc(badgeX, badgeY, badgeRadius, 0, Math.PI * 2);
+          ctx.fillStyle = '#34d399';
+          ctx.fill();
+          ctx.font = '700 9px ui-sans-serif, system-ui';
+          ctx.fillStyle = '#052e2b';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(stepText, badgeX, badgeY + 0.5);
+          ctx.textAlign = 'start';
+          ctx.textBaseline = 'alphabetic';
         }
         ctx.globalAlpha = 1;
       }
@@ -707,7 +810,10 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     rafRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafRef.current);
   }, [
+    activeRoute,
     activeRouteId,
+    activeRouteCommunityIds,
+    activeRouteStepNumbers,
     graph.businessRoutes,
     graph.communities,
     hidden,
@@ -864,15 +970,30 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         </div>
         {graph.businessRoutes.length > 0 && (
           <select
-            aria-label="AI 业务路线高亮"
+            aria-label="聚焦业务路线"
             value={activeRouteId}
-            onChange={(event) => setActiveRouteId(event.target.value)}
-            className="pointer-events-auto max-w-52 rounded-md border border-white/10 bg-black/50 px-2 py-1 text-[10px] text-slate-300"
+            onChange={(event) => {
+              setActiveRouteId(event.target.value);
+              onSelectNode(null);
+              onSelectCommunity(null);
+            }}
+            title={activeRoute?.summary || '选择一条 AI 核实的业务路线并聚焦其类级节点'}
+            className={`pointer-events-auto max-w-52 rounded-md border bg-black/50 px-2 py-1 text-[10px] ${
+              activeRoute
+                ? 'border-emerald-400/50 text-emerald-200'
+                : 'border-white/10 text-slate-300'
+            }`}
           >
-            <option value="">不高亮 AI 路线</option>
-            {graph.businessRoutes.map((route) => (
-              <option key={route.id} value={route.id}>{route.label}</option>
-            ))}
+            <option value="">社区总览（不聚焦路线）</option>
+            {graph.businessRoutes.map((route) => {
+              const mappedSteps = routeMappedStepCounts.get(route.id) || 0;
+              return (
+                <option key={route.id} value={route.id} disabled={mappedSteps === 0}>
+                  {route.label} · {mappedSteps}/{route.steps.length} 步
+                  {mappedSteps === 0 ? '（无法映射）' : ''}
+                </option>
+              );
+            })}
           </select>
         )}
         {graph.communities.map((c) => {
@@ -917,7 +1038,9 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           ? `简化（${businessCoreNodeIds.size ? 'AI 业务核心' : '候选调用骨架'}）· ${visibleNodes.length}/${graph.nodes.length} 类级节点 · ${visibleEdges.length}/${graph.edges.length} 边`
           : `丰富 · ${graph.nodes.length} 类级节点 · ${graph.edges.length} 边`}
         {graph.stats.truncated ? ' · 已裁大图' : ''}
-        {activeRoute ? ` · 路线 ${activeRoute.label}` : ''}
+        {activeRoute
+          ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步已映射`
+          : ' · 社区总览'}
         <span className="ml-2 text-slate-600">滚轮缩放 · 中键拖动画布 · 左键选择节点</span>
       </div>
       {hovered && (
