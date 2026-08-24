@@ -200,8 +200,10 @@ export class CodexAgentEngine {
     });
 
     const isFollowUp = Boolean(options.userPrompt && options.userPrompt.trim());
+    const learnTask = isLearnTask(options);
+    const needsLearnGraph = learnTask && !isFollowUp;
     let promptCtx: PromptContext = options;
-    if (isLearnTask(options)) {
+    if (learnTask) {
       try {
         stream.send({
           type: 'status',
@@ -232,8 +234,22 @@ export class CodexAgentEngine {
     let actionCount = 0;
     let hitMaxTurns = false;
     let outputTruncated = false;
+    let learnOutputStarted = false;
 
     const requiresReasoningRoundTrip = requiresDeepSeekReasoningRoundTrip(provider);
+    const emitAssistantContent = (content: string) => {
+      accumulatedContent += content;
+      lastTurnContent += content;
+
+      if (!needsLearnGraph || learnOutputStarted) {
+        stream.send({ type: 'chunk', text: content });
+        return;
+      }
+      if (hasValidLearnGraphOutput(lastTurnContent)) {
+        learnOutputStarted = true;
+        stream.send({ type: 'chunk', text: lastTurnContent });
+      }
+    };
 
     try {
       // The Agents SDK drops DeepSeek's `reasoning_content` from replay history.
@@ -302,7 +318,7 @@ export class CodexAgentEngine {
         name: 'AutonomousCodexReviewer',
         instructions: systemPrompt,
         model,
-        tools: isLearnTask(options)
+        tools: learnTask
           ? [repoOverviewTool, repoGraphTool, readFileTool, searchCodeTool, findFilesTool]
           : [repoOverviewTool, readFileTool, searchCodeTool, findFilesTool],
       });
@@ -337,6 +353,7 @@ export class CodexAgentEngine {
               actionCount++;
               // A tool call starts a new turn: preamble before tools is not the report.
               lastTurnContent = '';
+              learnOutputStarted = false;
               const toolCallId = item.callId || `call_${Date.now()}_${actionCount}`;
               const toolName =
                 item.toolName || item.name || item.rawItem?.function?.name || 'read_file';
@@ -369,9 +386,7 @@ export class CodexAgentEngine {
             } else if (isAssistantMessageEvent(itemEvent, item)) {
               const msgContent = extractMessageContent(item);
               if (msgContent && !accumulatedContent.includes(msgContent)) {
-                accumulatedContent += msgContent;
-                lastTurnContent += msgContent;
-                stream.send({ type: 'chunk', text: msgContent });
+                emitAssistantContent(msgContent);
               }
             }
           } else if (
@@ -400,9 +415,7 @@ export class CodexAgentEngine {
               currentReasoningTurn = '';
             }
             if (delta?.content) {
-              accumulatedContent += delta.content;
-              lastTurnContent += delta.content;
-              stream.send({ type: 'chunk', text: delta.content });
+              emitAssistantContent(delta.content);
             }
           }
         }
@@ -429,10 +442,11 @@ export class CodexAgentEngine {
           accumulatedContent,
           hitMaxTurns,
           outputTruncated,
-          isLearnTask(options)
+          needsLearnGraph
         ) &&
         !stream.isClosed
       ) {
+        const requiresLearnGraph = needsLearnGraph && !hasValidLearnGraphOutput(lastTurnContent);
         await this.streamSynthesis({
           stream,
           openaiClient,
@@ -442,8 +456,9 @@ export class CodexAgentEngine {
           explorationLog,
           userPrompt: options.userPrompt,
           isFollowUp,
-          isLearn: isLearnTask(options),
-          hasPartialContent: accumulatedContent.length > 0,
+          isLearn: learnTask,
+          requiresLearnGraph,
+          hasPartialContent: accumulatedContent.length > 0 && !requiresLearnGraph,
           contextChars,
           truncatedDraft: outputTruncated ? lastTurnContent || accumulatedContent : undefined,
           preserveReasoningOnAssistant: requiresReasoningRoundTrip,
@@ -456,7 +471,7 @@ export class CodexAgentEngine {
       stream.send({
         type: 'status',
         phase: 'completed',
-        message: isLearnTask(options) ? '仓库主要业务路线分析已完成' : 'Codex 智能体审查已完成',
+        message: learnTask ? '仓库主要业务路线分析已完成' : 'Codex 智能体审查已完成',
       });
       stream.send({ type: 'done' });
       stream.close();
@@ -486,6 +501,7 @@ export class CodexAgentEngine {
     userPrompt?: string;
     isFollowUp: boolean;
     isLearn: boolean;
+    requiresLearnGraph: boolean;
     hasPartialContent: boolean;
     contextChars: number;
     truncatedDraft?: string;
@@ -512,8 +528,11 @@ export class CodexAgentEngine {
       truncatedDraft: params.truncatedDraft,
       learnTask: params.isLearn,
     });
+    const synthesisSystemPrompt = `${params.systemPrompt}
+
+【当前为无工具的最终综合阶段】代码探查已经结束，本阶段没有任何可调用工具。只能基于用户消息和下方已经取得的探查证据生成最终回答；禁止请求继续探查，禁止用 XML、普通 JSON、<@read_file> 或其他标签模拟工具调用。证据不足时明确写入“待核实”，初次仓库分析仍须输出合法的 learn-graph，不能用工具调用文本代替最终报告。`;
     const inputBudget = Math.round(contextChars * SYNTHESIS_INPUT_FRACTION);
-    const userBudget = inputBudget - params.systemPrompt.length;
+    const userBudget = inputBudget - synthesisSystemPrompt.length;
     if (userBudget <= 0) {
       throw new Error('系统提示词已超过配置的模型上下文窗口');
     }
@@ -524,7 +543,7 @@ export class CodexAgentEngine {
     );
 
     const messages: any[] = [
-      { role: 'system', content: params.systemPrompt },
+      { role: 'system', content: synthesisSystemPrompt },
       {
         role: 'user',
         content: initialUserContent,
@@ -535,6 +554,9 @@ export class CodexAgentEngine {
       },
     ];
     const continuationBaseLength = messages.length;
+    let synthesisOutput = '';
+    let learnOutputStarted = false;
+    let bufferedLearnOutput = '';
 
     while (!stream.isClosed) {
       let passText = '';
@@ -565,7 +587,17 @@ export class CodexAgentEngine {
         }
         if (delta?.content) {
           passText += delta.content;
-          stream.send({ type: 'chunk', text: delta.content });
+          synthesisOutput += delta.content;
+          if (!params.requiresLearnGraph || learnOutputStarted) {
+            stream.send({ type: 'chunk', text: delta.content });
+          } else {
+            bufferedLearnOutput += delta.content;
+            if (hasValidLearnGraphOutput(bufferedLearnOutput)) {
+              learnOutputStarted = true;
+              stream.send({ type: 'chunk', text: bufferedLearnOutput });
+              bufferedLearnOutput = '';
+            }
+          }
         }
       }
 
@@ -608,6 +640,11 @@ export class CodexAgentEngine {
       if (!passText.trim()) {
         throw new Error('综合生成已结束，但没有输出报告正文');
       }
+      if (params.requiresLearnGraph && !hasValidLearnGraphOutput(synthesisOutput)) {
+        throw new Error(
+          '业务路线综合生成已结束，但模型没有返回合法的 learn-graph 机器数据；已拒绝把工具调用文本当作分析结果'
+        );
+      }
       return;
     }
   }
@@ -618,12 +655,25 @@ function shouldRunSynthesis(
   accumulated: string,
   hitMaxTurns: boolean,
   outputTruncated: boolean,
-  learnTask: boolean
+  needsLearnGraph: boolean
 ): boolean {
   if (hitMaxTurns || outputTruncated) return true;
   const output = (lastTurn || accumulated).trim();
   if (!output) return true;
-  return learnTask && !/"businessRoutes"\s*:/.test(output);
+  return needsLearnGraph && !hasValidLearnGraphOutput(output);
+}
+
+export function hasValidLearnGraphOutput(text: string): boolean {
+  const matches = text.matchAll(/```learn-graph\s*([\s\S]*?)```/gi);
+  for (const match of matches) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      if (Array.isArray(parsed?.communities) && Array.isArray(parsed?.businessRoutes)) return true;
+    } catch {
+      // Keep scanning in case a later fence contains the corrected payload.
+    }
+  }
+  return false;
 }
 
 function isClientGone(_err: unknown, stream: SseStream): boolean {

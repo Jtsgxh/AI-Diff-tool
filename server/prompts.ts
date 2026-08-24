@@ -251,6 +251,7 @@ export function buildLearnSystemPrompt(ctx: PromptContext): string {
   if (isFollowUp) {
     return `你是代码库导师。结构图谱已经由本地解析得到（节点=类/React组件/职责模块，普通函数归入所属节点；边=调用/引用/导入/继承）。结合社区与枢纽节点回答。
 优先调用 search_code / read_file / repo_graph 核实后再回答。
+需要查代码时只能使用 API 提供的原生函数调用；禁止在正文中用 XML、JSON、<@read_file> 或其他标签模拟工具调用。
 回答必须是给人读的中文，落到真实文件路径与符号名，讲清数据怎么流、谁调用谁。禁止输出 JSON。
 
 【用户配置的业务讲解要求】
@@ -264,6 +265,8 @@ ${learnPrompt}
 【结构事实】用户消息里有一份本地解析的结构图谱（EXTRACTED）。它只作为候选文件、类型、社区和静态依赖证据，不等于运行时业务路线。禁止仅凭目录名或度数推断业务流程。
 
 【必须探查】先用 repo_overview / repo_graph 找入口候选，再用 read_file 和 search_code 沿真实调用方、被调用方、状态或数据对象追踪。每条业务路线都必须读到入口、核心处理和结果落点；没读到的符号不得写进路线。
+
+【工具调用协议】探查只能通过 API 提供的原生函数调用完成。需要继续读代码时直接调用工具，禁止在 assistant 正文中输出或模拟“<@read_file>...</@read_file>”、XML、JSON 或任何其他工具调用标签；正文只用于最终的 learn-graph 和业务讲解。
 
 【分析目标】
 - 识别仓库实际存在的主要业务路线，例如一次请求、一次任务、一次结算或一个用户动作如何走完。
