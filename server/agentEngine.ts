@@ -34,21 +34,59 @@ import type { AgentExplainRequest, PartialAIProviderConfig } from '../shared/typ
 export type AgentExecutionConfig = PartialAIProviderConfig;
 export type AgentExplainOptions = AgentExplainRequest;
 
-/** How much of each tool result is mirrored to the UI trail. */
-const TOOL_OUTPUT_UI_LIMIT = 450;
+const RETRY_DEFAULT = 2;
+const TOOL_CONTEXT_FRACTION = 0.9;
+const SYNTHESIS_INPUT_FRACTION = 0.8;
 
-/** Wall-clock cap for one streamed model call (thinking + tokens + tools). */
-const MODEL_CALL_TIMEOUT_MS = 15 * 60 * 1000;
-
-const RETRY_BOUNDS = { min: 0, max: 5, default: 2 };
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+function nonNegativeInt(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.trunc(value))
+    : fallback;
 }
 
 function clipChars(text: string, limit: number): string {
   if (text.length <= limit) return text;
-  return `${text.slice(0, limit)}\n\n…(已截断，原文 ${text.length} 字符)`;
+  const marker = `\n\n…(已按模型上下文裁剪，原文 ${text.length} 字符)`;
+  if (limit <= marker.length) return text.slice(0, Math.max(0, limit));
+  return `${text.slice(0, limit - marker.length)}${marker}`;
+}
+
+function clipCharsBalanced(text: string, limit: number): string {
+  if (limit <= 0) return '';
+  if (text.length <= limit) return text;
+  const marker = `\n\n…(中间内容已按模型上下文裁剪，原文 ${text.length} 字符)…\n\n`;
+  if (limit <= marker.length) return text.slice(-Math.max(0, limit));
+  const remaining = limit - marker.length;
+  const head = Math.ceil(remaining / 2);
+  return `${text.slice(0, head)}${marker}${text.slice(-(remaining - head))}`;
+}
+
+function clipCharsTail(text: string, limit: number): string {
+  if (limit <= 0) return '';
+  if (text.length <= limit) return text;
+  const marker = `…(仅保留中断位置前的 ${limit.toLocaleString()} 字符)…\n`;
+  if (limit <= marker.length) return text.slice(-Math.max(0, limit));
+  return `${marker}${text.slice(-(limit - marker.length))}`;
+}
+
+function fitPairToBudget(first: string, second: string, budget: number): [string, string] {
+  if (budget <= 0) return ['', ''];
+  if (first.length + second.length <= budget) return [first, second];
+
+  const total = Math.max(1, first.length + second.length);
+  let firstBudget = Math.floor((budget * first.length) / total);
+  let secondBudget = budget - firstBudget;
+
+  if (first.length < firstBudget) {
+    secondBudget += firstBudget - first.length;
+    firstBudget = first.length;
+  }
+  if (second.length < secondBudget) {
+    firstBudget += secondBudget - second.length;
+    secondBudget = second.length;
+  }
+
+  return [clipCharsBalanced(first, firstBudget), clipCharsBalanced(second, secondBudget)];
 }
 
 /**
@@ -62,15 +100,14 @@ export class CodexAgentEngine {
     const provider = resolveProvider(config);
 
     if (!provider.apiKey && provider.requiresApiKey) {
-      stream.send({ type: 'chunk', text: MISSING_API_KEY_MESSAGE });
-      stream.send({ type: 'done' });
+      stream.send({ type: 'error', message: MISSING_API_KEY_MESSAGE });
       stream.close();
       return;
     }
 
     const contextTokens = inferContextWindowTokens(config ?? {});
     const contextChars = totalContextChars(contextTokens);
-    const reserveChars = Math.round(contextChars * 0.18);
+    const reserveChars = Math.round(contextChars * (1 - TOOL_CONTEXT_FRACTION));
     let usedChars = 0;
 
     stream.send({
@@ -92,8 +129,10 @@ export class CodexAgentEngine {
       <A extends Record<string, unknown>>(name: string) =>
       async (args: A): Promise<string> => {
         const result = await toolsInstance.executeTool(name, args);
-        const room = Math.max(2_000, contextChars - reserveChars - usedChars);
-        const clipped = clipChars(result, room);
+        const room = Math.max(0, contextChars - reserveChars - usedChars);
+        const clipped = room > 0
+          ? clipChars(result, room)
+          : '模型上下文预算已用完。请停止扩大探查范围，基于已取得的证据输出报告。';
         usedChars += clipped.length;
         explorationLog.push({ name, args, output: clipped });
         return clipped;
@@ -121,6 +160,8 @@ export class CodexAgentEngine {
           .string()
           .optional()
           .describe('限制文件扩展名过滤 (可选，例如: "*.cs" 或 "*.ts")'),
+        offset: z.number().optional().describe('结果翻页偏移量；工具提示有下一页时使用'),
+        max_results: z.number().optional().describe('本次需要的结果数；不填则使用设置页默认值'),
       }),
       execute: withLogging('search_code'),
     });
@@ -131,6 +172,8 @@ export class CodexAgentEngine {
         '根据文件名模式通过 Git 索引快速定位文件路径，用于定位同名测试、接口契约或配置文件。',
       parameters: z.object({
         pattern: z.string().describe('匹配模式 (例如: "*AttributeSet*" 或 "*Test*.cs")'),
+        offset: z.number().optional().describe('结果翻页偏移量；工具提示有下一页时使用'),
+        max_results: z.number().optional().describe('本次需要的结果数；不填则使用设置页默认值'),
       }),
       execute: withLogging('find_files'),
     });
@@ -174,10 +217,9 @@ export class CodexAgentEngine {
     const initialUserMsg = buildAgentUserMessage(promptCtx);
     usedChars = systemPrompt.length + initialUserMsg.length;
 
-    const headerTimeoutMs = clamp(
-      (config?.timeoutSeconds ?? REQUEST_TIMEOUT_SECONDS.default) * 1000,
+    const headerTimeoutMs = Math.max(
       REQUEST_TIMEOUT_SECONDS.min * 1000,
-      REQUEST_TIMEOUT_SECONDS.max * 1000
+      (config?.timeoutSeconds ?? REQUEST_TIMEOUT_SECONDS.default) * 1000
     );
 
     let openaiClient: OpenAI | undefined;
@@ -187,7 +229,6 @@ export class CodexAgentEngine {
     let actionCount = 0;
     let hitMaxTurns = false;
     let outputTruncated = false;
-    let synthesisStarted = false;
 
     // DeepSeek Reasoner requires the reasoning produced by each assistant
     // message when that message is replayed for a continuation request.
@@ -216,17 +257,17 @@ export class CodexAgentEngine {
           }
         }
         // Propagate client disconnects down to the provider connection.
-        return fetch(input, { ...init, signal: init?.signal ?? stream.signal });
+        const signal = init?.signal
+          ? AbortSignal.any([init.signal, stream.signal])
+          : stream.signal;
+        return fetch(input, { ...init, signal });
       };
 
       openaiClient = new OpenAI({
         apiKey: provider.apiKey || 'dummy-key-for-ollama',
         baseURL: provider.baseUrl,
         timeout: headerTimeoutMs,
-        maxRetries:
-          config?.maxRetries !== undefined
-            ? clamp(config.maxRetries, RETRY_BOUNDS.min, RETRY_BOUNDS.max)
-            : RETRY_BOUNDS.default,
+        maxRetries: nonNegativeInt(config?.maxRetries, RETRY_DEFAULT),
         defaultHeaders: provider.isOpenRouter ? openRouterHeaders() : undefined,
         fetch: customFetch,
       });
@@ -240,9 +281,6 @@ export class CodexAgentEngine {
         tools: isLearnTask(options)
           ? [repoOverviewTool, repoGraphTool, readFileTool, searchCodeTool, findFilesTool]
           : [repoOverviewTool, readFileTool, searchCodeTool, findFilesTool],
-        modelSettings: {
-          timeoutMs: MODEL_CALL_TIMEOUT_MS,
-        },
       });
 
       // 0 or unset means full autonomy: no turn ceiling at all.
@@ -302,9 +340,7 @@ export class CodexAgentEngine {
                 id: toolCallId,
                 name: toolName,
                 summary: `${toolName}(...)`,
-                output:
-                  outputStr.slice(0, TOOL_OUTPUT_UI_LIMIT) +
-                  (outputStr.length > TOOL_OUTPUT_UI_LIMIT ? '...' : ''),
+                output: outputStr,
               });
             } else if (isAssistantMessageEvent(itemEvent, item)) {
               const msgContent = extractMessageContent(item);
@@ -363,12 +399,10 @@ export class CodexAgentEngine {
           lastTurnContent,
           accumulatedContent,
           hitMaxTurns,
-          outputTruncated,
-          isFollowUp
+          outputTruncated
         ) &&
         !stream.isClosed
       ) {
-        synthesisStarted = true;
         await this.streamSynthesis({
           stream,
           openaiClient,
@@ -397,53 +431,7 @@ export class CodexAgentEngine {
         return;
       }
 
-      // Recover a usable report from whatever the loop already gathered.
-      if (
-        openaiClient &&
-        explorationLog.length > 0 &&
-        (synthesisStarted || !looksLikeCompleteReport(lastTurnContent || accumulatedContent))
-      ) {
-        try {
-          await this.streamSynthesis({
-            stream,
-            openaiClient,
-            model: provider.model || FALLBACK_MODEL,
-            systemPrompt,
-            initialUserMsg,
-            explorationLog,
-            userPrompt: options.userPrompt,
-            isFollowUp,
-            hasPartialContent: accumulatedContent.length > 0,
-            contextChars,
-            truncatedDraft: lastTurnContent || accumulatedContent || undefined,
-            preserveReasoningOnAssistant: isNativeDeepSeekReasoner,
-            onReasoning: (chunk) => {
-              accumulatedReasoningContent += chunk;
-            },
-          });
-          stream.send({ type: 'status', phase: 'completed', message: 'Codex 智能体审查已完成（中断后已补全）' });
-          stream.send({ type: 'done' });
-          stream.close();
-          return;
-        } catch (synthErr: any) {
-          if (isClientGone(synthErr, stream)) {
-            stream.close();
-            return;
-          }
-        }
-      }
-
-      if (!stream.isClosed) {
-        stream.send({
-          type: 'status',
-          phase: 'completed',
-          message: `执行中断: ${err.message}`,
-        });
-        stream.send({
-          type: 'chunk',
-          text: `\n\n❌ **智能体引擎异常**: ${err.message}\n> 💡 建议：可点击右上角重新生成，或在顶部切换为「⚡ 直接 Diff 解释」快速模式。`,
-        });
-      }
+      if (!stream.isClosed) stream.send({ type: 'error', message: `智能体引擎异常: ${err.message}` });
       stream.close();
     }
   }
@@ -475,7 +463,7 @@ export class CodexAgentEngine {
       phase: 'reporting',
       message: params.truncatedDraft
         ? `终审报告不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
-        : `Codex 探查收敛完成 (共获取 ${explorationLog.length} 处关键上下文)，正在实时流式输出${
+        : `Codex 探查阶段结束（已获取 ${explorationLog.length} 处上下文），正在实时流式输出${
             params.isFollowUp ? '追问解答' : '深度审查报告'
           }...`,
     });
@@ -484,24 +472,32 @@ export class CodexAgentEngine {
       stream.send({ type: 'chunk', text: '\n\n---\n\n' });
     }
 
+    const fullSynthesisPrompt = buildSynthesisPrompt(explorationLog, params.userPrompt, {
+      truncatedDraft: params.truncatedDraft,
+    });
+    const inputBudget = Math.round(contextChars * SYNTHESIS_INPUT_FRACTION);
+    const userBudget = inputBudget - params.systemPrompt.length;
+    if (userBudget <= 0) {
+      throw new Error('系统提示词已超过配置的模型上下文窗口');
+    }
+    const [initialUserContent, synthesisContent] = fitPairToBudget(
+      params.initialUserMsg,
+      fullSynthesisPrompt,
+      userBudget
+    );
+
     const messages: any[] = [
       { role: 'system', content: params.systemPrompt },
       {
         role: 'user',
-        content: clipChars(params.initialUserMsg, Math.round(contextChars * 0.35)),
+        content: initialUserContent,
       },
       {
         role: 'user',
-        content: clipChars(
-          buildSynthesisPrompt(explorationLog, params.userPrompt, {
-            truncatedDraft: params.truncatedDraft
-              ? clipChars(params.truncatedDraft, 6_000)
-              : undefined,
-          }),
-          Math.round(contextChars * 0.4)
-        ),
+        content: synthesisContent,
       },
     ];
+    const continuationBaseLength = messages.length;
 
     while (!stream.isClosed) {
       let passText = '';
@@ -541,11 +537,17 @@ export class CodexAgentEngine {
           throw new Error('综合输出达到单次长度上限，但没有返回可继续的内容');
         }
 
-        const assistantMessage: any = { role: 'assistant', content: passText };
+        const assistantMessage: any = {
+          role: 'assistant',
+          content: clipCharsTail(passText, Math.max(1, Math.round(contextChars * 0.06))),
+        };
         if (params.preserveReasoningOnAssistant) {
-          assistantMessage.reasoning_content = passReasoning;
+          assistantMessage.reasoning_content = clipCharsTail(
+            passReasoning,
+            Math.max(1, Math.round(contextChars * 0.02))
+          );
         }
-        messages.push(assistantMessage, {
+        messages.splice(continuationBaseLength, messages.length - continuationBaseLength, assistantMessage, {
           role: 'user',
           content: passText
             ? '上一条回复因单次输出长度限制被截断。只从中断处继续输出剩余正文，不要重复已经输出的内容。'
@@ -574,33 +576,14 @@ export class CodexAgentEngine {
   }
 }
 
-/**
- * A complete review has structure (headings) and length. A 50-character
- * "我先搜索一下调用方…" preamble used to skip synthesis, which is why
- * reviews appeared to stop halfway after the tool loop.
- */
-function looksLikeCompleteReport(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length < 400) return false;
-  const headings = trimmed.match(/^#{1,3}\s/gm)?.length ?? 0;
-  if (headings >= 2) return true;
-  if (trimmed.includes('###') && trimmed.length >= 500) return true;
-  return trimmed.length >= 1200;
-}
-
 function shouldRunSynthesis(
   lastTurn: string,
   accumulated: string,
   hitMaxTurns: boolean,
-  outputTruncated: boolean,
-  isFollowUp: boolean
+  outputTruncated: boolean
 ): boolean {
   if (hitMaxTurns || outputTruncated) return true;
-  const text = (lastTurn || accumulated).trim();
-  // Follow-ups are often a short, complete answer after tools — don't
-  // rewrite them. Initial reviews must look like a structured report.
-  if (isFollowUp) return text.length < 80;
-  return !looksLikeCompleteReport(text);
+  return !(lastTurn || accumulated).trim();
 }
 
 function isClientGone(_err: unknown, stream: SseStream): boolean {

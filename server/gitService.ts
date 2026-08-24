@@ -89,7 +89,14 @@ export class GitService {
 
     let files: string[] = [];
     try {
-      const raw = await git.raw(['-c', 'core.quotepath=false', 'ls-files']);
+      const raw = await git.raw([
+        '-c',
+        'core.quotepath=false',
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+      ]);
       files = raw
         .split('\n')
         .map((s) => s.replace(/\\/g, '/').trim())
@@ -111,11 +118,9 @@ export class GitService {
 
     const topDirs = [...dirCounts.entries()]
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 16)
       .map(([name, count]) => ({ name, count }));
     const languages = [...extCounts.entries()]
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 12)
       .map(([ext, count]) => ({ ext, count }));
 
     const manifestHit = (base: string) =>
@@ -133,18 +138,18 @@ export class GitService {
         const full = path.join(repoPath, file);
         const text = fs.readFileSync(full, 'utf8');
         if (!text.includes('\0')) {
-          preview = text.split('\n').slice(0, 40).join('\n').slice(0, 2500);
+          preview = text.split('\n').slice(0, 100).join('\n').slice(0, 10_000);
         }
       } catch {
         preview = '';
       }
       manifests.push({ path: file, preview });
-      if (manifests.length >= 8) break;
+      if (manifests.length >= 50) break;
     }
 
     const entryName =
       /^(program|startup|main|index|app|gamemanager|bootstrap|host|server)\.(cs|ts|tsx|js|jsx|py|go|rs)$/i;
-    const entryCandidates = files.filter((f) => entryName.test(f.split('/').pop() || '')).slice(0, 20);
+    const entryCandidates = files.filter((f) => entryName.test(f.split('/').pop() || '')).slice(0, 100);
 
     let headHash: string | undefined;
     try {

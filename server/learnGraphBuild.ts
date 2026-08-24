@@ -13,11 +13,13 @@ import type {
   LearnRelation,
 } from '../shared/types';
 
-const MAX_FILES = 600;
-const MAX_FILE_BYTES = 256 * 1024;
-const MAX_VIZ_NODES = 360;
-const MAX_REF_EDGES_PER_FILE = 36;
-const DIGEST_CHARS = 12_000;
+// Local parsing and browser rendering still need resource protection, but the
+// previous limits were sized for small demos and silently hid most real repos.
+const MAX_FILES = 5_000;
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_VIZ_NODES = 1_500;
+const MAX_REF_EDGES_PER_FILE = 128;
+const DIGEST_CHARS = 120_000;
 
 const SKIP_DIR =
   /(?:^|\/)(?:node_modules|dist|build|bin|obj|target|vendor|__pycache__|\.git|Library|Temp|Logs|DerivedData|Pods|coverage)(?:\/|$)/i;
@@ -655,18 +657,34 @@ export function buildLearnGraphFromFiles(files: { path: string; content: string 
 export async function buildLearnGraph(repoPath: string): Promise<LearnGraph> {
   const git = simpleGit(repoPath);
   let head = '';
+  let dirty = false;
   try {
-    head = (await git.raw(['rev-parse', 'HEAD'])).trim();
+    const [resolvedHead, status] = await Promise.all([
+      git.raw(['rev-parse', 'HEAD']),
+      git.raw(['status', '--porcelain=v1']),
+    ]);
+    head = resolvedHead.trim();
+    dirty = Boolean(status.trim());
   } catch {
     head = '';
+    dirty = true;
   }
   const cacheKey = `${repoPath}::${head}`;
-  const cached = graphCache.get(cacheKey);
+  // A HEAD-only cache returns stale graphs for every working-tree edit. Dirty
+  // repositories are rebuilt so modified and untracked source is visible.
+  const cached = dirty ? undefined : graphCache.get(cacheKey);
   if (cached) return cached;
 
   let listed: string[] = [];
   try {
-    listed = (await git.raw(['-c', 'core.quotepath=false', 'ls-files']))
+    listed = (await git.raw([
+      '-c',
+      'core.quotepath=false',
+      'ls-files',
+      '--cached',
+      '--others',
+      '--exclude-standard',
+    ]))
       .split('\n')
       .map((s) => s.replace(/\\/g, '/').trim())
       .filter(Boolean);
@@ -699,7 +717,7 @@ export async function buildLearnGraph(repoPath: string): Promise<LearnGraph> {
   }
 
   const graph = buildLearnGraphFromFiles(files);
-  graphCache.set(cacheKey, graph);
+  if (!dirty) graphCache.set(cacheKey, graph);
   return graph;
 }
 

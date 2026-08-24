@@ -3,7 +3,6 @@ import {
   CONTEXT_WINDOW_TOKENS,
   REQUEST_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
-  suggestContextWindowTokens,
   type AIProviderConfig,
 } from '../types';
 import { DEFAULT_PROMPTS } from '../constants/defaultPrompts';
@@ -41,6 +40,7 @@ const CONTEXT_WINDOW_PRESETS = [
   { value: 200_000, label: '200k', hint: 'Claude' },
   { value: 1_000_000, label: '1M', hint: '默认 · 推荐' },
   { value: 2_000_000, label: '2M', hint: '超长上下文' },
+  { value: 4_000_000, label: '4M', hint: '新一代长上下文' },
 ] as const;
 import { aiCache } from '../services/aiCache';
 
@@ -118,8 +118,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       config.maxExplorationTurns !== undefined ? config.maxExplorationTurns : 0,
     timeoutSeconds: config.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
-    maxReadFileLines: config.maxReadFileLines || 500,
-    maxSearchResults: config.maxSearchResults || 30,
+    maxReadFileLines: config.maxReadFileLines || 2000,
+    maxSearchResults: config.maxSearchResults || 200,
     contextWindowTokens: config.contextWindowTokens ?? CONTEXT_WINDOW_TOKENS.default,
   });
 
@@ -134,7 +134,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const windowTokens = form.contextWindowTokens ?? CONTEXT_WINDOW_TOKENS.default;
   const agentChars = diffCharBudgetFromWindow(windowTokens, 'agent');
   const fastChars = diffCharBudgetFromWindow(windowTokens, 'fast');
-  const suggestedWindow = suggestContextWindowTokens(form);
 
   const handleProviderSelect = (provider: AIProviderConfig['provider']) => {
     let baseUrl = '';
@@ -171,8 +170,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       maxExplorationTurns: 0,
       timeoutSeconds: REQUEST_TIMEOUT_SECONDS.default,
       maxRetries: 2,
-      maxReadFileLines: 500,
-      maxSearchResults: 30,
+      maxReadFileLines: 2000,
+      maxSearchResults: 200,
     }));
   };
 
@@ -424,7 +423,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <input
                   type="number"
                   min={CONTEXT_WINDOW_TOKENS.min}
-                  max={CONTEXT_WINDOW_TOKENS.max}
                   step={1000}
                   value={windowTokens}
                   onChange={(e) =>
@@ -437,11 +435,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="w-full bg-[#13141A] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-500/50"
                 />
                 <p className="text-[10px] text-slate-500 leading-relaxed">
-                  默认 1M。Agent 约 {agentChars.toLocaleString()} 字符，快速解释约{' '}
-                  {fastChars.toLocaleString()} 字符。接口报 context length 时再往下调。
-                  {suggestedWindow !== windowTokens
-                    ? ` 当前模型常见值 ${suggestedWindow.toLocaleString()} tokens。`
-                    : ''}
+                  不设应用上限，请按模型文档填写真实窗口。Agent 初始 Diff 约{' '}
+                  {agentChars.toLocaleString()} 字符，快速解释约 {fastChars.toLocaleString()} 字符；其余空间留给工具结果和输出。
                 </p>
               </div>
             </div>
@@ -810,15 +805,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       </span>
                     </div>
                     <input
-                      type="range"
+                      type="number"
                       min={1}
-                      max={20}
                       step={1}
                       value={form.maxExplorationTurns}
                       onChange={(e) =>
                         setForm({ ...form, maxExplorationTurns: parseInt(e.target.value, 10) })
                       }
-                      className="w-full accent-purple-500 cursor-pointer"
+                      className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                     />
                   </div>
                 ) : null}
@@ -832,20 +826,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Clock className="w-3.5 h-3.5 text-sky-400" />
                     <span>首包等待超时 (TTFB)</span>
                   </label>
-                  <select
+                  <input
+                    type="number"
+                    min={REQUEST_TIMEOUT_SECONDS.min}
+                    step={30}
                     value={form.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default}
                     onChange={(e) =>
                       setForm({ ...form, timeoutSeconds: parseInt(e.target.value, 10) })
                     }
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
-                  >
-                    <option value={30}>30 秒</option>
-                    <option value={45}>45 秒</option>
-                    <option value={90}>90 秒</option>
-                    <option value={180}>180 秒 (推荐 · 推理模型)</option>
-                    <option value={300}>300 秒</option>
-                    <option value={600}>600 秒</option>
-                  </select>
+                  />
                   <p className="text-[10px] text-slate-500">
                     仅限制等到模型开始吐字的时间；开始流式输出后不再受此限制
                   </p>
@@ -857,16 +847,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
                     <span>网络断线/超时重试</span>
                   </label>
-                  <select
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
                     value={form.maxRetries !== undefined ? form.maxRetries : 2}
                     onChange={(e) => setForm({ ...form, maxRetries: parseInt(e.target.value, 10) })}
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
-                  >
-                    <option value={0}>0 次 (不重试)</option>
-                    <option value={1}>1 次</option>
-                    <option value={2}>2 次 (推荐)</option>
-                    <option value={3}>3 次</option>
-                  </select>
+                  />
                   <p className="text-[10px] text-slate-500">遇到 504/网络抖动时自动指数退避重试</p>
                 </div>
               </div>
@@ -882,15 +870,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <input
                     type="number"
                     min={100}
-                    max={1000}
-                    step={50}
-                    value={form.maxReadFileLines || 500}
+                    step={100}
+                    value={form.maxReadFileLines || 2000}
                     onChange={(e) =>
-                      setForm({ ...form, maxReadFileLines: parseInt(e.target.value, 10) || 500 })
+                      setForm({ ...form, maxReadFileLines: parseInt(e.target.value, 10) || 2000 })
                     }
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                   />
-                  <p className="text-[10px] text-slate-500">建议 300~600 行，覆盖较大的 C# 类</p>
+                  <p className="text-[10px] text-slate-500">默认 2000 行；大文件会返回下一页行号，可继续读取</p>
                 </div>
 
                 {/* Max Search Results */}
@@ -902,15 +889,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <input
                     type="number"
                     min={10}
-                    max={80}
-                    step={5}
-                    value={form.maxSearchResults || 30}
+                    step={10}
+                    value={form.maxSearchResults || 200}
                     onChange={(e) =>
-                      setForm({ ...form, maxSearchResults: parseInt(e.target.value, 10) || 30 })
+                      setForm({ ...form, maxSearchResults: parseInt(e.target.value, 10) || 200 })
                     }
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                   />
-                  <p className="text-[10px] text-slate-500">全库检索某函数/类名的最多调用行</p>
+                  <p className="text-[10px] text-slate-500">默认每页 200 条；可由 Agent 使用 offset 继续翻页</p>
                 </div>
               </div>
 

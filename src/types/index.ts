@@ -4,6 +4,7 @@
  */
 export type {
   AgentPhase,
+  AgentErrorEvent,
   AgentStatusEvent,
   AgentToolEvent,
   AIPromptsConfig,
@@ -35,7 +36,6 @@ export {
   REQUEST_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   inferContextWindowTokens,
-  suggestContextWindowTokens,
 } from '../../shared/types';
 
 import type { CommitNode } from '../../shared/types';

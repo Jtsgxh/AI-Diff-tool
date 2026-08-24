@@ -13,8 +13,10 @@ const PORT = Number(process.env.PORT) || 4000;
 const HOST = process.env.HOST || '127.0.0.1';
 
 app.use(cors());
-// Diffs for large commits are posted back with each AI request.
-app.use(express.json({ limit: '10mb' }));
+// Large multi-file diffs are posted with each AI request. Keep only a process
+// safety ceiling here; the real prompt size is governed by the configured
+// model context window rather than an obsolete 10 MB transport cap.
+app.use(express.json({ limit: '256mb' }));
 
 app.use('/api/system', systemRouter);
 app.use('/api/repo', repoRouter);

@@ -147,7 +147,6 @@ export interface AIPromptsConfig {
 export const CONTEXT_WINDOW_TOKENS = {
   min: 8_000,
   default: 1_000_000,
-  max: 2_000_000,
 } as const;
 
 /**
@@ -156,49 +155,19 @@ export const CONTEXT_WINDOW_TOKENS = {
  */
 export const CONTEXT_CHARS_PER_TOKEN = 3.5;
 
-/** Share of the window spent on the Diff itself. Agent keeps the rest for tools. */
+/**
+ * Input allocation inside the model's configured physical context window.
+ * These are headroom ratios, not product caps: fast mode keeps room for the
+ * answer, while Agent mode also keeps room for tool results and synthesis.
+ */
 export const CONTEXT_DIFF_FRACTION = {
-  fast: 0.7,
-  agent: 0.4,
-  line: 0.16,
+  fast: 0.85,
+  agent: 0.6,
+  line: 0.35,
 } as const;
 
-const MODEL_CONTEXT_RULES: Array<{ test: RegExp; tokens: number }> = [
-  { test: /gemini/i, tokens: 1_000_000 },
-  { test: /claude/i, tokens: 200_000 },
-  { test: /gpt-4o|gpt-4\.1|gpt-4-turbo|o3|o4-mini/i, tokens: 128_000 },
-  { test: /gpt-4/i, tokens: 128_000 },
-  { test: /deepseek/i, tokens: 64_000 },
-  { test: /qwen|llama|mistral|phi|coder/i, tokens: 32_768 },
-];
-
 export function clampContextWindowTokens(tokens: number): number {
-  return Math.max(
-    CONTEXT_WINDOW_TOKENS.min,
-    Math.min(CONTEXT_WINDOW_TOKENS.max, Math.round(tokens))
-  );
-}
-
-/** Hint for the settings UI only — never applied unless the user clicks it. */
-export function suggestContextWindowTokens(input: {
-  provider?: string;
-  model?: string;
-}): number {
-  const model = input.model || '';
-  for (const rule of MODEL_CONTEXT_RULES) {
-    if (rule.test.test(model)) return rule.tokens;
-  }
-  switch (input.provider) {
-    case 'gemini':
-      return 1_000_000;
-    case 'openai':
-    case 'openrouter':
-      return 128_000;
-    case 'ollama':
-      return 32_768;
-    default:
-      return CONTEXT_WINDOW_TOKENS.default;
-  }
+  return Math.max(CONTEXT_WINDOW_TOKENS.min, Math.round(tokens));
 }
 
 /** Resolve the token window: explicit setting, otherwise 1M. */
@@ -236,7 +205,6 @@ export function totalContextChars(tokens: number): number {
 export const REQUEST_TIMEOUT_SECONDS = {
   min: 20,
   default: 180,
-  max: 600,
 } as const;
 
 export interface AIRuntimeConfig {
@@ -319,4 +287,9 @@ export interface AgentToolEvent {
   summary?: string;
   output?: string;
   text?: string;
+}
+
+export interface AgentErrorEvent {
+  type: 'error';
+  message: string;
 }

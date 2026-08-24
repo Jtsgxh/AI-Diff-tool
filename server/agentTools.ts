@@ -1,27 +1,26 @@
 import path from 'path';
 import fs from 'fs';
+import readline from 'readline';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { formatRepoOverview, gitService } from './gitService';
 import { buildLearnGraph, formatLearnGraphDigest } from './learnGraphBuild';
 
 export interface AgentToolsOptions {
-  /** Lines returned per `read_file` call when no explicit range is given. */
+  /** Page size returned by `read_file`; subsequent pages remain available. */
   maxReadFileLines?: number;
-  /** Upper bound on `search_code` / `find_files` hits. */
+  /** Default page size for `search_code` / `find_files`. */
   maxSearchResults?: number;
 }
 
 const DEFAULTS = {
-  maxReadFileLines: 500,
-  maxSearchResults: 35,
-  /** Files above this size are never read into memory. */
-  maxFileBytes: 5 * 1024 * 1024,
+  maxReadFileLines: 2000,
+  maxSearchResults: 200,
   /** Files above this size are skipped by the non-git fallback scanner. */
-  maxScanBytes: 1024 * 1024,
+  maxScanBytes: 32 * 1024 * 1024,
   /** Recursion ceiling for the non-git fallback scanner. */
-  maxWalkDepth: 12,
+  maxWalkDepth: 64,
   /** Characters of a matched line echoed back to the model. */
-  matchPreviewChars: 200,
+  matchPreviewChars: 500,
 };
 
 /** Never worth walking in the non-git fallback: build output and vendor trees. */
@@ -50,8 +49,8 @@ export class AgentTools {
   constructor(repoRoot: string, options: AgentToolsOptions = {}) {
     this.repoRoot = path.resolve(repoRoot);
     this.git = simpleGit(this.repoRoot);
-    this.maxReadFileLines = options.maxReadFileLines || DEFAULTS.maxReadFileLines;
-    this.maxSearchResults = options.maxSearchResults || DEFAULTS.maxSearchResults;
+    this.maxReadFileLines = this.positiveInt(options.maxReadFileLines, DEFAULTS.maxReadFileLines);
+    this.maxSearchResults = this.positiveInt(options.maxSearchResults, DEFAULTS.maxSearchResults);
   }
 
   /**
@@ -77,9 +76,14 @@ export class AgentTools {
         case 'read_file':
           return await this.readFile(args.file_path, args.start_line, args.end_line);
         case 'search_code':
-          return await this.searchCode(args.query, args.file_extension);
+          return await this.searchCode(
+            args.query,
+            args.file_extension,
+            args.offset,
+            args.max_results
+          );
         case 'find_files':
-          return await this.findFiles(args.pattern);
+          return await this.findFiles(args.pattern, args.offset, args.max_results);
         case 'repo_overview':
           return await this.repoOverview();
         case 'repo_graph':
@@ -105,23 +109,53 @@ export class AgentTools {
     if (!stat.isFile()) {
       return `路径不是文件: ${filePath}`;
     }
-    if (stat.size > DEFAULTS.maxFileBytes) {
-      return `文件过大 (${Math.round(stat.size / 1024)}KB)，只允许读取源文件`;
+    const sampleLength = Math.min(stat.size, 8192);
+    if (sampleLength > 0) {
+      const fd = fs.openSync(fullPath, 'r');
+      try {
+        const sample = Buffer.allocUnsafe(sampleLength);
+        fs.readSync(fd, sample, 0, sampleLength, 0);
+        if (sample.includes(0)) return `文件是二进制内容，不能按源码行读取: ${filePath}`;
+      } finally {
+        fs.closeSync(fd);
+      }
     }
 
-    const lines = fs.readFileSync(fullPath, 'utf-8').split('\n');
-    const start = Math.max(1, startLine || 1);
-    const end = Math.min(
-      lines.length,
-      endLine || (startLine ? start + this.maxReadFileLines - 50 : this.maxReadFileLines)
-    );
+    const start = Math.max(1, Math.trunc(startLine || 1));
+    const requestedEnd = endLine ? Math.max(start, Math.trunc(endLine)) : Number.MAX_SAFE_INTEGER;
+    const pageEnd = Math.min(requestedEnd, start + this.maxReadFileLines - 1);
+    const selected: string[] = [];
+    let lineNumber = 0;
+    let hasMore = false;
 
-    const numberedContent = lines
-      .slice(start - 1, end)
-      .map((line, idx) => `${start + idx} | ${line}`)
-      .join('\n');
+    const input = fs.createReadStream(fullPath, { encoding: 'utf8' });
+    const lines = readline.createInterface({ input, crlfDelay: Infinity });
+    try {
+      for await (const line of lines) {
+        lineNumber++;
+        if (lineNumber < start) continue;
+        if (lineNumber > pageEnd) {
+          hasMore = true;
+          break;
+        }
+        selected.push(`${lineNumber} | ${line}`);
+      }
+    } finally {
+      lines.close();
+      input.destroy();
+    }
 
-    return `【文件: ${filePath} (第 ${start}-${end} 行 / 共 ${lines.length} 行)】\n\`\`\`\n${numberedContent}\n\`\`\``;
+    if (selected.length === 0) {
+      return `文件 ${filePath} 不存在第 ${start} 行（文件共 ${lineNumber} 行）`;
+    }
+
+    const actualEnd = start + selected.length - 1;
+    const continuation = hasMore
+      ? `；尚有后续，请继续调用 read_file(start_line=${actualEnd + 1})`
+      : '；已到文件末尾';
+    return `【文件: ${filePath} (第 ${start}-${actualEnd} 行${continuation})】\n\`\`\`\n${selected.join(
+      '\n'
+    )}\n\`\`\``;
   }
 
   private async repoOverview(): Promise<string> {
@@ -134,33 +168,43 @@ export class AgentTools {
     return formatLearnGraphDigest(graph);
   }
 
-  private async searchCode(query: string, fileExtension?: string): Promise<string> {
+  private async searchCode(
+    query: string,
+    fileExtension?: string,
+    offsetArg?: number,
+    maxResultsArg?: number
+  ): Promise<string> {
     if (!query || query.trim().length < 2) {
       return '搜索关键词过短';
     }
 
     const cleanQuery = query.trim();
+    const offset = this.nonNegativeInt(offsetArg);
+    const pageSize = this.positiveInt(maxResultsArg, this.maxSearchResults);
 
     // 1. `git grep` is the fast path: native speed, multi-threaded, .gitignore-aware.
     const regexHit = await this.gitGrep(cleanQuery, fileExtension, '-E');
     if (regexHit) {
-      return this.formatGrepOutput(cleanQuery, regexHit, 'Git 索引高速检索');
+      return this.formatGrepOutput(cleanQuery, regexHit, 'Git 工作区高速检索', offset, pageSize);
     }
 
     // 2. The query may not be valid regex — retry it as a literal.
     const literalHit = await this.gitGrep(cleanQuery, fileExtension, '-F');
     if (literalHit) {
-      return this.formatGrepOutput(cleanQuery, literalHit, 'Git 索引文本检索');
+      return this.formatGrepOutput(cleanQuery, literalHit, 'Git 工作区文本检索', offset, pageSize);
     }
 
     // 3. Outside a git repo (or nothing indexed): walk the filesystem.
-    const results = this.walkForMatches(cleanQuery, fileExtension);
+    const results = this.walkForMatches(cleanQuery, fileExtension, offset + pageSize + 1);
     if (results.length === 0) {
       return `在代码库中未检索到符号/关键词: "${cleanQuery}"`;
     }
 
-    const formatted = results.map((r) => `📄 ${r.file}:${r.line} -> ${r.text}`).join('\n');
-    return `【代码库遍历检索 ("${cleanQuery}") - 共匹配 ${results.length} 处】:\n${formatted}`;
+    const page = results.slice(offset, offset + pageSize);
+    const hasMore = results.length > offset + page.length;
+    const formatted = page.map((r) => `📄 ${r.file}:${r.line} -> ${r.text}`).join('\n');
+    const continuation = hasMore ? `；下一页 offset=${offset + page.length}` : '';
+    return `【代码库遍历检索 ("${cleanQuery}") - 本页 ${page.length} 处${continuation}】:\n${formatted}`;
   }
 
   /** Returns matching lines, or null when git found nothing / is unavailable. */
@@ -169,7 +213,17 @@ export class AgentTools {
     fileExtension: string | undefined,
     mode: '-E' | '-F'
   ): Promise<string[] | null> {
-    const args = ['grep', '-n', '-I', '-i', mode, '-e', query];
+    const args = [
+      'grep',
+      '--untracked',
+      '--exclude-standard',
+      '-n',
+      '-I',
+      '-i',
+      mode,
+      '-e',
+      query,
+    ];
     if (fileExtension) {
       args.push('--', fileExtension.startsWith('*') ? fileExtension : `*${fileExtension}`);
     }
@@ -185,8 +239,14 @@ export class AgentTools {
     }
   }
 
-  private formatGrepOutput(query: string, lines: string[], label: string): string {
-    const limited = lines.slice(0, this.maxSearchResults);
+  private formatGrepOutput(
+    query: string,
+    lines: string[],
+    label: string,
+    offset: number,
+    pageSize: number
+  ): string {
+    const limited = lines.slice(offset, offset + pageSize);
     const formatted = limited
       .map((line) => {
         // `path:line:text` — the text itself may contain colons.
@@ -202,23 +262,40 @@ export class AgentTools {
       })
       .join('\n');
 
-    return `【${label} ("${query}") - 匹配到 ${lines.length} 处 (展示前 ${limited.length} 处)】:\n${formatted}`;
+    const continuation = offset + limited.length < lines.length
+      ? `；下一页 offset=${offset + limited.length}`
+      : '';
+    return `【${label} ("${query}") - 共 ${lines.length} 处，本页 ${limited.length} 处${continuation}】:\n${formatted}`;
   }
 
-  private async findFiles(pattern: string): Promise<string> {
+  private async findFiles(pattern: string, offsetArg?: number, maxResultsArg?: number): Promise<string> {
     if (!pattern || pattern.trim().length < 2) {
       return '文件名搜索词过短';
     }
 
     const cleanPattern = pattern.trim();
+    const offset = this.nonNegativeInt(offsetArg);
+    const pageSize = this.positiveInt(maxResultsArg, this.maxSearchResults);
 
     // 1. `git ls-files` is an index lookup — effectively instant.
     try {
       const globPattern = cleanPattern.includes('*') ? cleanPattern : `*${cleanPattern}*`;
-      const rawOutput = await this.git.raw(['ls-files', globPattern]);
+      const rawOutput = await this.git.raw([
+        '-c',
+        'core.quotepath=false',
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+        globPattern,
+      ]);
       if (rawOutput?.trim()) {
-        const files = rawOutput.trim().split('\n').filter(Boolean).slice(0, this.maxSearchResults);
-        return `【Git 快速定位文件 (共 ${files.length} 个)】:\n` + files.map((f) => `- ${f}`).join('\n');
+        const allFiles = rawOutput.trim().split('\n').filter(Boolean);
+        const files = allFiles.slice(offset, offset + pageSize);
+        const continuation = offset + files.length < allFiles.length
+          ? `；下一页 offset=${offset + files.length}`
+          : '';
+        return `【Git 快速定位文件 (共 ${allFiles.length} 个，本页 ${files.length} 个${continuation})】:\n` + files.map((f) => `- ${f}`).join('\n');
       }
     } catch {
       // Fall through to the filesystem walker.
@@ -232,18 +309,23 @@ export class AgentTools {
       if (name.toLowerCase().includes(lowerPattern) || relPath.toLowerCase().includes(lowerPattern)) {
         matchedFiles.push(relPath);
       }
-      return matchedFiles.length < this.maxSearchResults;
+      return matchedFiles.length < offset + pageSize + 1;
     });
 
     if (matchedFiles.length === 0) {
       return `未定位到匹配 "${cleanPattern}" 的文件`;
     }
-    return `【匹配到的文件路径 (共 ${matchedFiles.length} 个)】:\n` + matchedFiles.map((f) => `- ${f}`).join('\n');
+    const files = matchedFiles.slice(offset, offset + pageSize);
+    const continuation = matchedFiles.length > offset + files.length
+      ? `；下一页 offset=${offset + files.length}`
+      : '';
+    return `【匹配到的文件路径 (本页 ${files.length} 个${continuation})】:\n` + files.map((f) => `- ${f}`).join('\n');
   }
 
   private walkForMatches(
     query: string,
-    fileExtension?: string
+    fileExtension?: string,
+    stopAfter = this.maxSearchResults + 1
   ): { file: string; line: number; text: string }[] {
     const results: { file: string; line: number; text: string }[] = [];
     const lowerQuery = query.toLowerCase();
@@ -266,7 +348,7 @@ export class AgentTools {
               line: i + 1,
               text: fileLines[i].trim().slice(0, 180),
             });
-            if (results.length >= this.maxSearchResults) return false;
+            if (results.length >= stopAfter) return false;
           }
         }
       } catch {
@@ -308,5 +390,17 @@ export class AgentTools {
     }
 
     return true;
+  }
+
+  private positiveInt(value: number | undefined, fallback: number): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? Math.max(1, Math.trunc(value))
+      : fallback;
+  }
+
+  private nonNegativeInt(value: number | undefined): number {
+    return typeof value === 'number' && Number.isFinite(value)
+      ? Math.max(0, Math.trunc(value))
+      : 0;
   }
 }

@@ -332,6 +332,10 @@ export async function streamExplainDiff(
         return;
       }
 
+      if (event.error) {
+        throw new Error(String(event.error));
+      }
+
       if (event.reasoning) {
         aiLogger.appendReasoning(logSessionId, event.reasoning);
         payload.onReasoning?.(event.reasoning);
@@ -378,6 +382,9 @@ export async function streamAgentExplainDiff(
         // `runStream` turns the stop signal into onComplete().
         case 'done':
           return true;
+
+        case 'error':
+          throw new Error(String(event.message || '智能体审查失败'));
 
         case 'status':
           payload.onStatusUpdate?.(event);
