@@ -753,16 +753,20 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+    if (e.button !== 0 && e.button !== 1) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const node = hitTest(x, y);
-    if (node) {
-      onSelectNode(node.id);
-      onSelectCommunity(node.communityId);
-    } else {
-      onSelectNode(null);
+    if (e.button === 0) {
+      const node = hitTest(x, y);
+      if (node) {
+        onSelectNode(node.id);
+        onSelectCommunity(node.communityId);
+      } else {
+        onSelectNode(null);
+      }
     }
     dragRef.current = { lx: x, ly: y };
   };
@@ -814,6 +818,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onAuxClick={(e) => e.preventDefault()}
       />
       <div className="absolute top-2 left-2 right-2 flex flex-wrap items-center gap-1.5 pointer-events-none">
         <input
@@ -913,7 +918,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           : `丰富 · ${graph.nodes.length} 类级节点 · ${graph.edges.length} 边`}
         {graph.stats.truncated ? ' · 已裁大图' : ''}
         {activeRoute ? ` · 路线 ${activeRoute.label}` : ''}
-        <span className="ml-2 text-slate-600">滚轮缩放 · 拖动画布 · 点击节点</span>
+        <span className="ml-2 text-slate-600">滚轮缩放 · 中键拖动画布 · 左键选择节点</span>
       </div>
       {hovered && (
         <div className="absolute bottom-2 right-2 max-w-[240px] bg-black/70 border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 pointer-events-none">
