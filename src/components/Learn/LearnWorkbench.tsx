@@ -3,12 +3,11 @@ import {
   Activity,
   AlertTriangle,
   BookOpen,
-  ChevronRight,
   Network,
   RefreshCw,
   Send,
 } from 'lucide-react';
-import type { AIProviderConfig, LearnCommunity, LearnNode } from '../../types';
+import type { AIProviderConfig, LearnNode } from '../../types';
 import { communityColor, looksLikeJsonBlob } from '../../utils/learnGraph';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
 import { LearnGraphCanvas } from './LearnGraphCanvas';
@@ -55,12 +54,6 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
     },
     [draft, session]
   );
-
-  const pathCommunities = session.graph?.businessRoutes.length
-    ? session.graph.runtimePath
-        .map((id) => session.graph!.communities.find((c) => c.id === id))
-        .filter((c): c is LearnCommunity => Boolean(c))
-    : [];
 
   const selectedNode: LearnNode | null =
     session.graph?.nodes.find((n) => n.id === selectedNodeId) || null;
@@ -117,8 +110,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         </button>
       </div>
 
-      <div className="h-[46%] min-h-[260px] shrink-0 border-b border-white/10 relative">
-        {session.graph?.businessRoutes.length ? (
+      <div className="h-[58%] min-h-[360px] shrink-0 border-b border-white/10 relative">
+        {session.graph?.communities.length ? (
           <LearnGraphCanvas
             graph={session.graph}
             selectedNodeId={selectedNodeId}
@@ -149,30 +142,6 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
-        {pathCommunities.length > 0 && (
-          <div>
-            <div className="text-[11px] font-semibold text-slate-400 mb-1.5">运行时主路径</div>
-            <div className="flex flex-wrap items-center gap-1">
-              {pathCommunities.map((c, i) => (
-                <React.Fragment key={c.id}>
-                  {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />}
-                  <button
-                    type="button"
-                    onClick={() => session.setSelectedCommunityId(c.id)}
-                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
-                      session.selectedCommunityId === c.id
-                        ? 'bg-amber-600/30 border-amber-400 text-amber-100'
-                        : 'bg-[#171822] border-white/10 text-slate-300'
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                </React.Fragment>
-              ))}
-            </div>
-          </div>
-        )}
-
         {(selectedNode || selectedCommunity) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {selectedNode && (
@@ -241,7 +210,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           <p className="text-[11px] font-mono text-purple-300 truncate">{session.status.message}</p>
         )}
 
-        {session.error && session.graph?.businessRoutes.length ? (
+        {session.error && session.graph?.communities.length ? (
           <div className="flex items-start gap-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{plainError}</span>
@@ -253,7 +222,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           !session.briefing &&
           !session.error &&
           !session.graph?.businessRoutes.length && (
-            <p className="text-xs text-slate-500">没能整理出业务路线。点右上角「重新分析」再试一次。</p>
+            <p className="text-xs text-slate-500">没有识别到证据完整的业务路线，社区结构仍可正常浏览。</p>
           )}
 
         {session.briefing && !looksLikeJsonBlob(session.briefing) && (

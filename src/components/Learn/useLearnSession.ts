@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentStatusEvent, AgentToolEvent, AIProviderConfig, LearnGraph, RepoOverview } from '../../types';
 import { fetchLearnGraph, fetchRepoOverview, streamAgentExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
-import { applyLearnAnalysis, humanizeLearnReport, visibleLearnProse } from '../../utils/learnGraph';
+import {
+  applyLearnAnalysis,
+  humanizeLearnReport,
+  parseLearnOverlay,
+  visibleLearnProse,
+} from '../../utils/learnGraph';
 import { flushStreamsNow, scheduleStreamFlush } from '../../services/streamScheduler';
 
 export interface LearnChatTurn {
@@ -43,7 +48,7 @@ export function useLearnSession(
   const structuralPathRef = useRef('');
   const graphRef = useRef<LearnGraph | null>(null);
 
-  const cacheKey = `learn-v3::${repoPath}::${headHash || ''}::${aiConfig.model}`;
+  const cacheKey = `learn-v4::${repoPath}::${headHash || ''}::${aiConfig.model}`;
 
   useEffect(() => {
     graphRef.current = graph;
@@ -114,7 +119,7 @@ export function useLearnSession(
         const cached = aiCache.get(cacheKey);
         const merged = cached?.report?.trim() ? applyLearnAnalysis(g, cached.report) : g;
         setGraph(merged);
-        if (cached?.report?.trim() && merged.businessRoutes.length > 0) {
+        if (cached?.report?.trim() && parseLearnOverlay(cached.report)) {
           const { prose } = humanizeLearnReport(cached.report, merged);
           setBriefing(prose);
           setSettled(true);
@@ -151,7 +156,7 @@ export function useLearnSession(
         const cached = aiCache.get(cacheKey);
         if (cached?.report?.trim()) {
           const { graph: next, prose } = humanizeLearnReport(cached.report, base);
-          if (next?.businessRoutes.length) {
+          if (parseLearnOverlay(cached.report)) {
             setGraph(next);
             setBriefing(prose);
             setError(null);
@@ -191,7 +196,7 @@ export function useLearnSession(
         }
         const { graph: next, prose } = humanizeLearnReport(raw, base);
         setBriefing(prose);
-        if (next?.businessRoutes.length) setGraph(next);
+        if (parseLearnOverlay(raw)) setGraph(next);
       };
 
       try {
@@ -238,7 +243,7 @@ export function useLearnSession(
               setFollowUpStream('');
             } else {
               setBriefing(prose);
-              if (next?.businessRoutes.length) {
+              if (parseLearnOverlay(raw)) {
                 setGraph(next);
                 aiCache.set(cacheKey, {
                   report: raw,
@@ -246,7 +251,7 @@ export function useLearnSession(
                   provider: config.provider,
                 });
               } else {
-                setError('AI 分析已结束，但没有返回可用的主要业务路线。请重新分析。');
+                setError('AI 分析已结束，但没有返回有效的社区与路线数据。请重新分析。');
               }
             }
             setIsStreaming(false);

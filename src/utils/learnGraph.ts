@@ -147,10 +147,14 @@ function coerceOverlay(raw: unknown): LearnLabelOverlay | null {
       const file = asString(step.file).replace(/\\/g, '/');
       const stepLabel = asString(step.label);
       const description = asString(step.description);
-      if (!file || !stepLabel || !description) continue;
+      const relation = asString(step.relation);
+      const evidence = asString(step.evidence);
+      if (!file || !stepLabel || !description || !relation || !evidence) continue;
       steps.push({
         label: stepLabel,
         description,
+        relation,
+        evidence,
         file,
         symbol: asString(step.symbol) || undefined,
         communityId: asString(step.communityId) || undefined,
@@ -165,7 +169,6 @@ function coerceOverlay(raw: unknown): LearnLabelOverlay | null {
       steps,
     });
   }
-  if (businessRoutes.length === 0) return null;
   const idSet = new Set(communities.map((c) => c.id));
   const runtimePath = Array.isArray(src.runtimePath)
     ? src.runtimePath.map((x) => asString(x)).filter((id) => idSet.has(id))
@@ -283,7 +286,7 @@ export function briefingFromGraph(graph: LearnGraph): string {
   const routes = graph.businessRoutes
     .map((route) => {
       const steps = route.steps
-        .map((step, index) => `${index + 1}. **${step.label}**（\`${step.file}${step.symbol ? ` :: ${step.symbol}` : ''}\`）${step.description ? `：${step.description}` : ''}`)
+        .map((step, index) => `${index + 1}. **${step.label}**（${step.relation}，\`${step.file}${step.symbol ? ` :: ${step.symbol}` : ''}\`）${step.description}；证据：${step.evidence}`)
         .join('\n');
       return `#### ${route.label}\n${route.summary ? `${route.summary}\n\n` : ''}${steps}`;
     })

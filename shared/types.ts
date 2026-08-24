@@ -116,6 +116,8 @@ export interface LearnCommunity {
 export interface LearnBusinessRouteStep {
   label: string;
   description: string;
+  relation: string;
+  evidence: string;
   file: string;
   symbol?: string;
   communityId?: string;
