@@ -13,6 +13,8 @@ interface LearnGraphCanvasProps {
 interface SimNode extends LearnNode {
   x: number;
   y: number;
+  homeX: number;
+  homeY: number;
   vx: number;
   vy: number;
   r: number;
@@ -25,7 +27,7 @@ interface Camera {
 }
 
 const MIN_ZOOM = 0.01;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const NODE_SPACING = 56;
 
 const fitCameraToNodes = (
   nodes: SimNode[],
@@ -96,8 +98,11 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     [graph.nodes]
   );
   const layoutKey = useMemo(
-    () => graph.nodes.map((n) => n.id).join('\n') + `#${graph.edges.length}`,
-    [graph.nodes, graph.edges.length]
+    () =>
+      graph.nodes.map((n) => n.id).join('\n') +
+      '#' +
+      graph.edges.map((e) => `${e.source}>${e.target}:${e.relation}`).join('\n'),
+    [graph.nodes, graph.edges]
   );
 
   const searchHit = useMemo(() => {
@@ -110,37 +115,64 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
 
   useEffect(() => {
     const maxD = Math.max(1, ...graph.nodes.map((n) => n.degree));
-    const groups = new Map<string, LearnNode[]>();
-    for (const n of graph.nodes) {
-      const c = n.communityId;
-      if (!groups.has(c)) groups.set(c, []);
-      groups.get(c)!.push(n);
-    }
-    const entries = [...groups.entries()];
-    const extents = entries.map(([, nodes]) => 28 + Math.sqrt(nodes.length) * 22);
-    const circumference = extents.reduce((sum, extent) => sum + extent * 2 + 70, 0);
-    const ringRadius = Math.max(
-      180,
-      circumference / (2 * Math.PI),
-      ...extents.map((extent) => extent + 80)
+    const wrap = wrapRef.current;
+    const viewportAspect = Math.max(
+      1,
+      (wrap?.clientWidth || 1600) / Math.max(1, wrap?.clientHeight || 450)
     );
-    const sim: SimNode[] = [];
-    entries.forEach(([cid, nodes], groupIndex) => {
-      const ang = (2 * Math.PI * groupIndex) / Math.max(1, entries.length) - Math.PI / 2;
-      const cx = entries.length === 1 ? 0 : Math.cos(ang) * ringRadius;
-      const cy = entries.length === 1 ? 0 : Math.sin(ang) * ringRadius;
-      nodes.forEach((n, nodeIndex) => {
-        const localAngle = nodeIndex * GOLDEN_ANGLE;
-        const localRadius = nodeIndex === 0 ? 0 : 21 * Math.sqrt(nodeIndex);
-        sim.push({
-          ...n,
-          x: cx + Math.cos(localAngle) * localRadius,
-          y: cy + Math.sin(localAngle) * localRadius,
-          vx: 0,
-          vy: 0,
-          r: 4 + 11 * Math.sqrt(n.degree / maxD),
-        });
-      });
+    const columns = Math.max(1, Math.ceil(Math.sqrt(graph.nodes.length * viewportAspect)));
+    const rows = Math.max(1, Math.ceil(graph.nodes.length / columns));
+    const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    const adjacency = new Map<string, string[]>();
+    for (const edge of graph.edges) {
+      if (!byId.has(edge.source) || !byId.has(edge.target)) continue;
+      const sourceNeighbors = adjacency.get(edge.source);
+      if (sourceNeighbors) sourceNeighbors.push(edge.target);
+      else adjacency.set(edge.source, [edge.target]);
+      const targetNeighbors = adjacency.get(edge.target);
+      if (targetNeighbors) targetNeighbors.push(edge.source);
+      else adjacency.set(edge.target, [edge.source]);
+    }
+    const ranked = graph.nodes
+      .slice()
+      .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label));
+    const ordered: LearnNode[] = [];
+    const seen = new Set<string>();
+    for (const seed of ranked) {
+      if (seen.has(seed.id)) continue;
+      const queue = [seed.id];
+      seen.add(seed.id);
+      for (let cursor = 0; cursor < queue.length; cursor++) {
+        const id = queue[cursor];
+        const node = byId.get(id);
+        if (node) ordered.push(node);
+        const neighbors = (adjacency.get(id) || [])
+          .filter((neighborId) => !seen.has(neighborId))
+          .sort((a, b) => (byId.get(b)?.degree || 0) - (byId.get(a)?.degree || 0));
+        for (const neighborId of neighbors) {
+          if (seen.has(neighborId)) continue;
+          seen.add(neighborId);
+          queue.push(neighborId);
+        }
+      }
+    }
+    const sim: SimNode[] = ordered.map((n, index) => {
+      const row = Math.floor(index / columns);
+      const offsetInRow = index % columns;
+      const rowSize = Math.min(columns, ordered.length - row * columns);
+      const columnInRow = row % 2 === 0 ? offsetInRow : rowSize - 1 - offsetInRow;
+      const x = (columnInRow - (rowSize - 1) / 2) * NODE_SPACING;
+      const y = (row - (rows - 1) / 2) * NODE_SPACING;
+      return {
+        ...n,
+        x,
+        y,
+        homeX: x,
+        homeY: y,
+        vx: 0,
+        vy: 0,
+        r: 3.5 + 9.5 * Math.sqrt(n.degree / maxD),
+      };
     });
     simRef.current = sim;
     ticksRef.current = 0;
@@ -177,23 +209,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       const alpha = Math.max(0.015, 0.12 * Math.pow(0.985, ticksRef.current));
       let layoutUpdated = false;
       if (ticksRef.current < tickCap && sim.length) {
-        const centroid = new Map<string, { x: number; y: number; n: number }>();
-        for (const n of sim) {
-          let c = centroid.get(n.communityId);
-          if (!c) {
-            c = { x: 0, y: 0, n: 0 };
-            centroid.set(n.communityId, c);
-          }
-          c.x += n.x;
-          c.y += n.y;
-          c.n++;
-        }
-        for (const c of centroid.values()) {
-          c.x /= c.n;
-          c.y /= c.n;
-        }
-
-        const range = sim.length > 220 ? 240 : 360;
+        const range = sim.length > 220 ? 120 : 180;
         const cellSize = range;
         const buckets = new Map<string, number[]>();
         for (let i = 0; i < sim.length; i++) {
@@ -228,7 +244,10 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
               d2 = dx * dx + dy * dy;
             }
             const dist = Math.sqrt(d2);
-            const f = Math.min(2.5, (alpha * 900) / d2);
+            const minDistance = a.r + b.r + 18;
+            const collisionPush =
+              dist < minDistance ? (minDistance - dist) * 0.08 : 0;
+            const f = Math.max(collisionPush, Math.min(1.8, (alpha * 1400) / d2));
             const fx = (dx / dist) * f;
             const fy = (dy / dist) * f;
             a.vx += fx;
@@ -246,8 +265,8 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const rest = e.relation === 'contains' ? 36 : 58;
-          const f = alpha * 0.08 * (dist - rest);
+          const rest = e.relation === 'contains' ? 88 : 120;
+          const f = alpha * 0.045 * (dist - rest);
           const fx = (dx / dist) * f;
           const fy = (dy / dist) * f;
           a.vx += fx;
@@ -257,19 +276,14 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         }
 
         for (const n of sim) {
-          const c = centroid.get(n.communityId);
-          if (c) {
-            n.vx += (c.x - n.x) * 0.012;
-            n.vy += (c.y - n.y) * 0.012;
-          }
-          n.vx += -n.x * 0.004;
-          n.vy += -n.y * 0.004;
+          n.vx += (n.homeX - n.x) * 0.006;
+          n.vy += (n.homeY - n.y) * 0.006;
           n.vx *= 0.72;
           n.vy *= 0.72;
           const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
-          if (speed > 10) {
-            n.vx = (n.vx / speed) * 10;
-            n.vy = (n.vy / speed) * 10;
+          if (speed > 8) {
+            n.vx = (n.vx / speed) * 8;
+            n.vy = (n.vy / speed) * 8;
           }
           n.x += n.vx;
           n.y += n.vy;
