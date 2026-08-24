@@ -18,6 +18,51 @@ interface SimNode extends LearnNode {
   r: number;
 }
 
+interface Camera {
+  x: number;
+  y: number;
+  k: number;
+}
+
+const MIN_ZOOM = 0.01;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+const fitCameraToNodes = (
+  nodes: SimNode[],
+  width: number,
+  height: number
+): Camera | null => {
+  if (!nodes.length || width <= 0 || height <= 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x - node.r);
+    minY = Math.min(minY, node.y - node.r);
+    maxX = Math.max(maxX, node.x + node.r);
+    maxY = Math.max(maxY, node.y + node.r);
+  }
+  const padding = 48;
+  const graphWidth = Math.max(1, maxX - minX);
+  const graphHeight = Math.max(1, maxY - minY);
+  const zoom = Math.min(
+    1,
+    Math.max(
+      MIN_ZOOM,
+      Math.min(
+        Math.max(1, width - padding * 2) / graphWidth,
+        Math.max(1, height - padding * 2) / graphHeight
+      )
+    )
+  );
+  return {
+    x: -(minX + maxX) / 2,
+    y: -(minY + maxY) / 2,
+    k: zoom,
+  };
+};
+
 const EDGE_COLOR: Record<string, string> = {
   contains: 'rgba(148,163,184,0.18)',
   imports: 'rgba(56,189,248,0.28)',
@@ -36,6 +81,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<SimNode[]>([]);
   const camRef = useRef({ x: 0, y: 0, k: 1 });
+  const cameraTouchedRef = useRef(false);
   const dragRef = useRef<{ lx: number; ly: number } | null>(null);
   const hoverRef = useRef<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
@@ -70,29 +116,42 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       if (!groups.has(c)) groups.set(c, []);
       groups.get(c)!.push(n);
     }
-    const keys = [...groups.keys()];
-    const R = 220 + Math.min(140, graph.nodes.length);
+    const entries = [...groups.entries()];
+    const extents = entries.map(([, nodes]) => 28 + Math.sqrt(nodes.length) * 22);
+    const circumference = extents.reduce((sum, extent) => sum + extent * 2 + 70, 0);
+    const ringRadius = Math.max(
+      180,
+      circumference / (2 * Math.PI),
+      ...extents.map((extent) => extent + 80)
+    );
     const sim: SimNode[] = [];
-    keys.forEach((cid, i) => {
-      const ang = (2 * Math.PI * i) / Math.max(1, keys.length) - Math.PI / 2;
-      const cx = Math.cos(ang) * R;
-      const cy = Math.sin(ang) * R;
-      for (const n of groups.get(cid)!) {
-        const jitter = 40 + Math.random() * 50;
-        const a = Math.random() * Math.PI * 2;
+    entries.forEach(([cid, nodes], groupIndex) => {
+      const ang = (2 * Math.PI * groupIndex) / Math.max(1, entries.length) - Math.PI / 2;
+      const cx = entries.length === 1 ? 0 : Math.cos(ang) * ringRadius;
+      const cy = entries.length === 1 ? 0 : Math.sin(ang) * ringRadius;
+      nodes.forEach((n, nodeIndex) => {
+        const localAngle = nodeIndex * GOLDEN_ANGLE;
+        const localRadius = nodeIndex === 0 ? 0 : 21 * Math.sqrt(nodeIndex);
         sim.push({
           ...n,
-          x: cx + Math.cos(a) * jitter,
-          y: cy + Math.sin(a) * jitter,
+          x: cx + Math.cos(localAngle) * localRadius,
+          y: cy + Math.sin(localAngle) * localRadius,
           vx: 0,
           vy: 0,
           r: 4 + 11 * Math.sqrt(n.degree / maxD),
         });
-      }
+      });
     });
     simRef.current = sim;
     ticksRef.current = 0;
-    camRef.current = { x: 0, y: 0, k: 1 };
+    cameraTouchedRef.current = false;
+    const fitFrame = requestAnimationFrame(() => {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+      const camera = fitCameraToNodes(simRef.current, wrap.clientWidth, wrap.clientHeight);
+      if (camera) camRef.current = camera;
+    });
+    return () => cancelAnimationFrame(fitFrame);
   }, [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -116,6 +175,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       const sim = simRef.current;
       const tickCap = sim.length > 220 ? 180 : 420;
       const alpha = Math.max(0.015, 0.12 * Math.pow(0.985, ticksRef.current));
+      let layoutUpdated = false;
       if (ticksRef.current < tickCap && sim.length) {
         const centroid = new Map<string, { x: number; y: number; n: number }>();
         for (const n of sim) {
@@ -133,9 +193,29 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           c.y /= c.n;
         }
 
-        const range = sim.length > 220 ? 240 : 2000;
+        const range = sim.length > 220 ? 240 : 360;
+        const cellSize = range;
+        const buckets = new Map<string, number[]>();
         for (let i = 0; i < sim.length; i++) {
-          for (let j = i + 1; j < sim.length; j++) {
+          const cellX = Math.floor(sim[i].x / cellSize);
+          const cellY = Math.floor(sim[i].y / cellSize);
+          const key = `${cellX},${cellY}`;
+          const bucket = buckets.get(key);
+          if (bucket) bucket.push(i);
+          else buckets.set(key, [i]);
+        }
+        for (let i = 0; i < sim.length; i++) {
+          const cellX = Math.floor(sim[i].x / cellSize);
+          const cellY = Math.floor(sim[i].y / cellSize);
+          const nearby: number[] = [];
+          for (let ox = -1; ox <= 1; ox++) {
+            for (let oy = -1; oy <= 1; oy++) {
+              const bucket = buckets.get(`${cellX + ox},${cellY + oy}`);
+              if (bucket) nearby.push(...bucket);
+            }
+          }
+          for (const j of nearby) {
+            if (j <= i) continue;
             const a = sim[i];
             const b = sim[j];
             if (Math.abs(a.x - b.x) > range || Math.abs(a.y - b.y) > range) continue;
@@ -148,7 +228,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
               d2 = dx * dx + dy * dy;
             }
             const dist = Math.sqrt(d2);
-            const f = (alpha * 900) / d2;
+            const f = Math.min(2.5, (alpha * 900) / d2);
             const fx = (dx / dist) * f;
             const fy = (dy / dist) * f;
             a.vx += fx;
@@ -186,10 +266,16 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           n.vy += -n.y * 0.004;
           n.vx *= 0.72;
           n.vy *= 0.72;
+          const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+          if (speed > 10) {
+            n.vx = (n.vx / speed) * 10;
+            n.vy = (n.vy / speed) * 10;
+          }
           n.x += n.vx;
           n.y += n.vy;
         }
         ticksRef.current++;
+        layoutUpdated = true;
       }
 
       const dpr = window.devicePixelRatio || 1;
@@ -200,6 +286,18 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         canvas.height = Math.floor(h * dpr);
         canvas.style.width = `${w}px`;
         canvas.style.height = `${h}px`;
+        if (!cameraTouchedRef.current) {
+          const camera = fitCameraToNodes(sim, w, h);
+          if (camera) camRef.current = camera;
+        }
+      } else if (
+        !cameraTouchedRef.current &&
+        layoutUpdated &&
+        ticksRef.current > 0 &&
+        (ticksRef.current % 12 === 0 || ticksRef.current === tickCap)
+      ) {
+        const camera = fitCameraToNodes(sim, w, h);
+        if (camera) camRef.current = camera;
       }
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -314,9 +412,10 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
 
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
+    cameraTouchedRef.current = true;
     const cam = camRef.current;
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
-    cam.k = Math.min(4, Math.max(0.25, cam.k * factor));
+    cam.k = Math.min(4, Math.max(MIN_ZOOM, cam.k * factor));
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -340,6 +439,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     const y = e.clientY - rect.top;
     const drag = dragRef.current;
     if (drag) {
+      cameraTouchedRef.current = true;
       const cam = camRef.current;
       cam.x += (x - drag.lx) / cam.k;
       cam.y += (y - drag.ly) / cam.k;
@@ -361,6 +461,15 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
 
   const hovered = hover ? graph.nodes.find((n) => n.id === hover) : null;
 
+  const fitToView = () => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const visible = simRef.current.filter((node) => !hidden.has(node.communityId));
+    const camera = fitCameraToNodes(visible, wrap.clientWidth, wrap.clientHeight);
+    if (camera) camRef.current = camera;
+    cameraTouchedRef.current = false;
+  };
+
   return (
     <div className="relative w-full h-full min-h-[280px] bg-[#12131A]" ref={wrapRef}>
       <canvas
@@ -379,6 +488,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           placeholder="搜索节点"
           className="pointer-events-auto w-36 bg-black/50 border border-white/10 rounded-md px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-500"
         />
+        <button
+          type="button"
+          onClick={fitToView}
+          className="pointer-events-auto text-[10px] px-2 py-0.5 rounded-md border border-white/10 bg-black/50 text-slate-300 hover:text-white hover:border-white/30"
+        >
+          适应视图
+        </button>
         {graph.communities.map((c) => {
           const on = !hidden.has(c.id);
           const active = selectedCommunityId === c.id;
