@@ -805,7 +805,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   };
 
   return (
-    <div className="relative w-full h-full min-h-[280px] bg-[#12131A]" ref={wrapRef}>
+    <div className="relative w-full h-full min-h-0 bg-[#12131A]" ref={wrapRef}>
       <canvas
         ref={canvasRef}
         className="w-full h-full cursor-grab active:cursor-grabbing"

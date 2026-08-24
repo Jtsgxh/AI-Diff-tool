@@ -41,6 +41,12 @@ body.diff-splitting * {
   user-select: none !important;
 }
 
+body.learn-row-splitting,
+body.learn-row-splitting * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
 /* Independent horizontal scroll per split pane; gutter keeps left/right row heights in sync. */
 .diff-split-pane {
   overflow-x: auto;

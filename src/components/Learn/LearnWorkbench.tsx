@@ -1,13 +1,18 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   BookOpen,
   Network,
+  PanelBottomClose,
+  PanelBottomOpen,
+  PanelTopClose,
+  PanelTopOpen,
   RefreshCw,
   Send,
 } from 'lucide-react';
 import type { AIProviderConfig, LearnNode } from '../../types';
+import { STORAGE_KEYS, storage } from '../../constants/storage';
 import { communityColor, looksLikeJsonBlob } from '../../utils/learnGraph';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
 import { LearnGraphCanvas } from './LearnGraphCanvas';
@@ -22,6 +27,14 @@ interface LearnWorkbenchProps {
   onAskAboutFileConsumed?: () => void;
 }
 
+const DEFAULT_GRAPH_PANE_PCT = 58;
+const MIN_GRAPH_PANE_PCT = 20;
+const MAX_GRAPH_PANE_PCT = 85;
+
+function clampGraphPanePct(value: number): number {
+  return Math.min(MAX_GRAPH_PANE_PCT, Math.max(MIN_GRAPH_PANE_PCT, value));
+}
+
 export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   repoPath,
   repoName,
@@ -33,7 +46,52 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   const session = useLearnSession(repoPath, aiConfig, headHash);
   const [draft, setDraft] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [graphPanePct, setGraphPanePct] = useState(() => {
+    const raw = storage.get(STORAGE_KEYS.learnGraphPanePct);
+    const stored = raw === null ? Number.NaN : Number(raw);
+    return Number.isFinite(stored)
+      ? clampGraphPanePct(stored)
+      : DEFAULT_GRAPH_PANE_PCT;
+  });
+  const [isGraphPaneOpen, setIsGraphPaneOpen] = useState(
+    () => storage.get(STORAGE_KEYS.learnGraphPaneOpen) !== 'false'
+  );
+  const [isDetailsPaneOpen, setIsDetailsPaneOpen] = useState(
+    () => storage.get(STORAGE_KEYS.learnDetailsPaneOpen) !== 'false'
+  );
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
+  const splitDraggingRef = useRef(false);
+  const graphPanePctRef = useRef(graphPanePct);
+  graphPanePctRef.current = graphPanePct;
   const plainError = session.error?.replace(/^#+\s*/, '').replace(/\*\*/g, '');
+
+  const toggleGraphPane = useCallback(() => {
+    setIsGraphPaneOpen((open) => {
+      storage.set(STORAGE_KEYS.learnGraphPaneOpen, String(!open));
+      return !open;
+    });
+  }, []);
+
+  const toggleDetailsPane = useCallback(() => {
+    setIsDetailsPaneOpen((open) => {
+      storage.set(STORAGE_KEYS.learnDetailsPaneOpen, String(!open));
+      return !open;
+    });
+  }, []);
+
+  const finishSplitDrag = useCallback(() => {
+    if (!splitDraggingRef.current) return;
+    splitDraggingRef.current = false;
+    document.body.classList.remove('learn-row-splitting');
+    storage.set(STORAGE_KEYS.learnGraphPanePct, String(Math.round(graphPanePctRef.current)));
+  }, []);
+
+  useEffect(
+    () => () => {
+      document.body.classList.remove('learn-row-splitting');
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (!askAboutFile) return;
@@ -99,18 +157,60 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => session.startBriefing(true)}
-          disabled={session.isStreaming}
-          className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${session.isStreaming ? 'animate-spin' : ''}`} />
-          重新分析
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            aria-pressed={isGraphPaneOpen}
+            title={isGraphPaneOpen ? '关闭上方图谱' : '打开上方图谱'}
+            onClick={toggleGraphPane}
+            className={`h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] transition ${
+              isGraphPaneOpen
+                ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                : 'border-white/10 bg-white/[0.03] text-slate-500 hover:text-slate-200'
+            }`}
+          >
+            {isGraphPaneOpen ? (
+              <PanelTopClose className="w-3.5 h-3.5" />
+            ) : (
+              <PanelTopOpen className="w-3.5 h-3.5" />
+            )}
+            {isGraphPaneOpen ? '收起图谱' : '展开图谱'}
+          </button>
+          <button
+            type="button"
+            aria-pressed={isDetailsPaneOpen}
+            title={isDetailsPaneOpen ? '关闭下方讲解' : '打开下方讲解'}
+            onClick={toggleDetailsPane}
+            className={`h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] transition ${
+              isDetailsPaneOpen
+                ? 'border-purple-500/30 bg-purple-500/10 text-purple-200'
+                : 'border-white/10 bg-white/[0.03] text-slate-500 hover:text-slate-200'
+            }`}
+          >
+            {isDetailsPaneOpen ? (
+              <PanelBottomClose className="w-3.5 h-3.5" />
+            ) : (
+              <PanelBottomOpen className="w-3.5 h-3.5" />
+            )}
+            {isDetailsPaneOpen ? '收起讲解' : '展开讲解'}
+          </button>
+          <button
+            type="button"
+            onClick={() => session.startBriefing(true)}
+            disabled={session.isStreaming}
+            className="h-7 px-1.5 text-[11px] text-slate-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${session.isStreaming ? 'animate-spin' : ''}`} />
+            重新分析
+          </button>
+        </div>
       </div>
 
-      <div className="h-[58%] min-h-[360px] shrink-0 border-b border-white/10 relative">
+      <div ref={splitContainerRef} className="flex-1 min-h-0 flex flex-col">
+      <div
+        className={isGraphPaneOpen ? `min-h-0 relative ${isDetailsPaneOpen ? 'shrink-0' : 'flex-1'}` : 'hidden'}
+        style={isDetailsPaneOpen ? { height: `${graphPanePct}%` } : undefined}
+      >
         {session.graph?.communities.length ? (
           <LearnGraphCanvas
             graph={session.graph}
@@ -141,6 +241,56 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         )}
       </div>
 
+      {isGraphPaneOpen && isDetailsPaneOpen && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-valuenow={Math.round(graphPanePct)}
+          aria-valuemin={MIN_GRAPH_PANE_PCT}
+          aria-valuemax={MAX_GRAPH_PANE_PCT}
+          title="拖动调整图谱与讲解高度 · 双击恢复默认"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            splitDraggingRef.current = true;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            document.body.classList.add('learn-row-splitting');
+          }}
+          onPointerMove={(e) => {
+            if (!splitDraggingRef.current) return;
+            const rect = splitContainerRef.current?.getBoundingClientRect();
+            if (!rect || rect.height <= 0) return;
+            const value = clampGraphPanePct(((e.clientY - rect.top) / rect.height) * 100);
+            graphPanePctRef.current = value;
+            setGraphPanePct(value);
+          }}
+          onPointerUp={finishSplitDrag}
+          onPointerCancel={finishSplitDrag}
+          onKeyDown={(e) => {
+            let next: number | null = null;
+            if (e.key === 'ArrowUp') next = graphPanePct - 2;
+            else if (e.key === 'ArrowDown') next = graphPanePct + 2;
+            else if (e.key === 'Home') next = MIN_GRAPH_PANE_PCT;
+            else if (e.key === 'End') next = MAX_GRAPH_PANE_PCT;
+            if (next === null) return;
+            e.preventDefault();
+            const value = clampGraphPanePct(next);
+            graphPanePctRef.current = value;
+            setGraphPanePct(value);
+            storage.set(STORAGE_KEYS.learnGraphPanePct, String(Math.round(value)));
+          }}
+          onDoubleClick={() => {
+            graphPanePctRef.current = DEFAULT_GRAPH_PANE_PCT;
+            setGraphPanePct(DEFAULT_GRAPH_PANE_PCT);
+            storage.set(STORAGE_KEYS.learnGraphPanePct, String(DEFAULT_GRAPH_PANE_PCT));
+          }}
+          tabIndex={0}
+          className="h-2 shrink-0 cursor-row-resize relative z-20 group/split bg-white/[0.025] hover:bg-purple-500/20 active:bg-purple-500/30"
+        >
+          <div className="absolute inset-x-0 top-1/2 -mt-px h-px bg-white/10 group-hover/split:bg-purple-400" />
+        </div>
+      )}
+
+      <div className={isDetailsPaneOpen ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         {(selectedNode || selectedCommunity) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -288,6 +438,14 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           <Send className="w-3.5 h-3.5" />
         </button>
       </form>
+      </div>
+
+      {!isGraphPaneOpen && !isDetailsPaneOpen && (
+        <div className="flex-1 min-h-0 flex items-center justify-center text-xs text-slate-500">
+          图谱和讲解均已关闭，可从右上角重新打开。
+        </div>
+      )}
+      </div>
     </div>
   );
 };
