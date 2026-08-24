@@ -34,6 +34,19 @@ interface CommunityBox {
   height: number;
 }
 
+interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+interface CurvedEdgeGeometry {
+  start: ScreenPoint;
+  control: ScreenPoint;
+  end: ScreenPoint;
+  midpoint: ScreenPoint;
+  endAngle: number;
+}
+
 type GraphDensity = 'simple' | 'rich';
 
 const MIN_ZOOM = 0.01;
@@ -86,6 +99,67 @@ const EDGE_COLOR: Record<string, string> = {
   references: 'rgba(255,255,255,0.10)',
 };
 
+const EDGE_LABEL: Record<string, string> = {
+  calls: '调用',
+  imports: '导入',
+  inherits: '继承',
+  references: '引用',
+};
+
+const curvedEdgeGeometry = (
+  sourceId: string,
+  targetId: string,
+  source: ScreenPoint,
+  target: ScreenPoint,
+  sourceRadius: number,
+  targetRadius: number
+): CurvedEdgeGeometry | null => {
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  if (distance < 1) return null;
+  const pairKey = sourceId < targetId
+    ? `${sourceId}|${targetId}`
+    : `${targetId}|${sourceId}`;
+  let hash = 0;
+  for (let index = 0; index < pairKey.length; index++) {
+    hash = ((hash << 5) - hash + pairKey.charCodeAt(index)) | 0;
+  }
+  const bendDirection = (hash & 1) === 0 ? 1 : -1;
+  const bendRatio = 0.08 + (Math.abs(hash >> 1) % 5) * 0.03;
+  const bend = Math.min(64, Math.max(7, distance * bendRatio)) * bendDirection;
+  const normalX = -dy / distance;
+  const normalY = dx / distance;
+  const control = {
+    x: (source.x + target.x) / 2 + normalX * bend,
+    y: (source.y + target.y) / 2 + normalY * bend,
+  };
+  const startDx = control.x - source.x;
+  const startDy = control.y - source.y;
+  const startDistance = Math.sqrt(startDx * startDx + startDy * startDy) || 1;
+  const endDx = target.x - control.x;
+  const endDy = target.y - control.y;
+  const endDistance = Math.sqrt(endDx * endDx + endDy * endDy) || 1;
+  const start = {
+    x: source.x + (startDx / startDistance) * sourceRadius,
+    y: source.y + (startDy / startDistance) * sourceRadius,
+  };
+  const end = {
+    x: target.x - (endDx / endDistance) * targetRadius,
+    y: target.y - (endDy / endDistance) * targetRadius,
+  };
+  return {
+    start,
+    control,
+    end,
+    midpoint: {
+      x: start.x * 0.25 + control.x * 0.5 + end.x * 0.25,
+      y: start.y * 0.25 + control.y * 0.5 + end.y * 0.25,
+    },
+    endAngle: Math.atan2(end.y - control.y, end.x - control.x),
+  };
+};
+
 export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   graph,
   selectedNodeId,
@@ -109,7 +183,6 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   const routeSetRef = useRef('');
   const rafRef = useRef(0);
   const ticksRef = useRef(0);
-  const neighborRef = useRef<Set<string>>(new Set());
 
   const activeRoute = useMemo(
     () => graph.businessRoutes.find((route) => route.id === activeRouteId) || null,
@@ -269,13 +342,23 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       ids.add(bridge.target);
     }
     for (const id of businessCoreNodeIds) ids.add(id);
-    if (selectedNodeId) ids.add(selectedNodeId);
+    if (selectedNodeId) {
+      ids.add(selectedNodeId);
+      for (const edge of graph.edges) {
+        if (edge.relation !== 'calls') continue;
+        if (edge.source === selectedNodeId || edge.target === selectedNodeId) {
+          ids.add(edge.source);
+          ids.add(edge.target);
+        }
+      }
+    }
     for (const id of searchHit || []) ids.add(id);
     return ids;
   }, [
     activityNodeIds,
     graph.bridges,
     graph.communities,
+    graph.edges,
     graph.nodes,
     businessCoreNodeIds,
     searchHit,
@@ -517,18 +600,6 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   }, [activeRouteNodeIds, hidden, layoutKey, routeFocusActive]);
 
   useEffect(() => {
-    const nbs = new Set<string>();
-    if (selectedNodeId) {
-      nbs.add(selectedNodeId);
-      for (const e of graph.edges) {
-        if (e.source === selectedNodeId) nbs.add(e.target);
-        if (e.target === selectedNodeId) nbs.add(e.source);
-      }
-    }
-    neighborRef.current = nbs;
-  }, [graph.edges, selectedNodeId]);
-
-  useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -666,9 +737,37 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
 
       const hiddenComms = hidden;
       const selected = selectedNodeId;
-      const neighbors = neighborRef.current;
+      const focusedNodeId = hoverRef.current || selected;
+      const focusedNeighbors = new Set<string>();
+      if (focusedNodeId) {
+        focusedNeighbors.add(focusedNodeId);
+        for (const edge of visibleEdges) {
+          if (edge.source === focusedNodeId) focusedNeighbors.add(edge.target);
+          if (edge.target === focusedNodeId) focusedNeighbors.add(edge.source);
+        }
+      }
       const byId = new Map(sim.map((n) => [n.id, n]));
       const communityById = new Map(graph.communities.map((community) => [community.id, community]));
+      const drawArrowHead = (
+        point: ScreenPoint,
+        angle: number,
+        size: number,
+        color: string
+      ) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(point.x, point.y);
+        ctx.lineTo(
+          point.x - size * Math.cos(angle - Math.PI / 6),
+          point.y - size * Math.sin(angle - Math.PI / 6)
+        );
+        ctx.lineTo(
+          point.x - size * Math.cos(angle + Math.PI / 6),
+          point.y - size * Math.sin(angle + Math.PI / 6)
+        );
+        ctx.closePath();
+        ctx.fill();
+      };
 
       for (const box of communityBoxesRef.current) {
         if (hiddenComms.has(box.id)) continue;
@@ -700,7 +799,6 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.globalAlpha = 1;
       }
 
-      ctx.lineWidth = 1;
       for (const e of visibleEdges) {
         const a = byId.get(e.source);
         const b = byId.get(e.target);
@@ -708,14 +806,74 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         if (hiddenComms.has(a.communityId) || hiddenComms.has(b.communityId)) continue;
         const pa = toScreen(a.x, a.y);
         const pb = toScreen(b.x, b.y);
-        const hot =
-          selected && (e.source === selected || e.target === selected);
-        ctx.strokeStyle = hot ? 'rgba(251,191,36,0.7)' : EDGE_COLOR[e.relation] || EDGE_COLOR.references;
-        ctx.globalAlpha = routeFocusActive ? (hot ? 0.5 : 0.15) : selected && !hot ? 0.18 : 1;
+        const geometry = curvedEdgeGeometry(
+          e.source,
+          e.target,
+          pa,
+          pb,
+          a.r * Math.sqrt(cam.k) + 2,
+          b.r * Math.sqrt(cam.k) + 5
+        );
+        if (!geometry) continue;
+        const outgoing = Boolean(focusedNodeId && e.source === focusedNodeId);
+        const incoming = Boolean(focusedNodeId && e.target === focusedNodeId);
+        const hot = outgoing || incoming;
+        const edgeColor = outgoing
+          ? 'rgba(52,211,153,1)'
+          : incoming
+            ? 'rgba(56,189,248,1)'
+            : EDGE_COLOR[e.relation] || EDGE_COLOR.references;
+        ctx.strokeStyle = edgeColor;
+        ctx.lineWidth = hot ? 2.4 : 1;
+        ctx.setLineDash(
+          e.relation === 'imports'
+            ? [6, 4]
+            : e.relation === 'references'
+              ? [2, 4]
+              : e.relation === 'inherits'
+                ? [9, 4]
+                : []
+        );
+        ctx.globalAlpha = routeFocusActive
+          ? (hot ? 0.9 : 0.13)
+          : focusedNodeId && !hot
+            ? 0.08
+            : 1;
         ctx.beginPath();
-        ctx.moveTo(pa.x, pa.y);
-        ctx.lineTo(pb.x, pb.y);
+        ctx.moveTo(geometry.start.x, geometry.start.y);
+        ctx.quadraticCurveTo(
+          geometry.control.x,
+          geometry.control.y,
+          geometry.end.x,
+          geometry.end.y
+        );
         ctx.stroke();
+        ctx.setLineDash([]);
+
+        if (density === 'simple' || hot || cam.k >= 0.85) {
+          drawArrowHead(geometry.end, geometry.endAngle, hot ? 8 : 5.5, edgeColor);
+        }
+
+        if (hot) {
+          const relation = EDGE_LABEL[e.relation] || e.relation;
+          const edgeLabel = outgoing
+            ? `出 · ${relation} · ${b.label}`
+            : `入 · ${a.label} · ${relation}`;
+          ctx.globalAlpha = 1;
+          ctx.font = '700 10px ui-sans-serif, system-ui';
+          const labelWidth = ctx.measureText(edgeLabel).width;
+          const screenDistance = Math.sqrt(
+            (pb.x - pa.x) * (pb.x - pa.x) + (pb.y - pa.y) * (pb.y - pa.y)
+          );
+          if (screenDistance > labelWidth + 42) {
+            const labelX = geometry.midpoint.x - labelWidth / 2;
+            const labelY = geometry.midpoint.y - 6;
+            ctx.fillStyle = 'rgba(3,7,18,0.9)';
+            ctx.fillRect(labelX - 4, labelY - 10, labelWidth + 8, 16);
+            ctx.fillStyle = outgoing ? '#a7f3d0' : '#bae6fd';
+            ctx.fillText(edgeLabel, labelX, labelY + 2);
+          }
+        }
         ctx.globalAlpha = 1;
       }
 
@@ -736,47 +894,39 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           if (hiddenComms.has(previous.communityId) || hiddenComms.has(current.communityId)) continue;
           const from = toScreen(previous.x, previous.y);
           const to = toScreen(current.x, current.y);
-          const dx = to.x - from.x;
-          const dy = to.y - from.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance < 1) continue;
-          const ux = dx / distance;
-          const uy = dy / distance;
-          const fromRadius = previous.r * Math.sqrt(cam.k) + 3;
-          const toRadius = current.r * Math.sqrt(cam.k) + 5;
-          const startX = from.x + ux * fromRadius;
-          const startY = from.y + uy * fromRadius;
-          const endX = to.x - ux * toRadius;
-          const endY = to.y - uy * toRadius;
+          const geometry = curvedEdgeGeometry(
+            previousId,
+            currentId,
+            from,
+            to,
+            previous.r * Math.sqrt(cam.k) + 4,
+            current.r * Math.sqrt(cam.k) + 7
+          );
+          if (!geometry) continue;
           ctx.strokeStyle = 'rgba(3,7,18,0.9)';
           ctx.lineWidth = 7;
           ctx.beginPath();
-          ctx.moveTo(startX, startY);
-          ctx.lineTo(endX, endY);
+          ctx.moveTo(geometry.start.x, geometry.start.y);
+          ctx.quadraticCurveTo(
+            geometry.control.x,
+            geometry.control.y,
+            geometry.end.x,
+            geometry.end.y
+          );
           ctx.stroke();
 
           ctx.strokeStyle = 'rgba(52,211,153,1)';
           ctx.lineWidth = 3.5;
           ctx.beginPath();
-          ctx.moveTo(startX, startY);
-          ctx.lineTo(endX, endY);
+          ctx.moveTo(geometry.start.x, geometry.start.y);
+          ctx.quadraticCurveTo(
+            geometry.control.x,
+            geometry.control.y,
+            geometry.end.x,
+            geometry.end.y
+          );
           ctx.stroke();
-
-          const angle = Math.atan2(dy, dx);
-          const arrowSize = 8;
-          ctx.fillStyle = 'rgba(52,211,153,1)';
-          ctx.beginPath();
-          ctx.moveTo(endX, endY);
-          ctx.lineTo(
-            endX - arrowSize * Math.cos(angle - Math.PI / 6),
-            endY - arrowSize * Math.sin(angle - Math.PI / 6)
-          );
-          ctx.lineTo(
-            endX - arrowSize * Math.cos(angle + Math.PI / 6),
-            endY - arrowSize * Math.sin(angle + Math.PI / 6)
-          );
-          ctx.closePath();
-          ctx.fill();
+          drawArrowHead(geometry.end, geometry.endAngle, 9, 'rgba(52,211,153,1)');
         }
       }
 
@@ -786,15 +936,16 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         const p = toScreen(n.x, n.y);
         const r = n.r * Math.sqrt(cam.k);
         const isSel = n.id === selected;
-        const isNb = neighbors.has(n.id);
+        const isNb = focusedNeighbors.has(n.id);
         const isHover = n.id === hoverRef.current;
         const isBusinessCore = businessCoreNodeIds.has(n.id);
         const isActiveRoute = activeRouteNodeIds.has(n.id);
         const commSel = selectedCommunityId && n.communityId === selectedCommunityId;
+        const inFocusedNeighborhood = Boolean(focusedNodeId && isNb);
         const dim = Boolean(
-          (selected && !isNb) ||
-          (selectedCommunityId && !commSel) ||
-          (routeFocusActive && !isActiveRoute)
+          (focusedNodeId && !isNb) ||
+          (selectedCommunityId && !commSel && !inFocusedNeighborhood) ||
+          (routeFocusActive && !isActiveRoute && !inFocusedNeighborhood)
         );
         const hitSearch = searchHit?.has(n.id);
         ctx.globalAlpha = dim && !hitSearch ? (routeFocusActive ? 0.34 : 0.22) : 1;
@@ -820,6 +971,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         }
         const label =
           isSel || isHover || hitSearch || isActiveRoute ||
+          (focusedNodeId && isNb) ||
           (!routeFocusActive && isBusinessCore) || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
         if (label) {
           const labelSize = isSel || isHover || (isActiveRoute && routeFocusActive) ? 12 : 10;
@@ -873,6 +1025,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     activeRouteStepNumbers,
     graph.businessRoutes,
     graph.communities,
+    density,
     hidden,
     maxDegree,
     activeRouteNodeIds,
@@ -961,7 +1114,32 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     dragRef.current = null;
   };
 
-  const hovered = hover ? graph.nodes.find((n) => n.id === hover) : null;
+  const onPointerLeave = () => {
+    if (dragRef.current) return;
+    hoverRef.current = null;
+    setHover(null);
+  };
+
+  const focusedDetailsNodeId = hover || selectedNodeId;
+  const focusedDetailsNode = focusedDetailsNodeId
+    ? graph.nodes.find((node) => node.id === focusedDetailsNodeId) || null
+    : null;
+  const outgoingConnections = focusedDetailsNodeId
+    ? visibleEdges
+      .filter((edge) => edge.source === focusedDetailsNodeId)
+      .map((edge) => ({
+        edge,
+        node: graph.nodes.find((node) => node.id === edge.target),
+      }))
+    : [];
+  const incomingConnections = focusedDetailsNodeId
+    ? visibleEdges
+      .filter((edge) => edge.target === focusedDetailsNodeId)
+      .map((edge) => ({
+        edge,
+        node: graph.nodes.find((node) => node.id === edge.source),
+      }))
+    : [];
 
   const fitToView = () => {
     const wrap = wrapRef.current;
@@ -982,6 +1160,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerLeave}
         onAuxClick={(e) => e.preventDefault()}
       />
       <div className="absolute top-2 left-2 right-2 flex flex-wrap items-center gap-1.5 pointer-events-none">
@@ -1116,15 +1295,32 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         {routeFocusActive && activeRoute
           ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步已映射`
           : ' · 社区总览'}
-        <span className="ml-2 text-slate-600">滚轮缩放 · 中键拖动画布 · 左键选择节点</span>
+        <span className="ml-2 text-slate-600">滚轮缩放 · 中键拖动画布 · 悬停看方向 · 左键固定节点</span>
       </div>
-      {hovered && (
-        <div className="absolute bottom-2 right-2 max-w-[240px] bg-black/70 border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 pointer-events-none">
-          <div className="font-semibold text-slate-100">{hovered.label}</div>
+      {focusedDetailsNode && (
+        <div className="absolute bottom-2 right-2 max-w-[320px] bg-black/80 border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-slate-200 pointer-events-none">
+          <div className="font-semibold text-slate-100">{focusedDetailsNode.label}</div>
           <div className="text-slate-400">
-            {hovered.kind} · 度 {hovered.degree}
-            {hovered.file ? ` · ${hovered.file}` : ''}
+            {focusedDetailsNode.kind} · 度 {focusedDetailsNode.degree}
+            {focusedDetailsNode.file ? ` · ${focusedDetailsNode.file}` : ''}
           </div>
+          <div className="mt-1 flex gap-3 text-[10px]">
+            <span className="text-emerald-300">绿色出边 {outgoingConnections.length}</span>
+            <span className="text-sky-300">蓝色入边 {incomingConnections.length}</span>
+          </div>
+          {outgoingConnections.slice(0, 5).map(({ edge, node }) => (
+            <div key={`out:${edge.source}:${edge.target}:${edge.relation}`} className="truncate text-[10px] text-emerald-100/80">
+              → {EDGE_LABEL[edge.relation] || edge.relation} · {node?.label || edge.target}
+            </div>
+          ))}
+          {incomingConnections.slice(0, 5).map(({ edge, node }) => (
+            <div key={`in:${edge.source}:${edge.target}:${edge.relation}`} className="truncate text-[10px] text-sky-100/80">
+              ← {EDGE_LABEL[edge.relation] || edge.relation} · {node?.label || edge.source}
+            </div>
+          ))}
+          {outgoingConnections.length + incomingConnections.length > 10 && (
+            <div className="text-[10px] text-slate-500">其余连接继续沿高亮曲线查看</div>
+          )}
         </div>
       )}
     </div>
