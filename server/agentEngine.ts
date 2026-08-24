@@ -12,6 +12,7 @@ import {
   FALLBACK_MODEL,
   MISSING_API_KEY_MESSAGE,
   openRouterHeaders,
+  requiresDeepSeekReasoningRoundTrip,
   resolveProvider,
 } from './config/providers';
 import { SseStream } from './http/sse';
@@ -226,34 +227,57 @@ export class CodexAgentEngine {
     let accumulatedContent = '';
     let lastTurnContent = '';
     let accumulatedReasoningContent = '';
+    const completedReasoningTurns: string[] = [];
+    let currentReasoningTurn = '';
     let actionCount = 0;
     let hitMaxTurns = false;
     let outputTruncated = false;
 
-    // DeepSeek Reasoner requires the reasoning produced by each assistant
-    // message when that message is replayed for a continuation request.
-    const isNativeDeepSeekReasoner =
-      (provider.provider === 'deepseek' || provider.baseUrl.includes('deepseek.com')) &&
-      (provider.model || '').toLowerCase().includes('reasoner');
+    const requiresReasoningRoundTrip = requiresDeepSeekReasoningRoundTrip(provider);
 
     try {
-      // DeepSeek's reasoner rejects assistant turns that lack `reasoning_content`
-      // on subsequent tool-loop requests, so replay what we have seen so far.
-      // Strictly scoped to that model: other providers reject the extra field.
+      // The Agents SDK drops DeepSeek's `reasoning_content` from replay history.
+      // Reattach the raw value captured for each completed model turn whenever
+      // the next Chat Completions request still carries tools.
       const customFetch: typeof fetch = async (input, init) => {
-        if (isNativeDeepSeekReasoner && typeof init?.body === 'string') {
+        if (requiresReasoningRoundTrip && typeof init?.body === 'string') {
+          let parsedBody: any = null;
           try {
-            const parsedBody = JSON.parse(init.body);
-            if (Array.isArray(parsedBody.messages)) {
-              for (const msg of parsedBody.messages) {
-                if (msg.role === 'assistant' && msg.reasoning_content === undefined) {
-                  msg.reasoning_content = accumulatedReasoningContent || '';
-                }
-              }
-              init = { ...init, body: JSON.stringify(parsedBody) };
-            }
+            parsedBody = JSON.parse(init.body);
           } catch {
-            // Leave the body untouched if it is not the JSON we expected.
+            // Non-JSON requests are unrelated to Chat Completions.
+          }
+          if (
+            parsedBody &&
+            Array.isArray(parsedBody.messages) &&
+            Array.isArray(parsedBody.tools) &&
+            parsedBody.tools.length > 0
+          ) {
+            let reasoningIndex = 0;
+            let reasoningForTurn: string | undefined;
+            let insideAssistantTurn = false;
+            for (const msg of parsedBody.messages) {
+              if (msg.role === 'tool') {
+                insideAssistantTurn = false;
+                continue;
+              }
+              if (msg.role !== 'assistant') continue;
+              if (!insideAssistantTurn) {
+                // The SDK may split one response into consecutive assistant
+                // content and tool-call messages; both belong to this turn.
+                reasoningForTurn = completedReasoningTurns[reasoningIndex++];
+                insideAssistantTurn = true;
+              }
+              const reasoning = msg.reasoning_content ?? msg.reasoning ?? reasoningForTurn;
+              if (typeof reasoning !== 'string') {
+                throw new Error(
+                  'DeepSeek thinking 工具续轮缺少上一轮 reasoning_content，已停止发送无效请求'
+                );
+              }
+              msg.reasoning_content = reasoning;
+              delete msg.reasoning;
+            }
+            init = { ...init, body: JSON.stringify(parsedBody) };
           }
         }
         // Propagate client disconnects down to the provider connection.
@@ -360,6 +384,7 @@ export class CodexAgentEngine {
             const reasoningChunk = extractReasoningDelta(delta);
 
             if (reasoningChunk) {
+              currentReasoningTurn += reasoningChunk;
               accumulatedReasoningContent += reasoningChunk;
               stream.send({ type: 'thought', text: reasoningChunk });
               stream.send({
@@ -369,6 +394,10 @@ export class CodexAgentEngine {
                   .slice(-80)
                   .replace(/\n/g, ' ')}...`,
               });
+            }
+            if (requiresReasoningRoundTrip && choice?.finish_reason) {
+              completedReasoningTurns.push(currentReasoningTurn);
+              currentReasoningTurn = '';
             }
             if (delta?.content) {
               accumulatedContent += delta.content;
@@ -417,7 +446,7 @@ export class CodexAgentEngine {
           hasPartialContent: accumulatedContent.length > 0,
           contextChars,
           truncatedDraft: outputTruncated ? lastTurnContent || accumulatedContent : undefined,
-          preserveReasoningOnAssistant: isNativeDeepSeekReasoner,
+          preserveReasoningOnAssistant: requiresReasoningRoundTrip,
           onReasoning: (chunk) => {
             accumulatedReasoningContent += chunk;
           },

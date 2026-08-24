@@ -80,5 +80,18 @@ export function extractReasoningDelta(delta: Record<string, any> | undefined | n
   return delta.reasoning_content || delta.reasoning || delta.thought || delta.thinking || '';
 }
 
+/** DeepSeek thinking models that require per-turn reasoning replay when tools are present. */
+export function requiresDeepSeekReasoningRoundTrip(
+  provider: Pick<ResolvedProvider, 'provider' | 'baseUrl' | 'model'>
+): boolean {
+  const model = provider.model.toLowerCase();
+  const isDeepSeek =
+    provider.provider === 'deepseek' ||
+    provider.baseUrl.toLowerCase().includes('deepseek') ||
+    model.includes('deepseek');
+  const isV4 = /(?:^|[/_-])(?:deepseek|ds)[_-]?v4(?:$|[/_.-])/.test(model);
+  return isV4 || (isDeepSeek && model.includes('reasoner'));
+}
+
 export const MISSING_API_KEY_MESSAGE =
   '### ⚠️ 未检测到 API Key\n请在右上角 **「⚙️ AI 引擎配置」** 中填入您的 API Key（如 DeepSeek, OpenRouter, OpenAI, Gemini 等）以启用大模型真实解释。';
