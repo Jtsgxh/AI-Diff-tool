@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Brain, FileText, FolderSearch, Search, Terminal, User } from 'lucide-react';
 import type { AgentToolEvent } from '../../types';
+import { formatReasoningForDisplay } from '../../utils/reasoningDisplay';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
 import type { ChatMessage } from './types';
 
@@ -38,6 +39,7 @@ const ToolEventList: React.FC<{ events: AgentToolEvent[] }> = ({ events }) => (
  */
 export const ChatMessageItem = React.memo<{ msg: ChatMessage }>(({ msg }) => {
   const isAssistant = msg.role === 'assistant';
+  const reasoningDisplay = formatReasoningForDisplay(msg.reasoning || '');
 
   return (
     <div className={`flex items-start space-x-2.5 ${isAssistant ? 'justify-start' : 'justify-end'}`}>
@@ -60,12 +62,18 @@ export const ChatMessageItem = React.memo<{ msg: ChatMessage }>(({ msg }) => {
               <summary className="flex items-center justify-between px-3 py-1.5 bg-purple-950/40 cursor-pointer select-none text-purple-300 hover:text-purple-200 hover:bg-purple-900/40 transition">
                 <div className="flex items-center space-x-1.5 font-medium text-[11px]">
                   <Brain className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                  <span>思考过程 ({msg.reasoning.length} 字符)</span>
+                  <span>
+                    思考过程 ({reasoningDisplay.text.length} 字符
+                    {reasoningDisplay.hiddenExplorationBlocks > 0
+                      ? `，已隐藏 ${reasoningDisplay.hiddenExplorationBlocks} 段源码载荷`
+                      : ''}
+                    )
+                  </span>
                 </div>
                 <span className="text-[10px] text-purple-400 group-open:hidden">点击展开</span>
               </summary>
               <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0E0D17] text-[11px] font-mono text-slate-300 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
-                {msg.reasoning}
+                {reasoningDisplay.text}
               </div>
             </details>
           </div>

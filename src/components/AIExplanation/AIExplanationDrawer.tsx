@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -16,6 +16,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { AIProviderConfig } from '../../types';
+import { formatReasoningForDisplay } from '../../utils/reasoningDisplay';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
 import { Accordion } from './Accordion';
 import { ChatMessageItem } from './ChatMessageItem';
@@ -63,8 +64,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   } = useReviewSessions(repoPath, aiConfig);
 
   const [copied, setCopied] = useState(false);
-  const [isTrailExpanded, setIsTrailExpanded] = useState(true);
-  const [isThinkingExpanded, setIsThinkingExpanded] = useState(true);
+  const [isTrailExpanded, setIsTrailExpanded] = useState(false);
+  const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
   const [isBatchExpanded, setIsBatchExpanded] = useState(true);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -131,6 +132,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
   }, [activeSession]);
 
   const batchInfo = activeSession?.scope.batchInfo;
+  const initialReasoningDisplay = useMemo(
+    () => formatReasoningForDisplay(activeSession?.initialReasoning || ''),
+    [activeSession?.initialReasoning]
+  );
+  const followUpReasoningDisplay = useMemo(
+    () => formatReasoningForDisplay(activeSession?.currentFollowUpReasoning || ''),
+    [activeSession?.currentFollowUpReasoning]
+  );
   const hasFollowUpActivity =
     !!activeSession &&
     (activeSession.chatHistory.length > 0 ||
@@ -318,10 +327,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                     }`}
                   />
                 }
-                title="初始审查深度思维推理链 (Thinking Process)"
+                title="模型分析过程 (Thinking)"
                 badge={
                   <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px]">
-                    {activeSession.initialReasoning.length} 字符
+                    {initialReasoningDisplay.text.length} 字符
+                    {initialReasoningDisplay.hiddenExplorationBlocks > 0
+                      ? ` · 已隐藏 ${initialReasoningDisplay.hiddenExplorationBlocks} 段源码载荷`
+                      : ''}
                   </span>
                 }
                 isOpen={isThinkingExpanded}
@@ -334,7 +346,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                   text: 'text-purple-200',
                 }}
               >
-                {activeSession.initialReasoning}
+                {initialReasoningDisplay.text}
               </Accordion>
             )}
 
@@ -389,12 +401,12 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                               <div className="flex items-center space-x-1.5 font-medium text-[11px]">
                                 <Brain className="w-3.5 h-3.5 text-amber-300 animate-pulse shrink-0" />
                                 <span>
-                                  正在思考追问... ({activeSession.currentFollowUpReasoning.length} 字符)
+                                  正在思考追问... ({followUpReasoningDisplay.text.length} 字符)
                                 </span>
                               </div>
                             </div>
                             <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0E0D17] text-[11px] font-mono text-purple-200/90 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
-                              {activeSession.currentFollowUpReasoning}
+                              {followUpReasoningDisplay.text}
                             </div>
                           </div>
                         )}

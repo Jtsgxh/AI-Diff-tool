@@ -404,12 +404,14 @@ export function buildSynthesisPrompt(
           `【探查结果 #${idx + 1} (${log.name} 参数: ${JSON.stringify(log.args)})】:\n${log.output}`
       )
       .join('\n\n');
+    const evidenceRule =
+      '以下探查结果是内部证据。禁止在 reasoning_content 或正文中逐段复述参数、源码和工具返回；只提炼与结论有关的文件、符号、调用关系和风险。';
 
     body = isFollowUp
-      ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`
+      ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`
       : isLearn
-        ? `【探查阶段已结束】已在代码库中核实以下源码与调用上下文：\n\n${contextSummary}\n\n请从真实入口、调用、数据和状态变化中提炼主要业务路线。严格按照系统规定，先输出包含 businessRoutes 数组的 learn-graph 机器数据，再输出正文；没有证据完整的路线时输出空数组。`
-        : `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`;
+        ? `【探查阶段已结束】已在代码库中核实以下源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n请从真实入口、调用、数据和状态变化中提炼主要业务路线。严格按照系统规定，先输出包含 businessRoutes 数组的 learn-graph 机器数据，再输出正文；没有证据完整的路线时输出空数组。`
+        : `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`;
   }
 
   const draft = extra?.truncatedDraft?.trim();
