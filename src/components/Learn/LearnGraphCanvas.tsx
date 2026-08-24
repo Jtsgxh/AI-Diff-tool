@@ -26,8 +26,20 @@ interface Camera {
   k: number;
 }
 
+interface CommunityBox {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const MIN_ZOOM = 0.01;
-const NODE_SPACING = 56;
+const NODE_SPACING = 52;
+const COMMUNITY_GAP = 40;
+const COMMUNITY_PADDING_X = 48;
+const COMMUNITY_PADDING_TOP = 58;
+const COMMUNITY_PADDING_BOTTOM = 36;
 
 const fitCameraToNodes = (
   nodes: SimNode[],
@@ -45,7 +57,7 @@ const fitCameraToNodes = (
     maxX = Math.max(maxX, node.x + node.r);
     maxY = Math.max(maxY, node.y + node.r);
   }
-  const padding = 48;
+  const padding = 72;
   const graphWidth = Math.max(1, maxX - minX);
   const graphHeight = Math.max(1, maxY - minY);
   const zoom = Math.min(
@@ -82,6 +94,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<SimNode[]>([]);
+  const communityBoxesRef = useRef<CommunityBox[]>([]);
   const camRef = useRef({ x: 0, y: 0, k: 1 });
   const cameraTouchedRef = useRef(false);
   const dragRef = useRef<{ lx: number; ly: number } | null>(null);
@@ -120,8 +133,6 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       1,
       (wrap?.clientWidth || 1600) / Math.max(1, wrap?.clientHeight || 450)
     );
-    const columns = Math.max(1, Math.ceil(Math.sqrt(graph.nodes.length * viewportAspect)));
-    const rows = Math.max(1, Math.ceil(graph.nodes.length / columns));
     const byId = new Map(graph.nodes.map((n) => [n.id, n]));
     const adjacency = new Map<string, string[]>();
     for (const edge of graph.edges) {
@@ -133,48 +144,112 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       if (targetNeighbors) targetNeighbors.push(edge.source);
       else adjacency.set(edge.target, [edge.source]);
     }
-    const ranked = graph.nodes
-      .slice()
-      .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label));
-    const ordered: LearnNode[] = [];
-    const seen = new Set<string>();
-    for (const seed of ranked) {
-      if (seen.has(seed.id)) continue;
-      const queue = [seed.id];
-      seen.add(seed.id);
-      for (let cursor = 0; cursor < queue.length; cursor++) {
-        const id = queue[cursor];
-        const node = byId.get(id);
-        if (node) ordered.push(node);
-        const neighbors = (adjacency.get(id) || [])
-          .filter((neighborId) => !seen.has(neighborId))
-          .sort((a, b) => (byId.get(b)?.degree || 0) - (byId.get(a)?.degree || 0));
-        for (const neighborId of neighbors) {
-          if (seen.has(neighborId)) continue;
-          seen.add(neighborId);
-          queue.push(neighborId);
+    const grouped = new Map<string, LearnNode[]>();
+    for (const node of graph.nodes) {
+      const members = grouped.get(node.communityId);
+      if (members) members.push(node);
+      else grouped.set(node.communityId, [node]);
+    }
+    const entries: [string, LearnNode[]][] = [];
+    for (const community of graph.communities) {
+      const members = grouped.get(community.id);
+      if (!members?.length) continue;
+      entries.push([community.id, members]);
+      grouped.delete(community.id);
+    }
+    entries.push(...grouped.entries());
+
+    const communityRows = Math.max(
+      1,
+      Math.ceil(Math.sqrt(entries.length / viewportAspect))
+    );
+    const communityColumns = Math.max(1, Math.ceil(entries.length / communityRows));
+    const communityAspect = Math.max(
+      1,
+      viewportAspect / Math.max(1, communityColumns / communityRows)
+    );
+
+    const layouts = entries.map(([id, members]) => {
+      const memberIds = new Set(members.map((node) => node.id));
+      const ranked = members
+        .slice()
+        .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label));
+      const ordered: LearnNode[] = [];
+      const seen = new Set<string>();
+      for (const seed of ranked) {
+        if (seen.has(seed.id)) continue;
+        const queue = [seed.id];
+        seen.add(seed.id);
+        for (let cursor = 0; cursor < queue.length; cursor++) {
+          const nodeId = queue[cursor];
+          const node = byId.get(nodeId);
+          if (node) ordered.push(node);
+          const neighbors = (adjacency.get(nodeId) || [])
+            .filter((neighborId) => memberIds.has(neighborId) && !seen.has(neighborId))
+            .sort((a, b) => (byId.get(b)?.degree || 0) - (byId.get(a)?.degree || 0));
+          for (const neighborId of neighbors) {
+            if (seen.has(neighborId)) continue;
+            seen.add(neighborId);
+            queue.push(neighborId);
+          }
         }
       }
-    }
-    const sim: SimNode[] = ordered.map((n, index) => {
-      const row = Math.floor(index / columns);
-      const offsetInRow = index % columns;
-      const rowSize = Math.min(columns, ordered.length - row * columns);
-      const columnInRow = row % 2 === 0 ? offsetInRow : rowSize - 1 - offsetInRow;
-      const x = (columnInRow - (rowSize - 1) / 2) * NODE_SPACING;
-      const y = (row - (rows - 1) / 2) * NODE_SPACING;
-      return {
-        ...n,
-        x,
-        y,
-        homeX: x,
-        homeY: y,
-        vx: 0,
-        vy: 0,
-        r: 3.5 + 9.5 * Math.sqrt(n.degree / maxD),
-      };
+      const columns = Math.max(1, Math.ceil(Math.sqrt(ordered.length * communityAspect)));
+      const rows = Math.max(1, Math.ceil(ordered.length / columns));
+      return { id, nodes: ordered, columns, rows };
+    });
+
+    const boxWidth =
+      Math.max(0, ...layouts.map((layout) => (layout.columns - 1) * NODE_SPACING)) +
+      COMMUNITY_PADDING_X * 2;
+    const boxHeight =
+      Math.max(0, ...layouts.map((layout) => (layout.rows - 1) * NODE_SPACING)) +
+      COMMUNITY_PADDING_TOP +
+      COMMUNITY_PADDING_BOTTOM;
+    const cellWidth = boxWidth + COMMUNITY_GAP;
+    const cellHeight = boxHeight + COMMUNITY_GAP;
+    const sim: SimNode[] = [];
+    const boxes: CommunityBox[] = [];
+
+    layouts.forEach((layout, communityIndex) => {
+      const communityRow = Math.floor(communityIndex / communityColumns);
+      const columnOffset = communityIndex % communityColumns;
+      const rowSize = Math.min(
+        communityColumns,
+        layouts.length - communityRow * communityColumns
+      );
+      const centerX = (columnOffset - (rowSize - 1) / 2) * cellWidth;
+      const centerY = (communityRow - (communityRows - 1) / 2) * cellHeight;
+      boxes.push({ id: layout.id, x: centerX, y: centerY, width: boxWidth, height: boxHeight });
+
+      layout.nodes.forEach((node, nodeIndex) => {
+        const row = Math.floor(nodeIndex / layout.columns);
+        const offsetInRow = nodeIndex % layout.columns;
+        const rowNodeCount = Math.min(
+          layout.columns,
+          layout.nodes.length - row * layout.columns
+        );
+        const column = row % 2 === 0 ? offsetInRow : rowNodeCount - 1 - offsetInRow;
+        const x = centerX + (column - (rowNodeCount - 1) / 2) * NODE_SPACING;
+        const contentCenterOffset = (COMMUNITY_PADDING_TOP - COMMUNITY_PADDING_BOTTOM) / 2;
+        const y =
+          centerY +
+          (row - (layout.rows - 1) / 2) * NODE_SPACING +
+          contentCenterOffset;
+        sim.push({
+          ...node,
+          x,
+          y,
+          homeX: x,
+          homeY: y,
+          vx: 0,
+          vy: 0,
+          r: 3.5 + 9.5 * Math.sqrt(node.degree / maxD),
+        });
+      });
     });
     simRef.current = sim;
+    communityBoxesRef.current = boxes;
     ticksRef.current = 0;
     cameraTouchedRef.current = false;
     const fitFrame = requestAnimationFrame(() => {
@@ -265,8 +340,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const rest = e.relation === 'contains' ? 88 : 120;
-          const f = alpha * 0.045 * (dist - rest);
+          const sameCommunity = a.communityId === b.communityId;
+          const rest = sameCommunity
+            ? e.relation === 'contains'
+              ? 82
+              : 108
+            : 180;
+          const f = alpha * (sameCommunity ? 0.04 : 0.006) * (dist - rest);
           const fx = (dx / dist) * f;
           const fy = (dy / dist) * f;
           a.vx += fx;
@@ -276,8 +356,8 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         }
 
         for (const n of sim) {
-          n.vx += (n.homeX - n.x) * 0.006;
-          n.vy += (n.homeY - n.y) * 0.006;
+          n.vx += (n.homeX - n.x) * 0.018;
+          n.vy += (n.homeY - n.y) * 0.018;
           n.vx *= 0.72;
           n.vy *= 0.72;
           const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
@@ -333,6 +413,33 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       const selected = selectedNodeId;
       const neighbors = neighborRef.current;
       const byId = new Map(sim.map((n) => [n.id, n]));
+      const communityById = new Map(graph.communities.map((community) => [community.id, community]));
+
+      for (const box of communityBoxesRef.current) {
+        if (hiddenComms.has(box.id)) continue;
+        const topLeft = toScreen(box.x - box.width / 2, box.y - box.height / 2);
+        const width = box.width * cam.k;
+        const height = box.height * cam.k;
+        const dimmed = Boolean(selectedCommunityId && selectedCommunityId !== box.id);
+        const color = communityColor(box.id);
+        ctx.globalAlpha = dimmed ? 0.015 : 0.055;
+        ctx.fillStyle = color;
+        ctx.fillRect(topLeft.x, topLeft.y, width, height);
+        ctx.globalAlpha = dimmed ? 0.08 : 0.32;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = selectedCommunityId === box.id ? 2 : 1;
+        ctx.strokeRect(topLeft.x, topLeft.y, width, height);
+        const community = communityById.get(box.id);
+        ctx.globalAlpha = dimmed ? 0.25 : 0.9;
+        ctx.fillStyle = color;
+        ctx.font = '600 11px ui-sans-serif, system-ui';
+        ctx.fillText(
+          `${community?.label || `社区 ${box.id}`}${community ? ` · ${community.nodeCount}` : ''}`,
+          topLeft.x + 10,
+          topLeft.y + 18
+        );
+        ctx.globalAlpha = 1;
+      }
 
       ctx.lineWidth = 1;
       for (const e of graph.edges) {
