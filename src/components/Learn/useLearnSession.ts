@@ -152,7 +152,7 @@ export function useLearnSession(
   }, [repoPath, headHash, repositoryRevision, cancelInFlight]);
 
   const runAgent = useCallback(
-    async (opts: { userPrompt?: string; filePath?: string; force?: boolean }) => {
+    async (opts: { userPrompt?: string; filePath?: string }) => {
       const config = configRef.current;
       const isFollowUp = Boolean(opts.userPrompt?.trim());
       const base = isFollowUp
@@ -170,23 +170,6 @@ export function useLearnSession(
       }
 
       const cacheKey = cacheKeyForGraph(base);
-
-      if (!isFollowUp && !opts.force) {
-        const cached = aiCache.get(cacheKey);
-        if (cached?.report?.trim()) {
-          const { graph: next, prose } = humanizeLearnReport(cached.report, base);
-          const rejectedRoutes = rejectedRouteLabels(cached.report, next);
-          if (parseLearnOverlay(cached.report) && rejectedRoutes.length === 0) {
-            graphRef.current = next;
-            setGraph(next);
-            setBriefing(prose);
-            setError(null);
-            setSettled(true);
-            return;
-          }
-          aiCache.remove(cacheKey);
-        }
-      }
 
       cancelInFlight();
       setIsStreaming(true);
@@ -314,7 +297,7 @@ export function useLearnSession(
   );
 
   const startBriefing = useCallback(
-    (force = false) => runAgent({ force }),
+    () => runAgent({}),
     [runAgent]
   );
 
@@ -324,9 +307,32 @@ export function useLearnSession(
   );
 
   useEffect(() => {
-    if (!repoPath || !structureReady || structuralPathRef.current !== repoPath) return;
-    startBriefing(false);
-  }, [repoPath, startBriefing, structureReady]);
+    const base = structuralRef.current;
+    if (!repoPath || !structureReady || !base || structuralPathRef.current !== repoPath) return;
+    // Opening the page (or changing source/model/prompt) may restore a matching
+    // report, but must never start an AI request on a cache miss. An explicit
+    // analysis already in flight keeps its own config and completion lifecycle.
+    if (abortRef.current) return;
+    graphRef.current = base;
+    setGraph(base);
+    setBriefing('');
+    setError(null);
+    setSettled(false);
+    const cacheKey = cacheKeyForGraph(base);
+    const cached = aiCache.get(cacheKey);
+    if (!cached?.report?.trim()) return;
+    const { graph: next, prose } = humanizeLearnReport(cached.report, base);
+    const rejectedRoutes = rejectedRouteLabels(cached.report, next);
+    if (!parseLearnOverlay(cached.report) || rejectedRoutes.length > 0) {
+      aiCache.remove(cacheKey);
+      setError('已有分析结果无效或无法绑定到当前类图，请手动开始 AI 分析。');
+      return;
+    }
+    graphRef.current = next;
+    setGraph(next);
+    setBriefing(prose);
+    setSettled(true);
+  }, [repoPath, cacheKeyForGraph, structureReady]);
 
   return {
     overview,

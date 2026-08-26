@@ -648,7 +648,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full bg-[#13141A] border border-white/10 rounded-lg p-3 text-slate-200 text-xs focus:outline-none focus:border-purple-500/50 leading-relaxed font-sans"
                     />
                     <p className="text-[10px] text-slate-500">
-                      保存后会自动使用新的提示词重新分析；旧提示词生成的学习缓存不会复用。
+                      保存不会自动调用 AI。下次手动分析时使用新的提示词；旧提示词生成的学习缓存不会复用。
                     </p>
                   </div>
                 </div>

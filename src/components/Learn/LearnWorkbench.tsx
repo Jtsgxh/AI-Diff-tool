@@ -198,12 +198,13 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => session.startBriefing(true)}
-            disabled={session.isStreaming}
+            onClick={() => session.startBriefing()}
+            disabled={session.isStreaming || session.graphLoading || !session.graph}
+            title="仅点击时调用 AI 分析仓库，会消耗模型 token"
             className="h-7 px-1.5 text-[11px] text-slate-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${session.isStreaming ? 'animate-spin' : ''}`} />
-            重新分析
+            {session.isStreaming ? '分析中…' : session.settled ? '重新分析' : '开始 AI 分析'}
           </button>
         </div>
       </div>
@@ -237,7 +238,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                     session.graphError ||
                     (session.settled
                       ? 'AI 没有返回可用的主要业务路线，请点击右上角重新分析。'
-                      : '等待 AI 分析主要业务路线…')}
+                      : '本页不会自动调用 AI，需要时点击右上角「开始 AI 分析」。')}
             </span>
           </div>
         )}
@@ -294,6 +295,11 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
 
       <div className={isDetailsPaneOpen ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+        {session.graph && !session.graphLoading && !session.isStreaming && !session.settled && !session.error && (
+          <p className="text-xs text-slate-400">
+            当前显示本地代码结构，没有匹配的已有 AI 分析。进入本页不会消耗模型 token；需要业务路线讲解时，点击「开始 AI 分析」或主动提问。
+          </p>
+        )}
         {(selectedNode || selectedCommunity) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {selectedNode && (
