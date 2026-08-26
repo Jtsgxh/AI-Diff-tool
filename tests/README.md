@@ -3,7 +3,7 @@
 Run the scheduler tests:
 
 ```sh
-node --import tsx --test tests/graphFrameScheduler.test.ts
+node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts
 ```
 
 For real canvas/React checks, run `npm run client` and open
@@ -12,8 +12,9 @@ This fixture uses 2,400 synthetic class nodes, 14,400 directed edges and 24 comm
 It imports the production component, runs in React StrictMode, and updates its parent every 500ms
 like a streaming workbench. It does not load a repository, call the backend or request AI analysis.
 
-1. Switch to **丰富**, wait until the draw counter stops (the layout must settle), then click
+1. Switch to **丰富**, then click
    **采样 2 秒**. `draws`, `curves`, `callbacks` and `callbackMs` should all be zero while idle.
+   The community layout is immediately drawable: there is no multi-frame physics simulation.
    These are instrumented JavaScript/canvas submission measurements, not end-to-end GPU frame times.
 2. Click **选中首个类**, then **批量中键拖动**. The 100 pointer moves should coalesce to one draw,
    `selectionUnchanged` should be true, `panPixels` should be 100, and `textMeasures` should be zero
@@ -27,5 +28,14 @@ like a streaming workbench. It does not load a repository, call the backend or r
    community hiding (Shift-click), and simple/rich switching after layout is idle. Each must
    trigger a fresh frame, preserving curved arrows, edge types, route badges and connection lists.
 6. Unmount and sample: zero redraws/callbacks. Mount again to check effect/observer cleanup.
+7. Toggle **简化 / 丰富** repeatedly, leaving at least 1.2 seconds between clicks for the measurement
+   window. `density-measurements` records first canvas submission latency and draw count, not GPU
+   presentation latency. Every switch should take only the initial/resize paint(s), never 180/420
+   animation frames. A second click on the already-active mode should draw nothing. Returning to
+   rich mode should reproduce the same first-node position. Resizing the pane should not discard
+   either mode's stored community arrangement.
+8. After visiting both modes, click **更新图数据** and switch modes again. Select the first class:
+   its updated label (`UpdatedService0`), degree (42) and community must be used even though its ID
+   is unchanged. This checks that cached layouts cannot survive a source-graph update.
 
 The fixture is a separate development entry point and is not included in the production bundle.

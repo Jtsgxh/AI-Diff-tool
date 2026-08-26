@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { LearnEdge, LearnGraph, LearnNode } from '../../types';
 import { communityColor } from '../../utils/learnGraph';
 import { createGraphFrameScheduler } from '../../utils/graphFrameScheduler';
+import {
+  createLearnCommunityLayout,
+  type LearnCommunityLayout,
+  type LearnCommunityBox,
+  type LearnLayoutNode,
+} from '../../utils/learnCommunityLayout';
 
 interface LearnGraphCanvasProps {
   graph: LearnGraph;
@@ -11,28 +17,10 @@ interface LearnGraphCanvasProps {
   onSelectCommunity: (id: string | null) => void;
 }
 
-interface SimNode extends LearnNode {
-  x: number;
-  y: number;
-  homeX: number;
-  homeY: number;
-  vx: number;
-  vy: number;
-  r: number;
-}
-
 interface Camera {
   x: number;
   y: number;
   k: number;
-}
-
-interface CommunityBox {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
 }
 
 interface ScreenPoint {
@@ -54,27 +42,20 @@ interface EdgeBend {
 }
 
 interface RenderCurve {
-  source: SimNode;
-  target: SimNode;
+  source: LearnLayoutNode;
+  target: LearnLayoutNode;
   bend: EdgeBend;
   sourcePadding: number;
   targetPadding: number;
   zoom: number;
-  tick: number;
   geometry: CurvedEdgeGeometry | null;
 }
 
 type GraphDensity = 'simple' | 'rich';
 
 const MIN_ZOOM = 0.01;
-const NODE_SPACING = 52;
-const COMMUNITY_GAP = 40;
-const COMMUNITY_PADDING_X = 48;
-const COMMUNITY_PADDING_TOP = 58;
-const COMMUNITY_PADDING_BOTTOM = 36;
-
 const fitCameraToNodes = (
-  nodes: SimNode[],
+  nodes: LearnLayoutNode[],
   width: number,
   height: number
 ): Camera | null => {
@@ -184,14 +165,14 @@ const curvedEdgeGeometry = (
 };
 
 const makeRenderCurve = (
-  source: SimNode, target: SimNode, bend: EdgeBend, sourcePadding = 2, targetPadding = 5
+  source: LearnLayoutNode, target: LearnLayoutNode, bend: EdgeBend, sourcePadding = 2, targetPadding = 5
 ): RenderCurve => ({
-  source, target, bend, sourcePadding, targetPadding, zoom: NaN, tick: -1, geometry: null,
+  source, target, bend, sourcePadding, targetPadding, zoom: NaN, geometry: null,
 });
 
 // Geometry is independent of camera translation. Panning reuses curves and arrows.
-const cachedCurveGeometry = (curve: RenderCurve, zoom: number, tick: number) => {
-  if (curve.zoom !== zoom || curve.tick !== tick) {
+const cachedCurveGeometry = (curve: RenderCurve, zoom: number) => {
+  if (curve.zoom !== zoom) {
     const { source, target } = curve;
     const radiusScale = Math.sqrt(zoom);
     curve.geometry = curvedEdgeGeometry(
@@ -202,7 +183,6 @@ const cachedCurveGeometry = (curve: RenderCurve, zoom: number, tick: number) => 
       target.r * radiusScale + curve.targetPadding
     );
     curve.zoom = zoom;
-    curve.tick = tick;
   }
   return curve.geometry;
 };
@@ -216,8 +196,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
 }: LearnGraphCanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const simRef = useRef<SimNode[]>([]);
-  const communityBoxesRef = useRef<CommunityBox[]>([]);
+  const layoutNodesRef = useRef<LearnLayoutNode[]>([]);
+  const communityBoxesRef = useRef<LearnCommunityBox[]>([]);
   const camRef = useRef({ x: 0, y: 0, k: 1 });
   const cameraTouchedRef = useRef(false);
   const dragRef = useRef<{ lx: number; ly: number } | null>(null);
@@ -229,7 +209,6 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
   const [activeRouteId, setActiveRouteId] = useState('');
   const routeSetRef = useRef('');
   const invalidateRef = useRef<() => void>(() => {});
-  const ticksRef = useRef(0);
 
   const activeRoute = useMemo(
     () => graph.businessRoutes.find((route) => route.id === activeRouteId) || null,
@@ -416,12 +395,11 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     selectedNodeId,
   ]);
 
-  const visibleNodes = useMemo(
-    () => density === 'rich'
-      ? graph.nodes
-      : graph.nodes.filter((node) => simplifiedNodeIds.has(node.id)),
-    [density, graph.nodes, simplifiedNodeIds]
+  const simplifiedNodes = useMemo(
+    () => graph.nodes.filter((node) => simplifiedNodeIds.has(node.id)),
+    [graph.nodes, simplifiedNodeIds]
   );
+  const visibleNodes = density === 'rich' ? graph.nodes : simplifiedNodes;
   const visibleCommunityCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const node of visibleNodes) {
@@ -429,20 +407,19 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     }
     return counts;
   }, [visibleNodes]);
-  const visibleNodeIds = useMemo(
-    () => new Set(visibleNodes.map((node) => node.id)),
-    [visibleNodes]
+  const simplifiedVisibleNodeIds = useMemo(
+    () => new Set(simplifiedNodes.map((node) => node.id)),
+    [simplifiedNodes]
   );
-  const visibleEdges = useMemo(
+  const simplifiedEdges = useMemo(
     () => {
-      if (density === 'rich') return graph.edges;
-      const nodesById = new Map(visibleNodes.map((node) => [node.id, node]));
+      const nodesById = new Map(simplifiedNodes.map((node) => [node.id, node]));
       const candidates = graph.edges
         .filter(
           (edge) =>
             edge.relation === 'calls' &&
-            visibleNodeIds.has(edge.source) &&
-            visibleNodeIds.has(edge.target)
+            simplifiedVisibleNodeIds.has(edge.source) &&
+            simplifiedVisibleNodeIds.has(edge.target)
         )
         .sort((a, b) => {
           const aSource = nodesById.get(a.source);
@@ -455,7 +432,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             (bSource?.degree || 0) + (bTarget?.degree || 0) -
               (aSource?.degree || 0) - (aTarget?.degree || 0);
         });
-      if (candidates.length <= visibleNodes.length * 2) return candidates;
+      if (candidates.length <= simplifiedNodes.length * 2) return candidates;
 
       const kept: LearnEdge[] = [];
       const keptKeys = new Set<string>();
@@ -478,15 +455,16 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         if (!firstIncidentEdge.has(edge.source)) firstIncidentEdge.set(edge.source, edge);
         if (!firstIncidentEdge.has(edge.target)) firstIncidentEdge.set(edge.target, edge);
       }
-      for (const node of visibleNodes) {
+      for (const node of simplifiedNodes) {
         if ((incidence.get(node.id) || 0) > 0) continue;
         const edge = firstIncidentEdge.get(node.id);
         if (edge) add(edge);
       }
       return kept;
     },
-    [density, graph.edges, visibleNodeIds, visibleNodes]
+    [graph.edges, simplifiedVisibleNodeIds, simplifiedNodes]
   );
+  const visibleEdges = density === 'rich' ? graph.edges : simplifiedEdges;
 
   const connections = useMemo(() => {
     const outgoing = new Map<string, LearnEdge[]>();
@@ -505,9 +483,20 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     return { outgoing, incoming };
   }, [graphNodesById, hidden, visibleEdges]);
 
+  const edgeBends = useMemo(
+    () => new WeakMap<LearnEdge, EdgeBend>(),
+    [graph.edges]
+  );
   const edgeShapes = useMemo(
-    () => visibleEdges.map((edge) => ({ edge, bend: edgeBend(edge.source, edge.target) })),
-    [visibleEdges]
+    () => visibleEdges.map((edge) => {
+      let bend = edgeBends.get(edge);
+      if (!bend) {
+        bend = edgeBend(edge.source, edge.target);
+        edgeBends.set(edge, bend);
+      }
+      return { edge, bend };
+    }),
+    [edgeBends, visibleEdges]
   );
 
   const maxDegree = useMemo(
@@ -522,147 +511,40 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     [visibleEdges, visibleNodes]
   );
 
+  // Keep only the two display layouts for this source graph. AI prose/labels do
+  // not invalidate positions; new source data or a changed community order does.
+  const communityOrderKey = useMemo(
+    () => JSON.stringify(graph.communities.map((community) => community.id)),
+    [graph.communities]
+  );
+  const layoutCache = useMemo(
+    () => new Map<GraphDensity, { key: string; layout: LearnCommunityLayout }>(),
+    [graph.nodes, graph.edges, graph.stats.sourceFingerprint, communityOrderKey]
+  );
+
   useEffect(() => {
-    const maxD = Math.max(1, ...visibleNodes.map((n) => n.degree));
-    const wrap = wrapRef.current;
-    const viewportAspect = Math.max(
-      1,
-      (wrap?.clientWidth || 1600) / Math.max(1, wrap?.clientHeight || 450)
-    );
-    const byId = new Map(visibleNodes.map((n) => [n.id, n]));
-    const adjacency = new Map<string, string[]>();
-    for (const edge of visibleEdges) {
-      if (!byId.has(edge.source) || !byId.has(edge.target)) continue;
-      const sourceNeighbors = adjacency.get(edge.source);
-      if (sourceNeighbors) sourceNeighbors.push(edge.target);
-      else adjacency.set(edge.source, [edge.target]);
-      const targetNeighbors = adjacency.get(edge.target);
-      if (targetNeighbors) targetNeighbors.push(edge.source);
-      else adjacency.set(edge.target, [edge.source]);
-    }
-    const grouped = new Map<string, LearnNode[]>();
-    for (const node of visibleNodes) {
-      const members = grouped.get(node.communityId);
-      if (members) members.push(node);
-      else grouped.set(node.communityId, [node]);
-    }
-    const entries: [string, LearnNode[]][] = [];
-    for (const community of graph.communities) {
-      const members = grouped.get(community.id);
-      if (!members?.length) continue;
-      entries.push([community.id, members]);
-      grouped.delete(community.id);
-    }
-    entries.push(...grouped.entries());
-
-    const communityRows = Math.max(
-      1,
-      Math.ceil(Math.sqrt(entries.length / viewportAspect))
-    );
-    const communityColumns = Math.max(1, Math.ceil(entries.length / communityRows));
-    const communityAspect = Math.max(
-      1,
-      viewportAspect / Math.max(1, communityColumns / communityRows)
-    );
-
-    const layouts = entries.map(([id, members]) => {
-      const memberIds = new Set(members.map((node) => node.id));
-      const ranked = members
-        .slice()
-        .sort((a, b) => b.degree - a.degree || a.label.localeCompare(b.label));
-      const ordered: LearnNode[] = [];
-      const seen = new Set<string>();
-      for (const seed of ranked) {
-        if (seen.has(seed.id)) continue;
-        const queue = [seed.id];
-        seen.add(seed.id);
-        for (let cursor = 0; cursor < queue.length; cursor++) {
-          const nodeId = queue[cursor];
-          const node = byId.get(nodeId);
-          if (node) ordered.push(node);
-          const neighbors = (adjacency.get(nodeId) || [])
-            .filter((neighborId) => memberIds.has(neighborId) && !seen.has(neighborId))
-            .sort((a, b) => (byId.get(b)?.degree || 0) - (byId.get(a)?.degree || 0));
-          for (const neighborId of neighbors) {
-            if (seen.has(neighborId)) continue;
-            seen.add(neighborId);
-            queue.push(neighborId);
-          }
-        }
-      }
-      const columns = Math.max(1, Math.ceil(Math.sqrt(ordered.length * communityAspect)));
-      const rows = Math.max(1, Math.ceil(ordered.length / columns));
-      return { id, nodes: ordered, columns, rows };
-    });
-
-    const boxWidth =
-      Math.max(0, ...layouts.map((layout) => (layout.columns - 1) * NODE_SPACING)) +
-      COMMUNITY_PADDING_X * 2;
-    const boxHeight =
-      Math.max(0, ...layouts.map((layout) => (layout.rows - 1) * NODE_SPACING)) +
-      COMMUNITY_PADDING_TOP +
-      COMMUNITY_PADDING_BOTTOM;
-    const cellWidth = boxWidth + COMMUNITY_GAP;
-    const cellHeight = boxHeight + COMMUNITY_GAP;
-    const sim: SimNode[] = [];
-    const boxes: CommunityBox[] = [];
-
-    layouts.forEach((layout, communityIndex) => {
-      const communityRow = Math.floor(communityIndex / communityColumns);
-      const columnOffset = communityIndex % communityColumns;
-      const rowSize = Math.min(
-        communityColumns,
-        layouts.length - communityRow * communityColumns
-      );
-      const centerX = (columnOffset - (rowSize - 1) / 2) * cellWidth;
-      const centerY = (communityRow - (communityRows - 1) / 2) * cellHeight;
-      boxes.push({ id: layout.id, x: centerX, y: centerY, width: boxWidth, height: boxHeight });
-
-      layout.nodes.forEach((node, nodeIndex) => {
-        const row = Math.floor(nodeIndex / layout.columns);
-        const offsetInRow = nodeIndex % layout.columns;
-        const rowNodeCount = Math.min(
-          layout.columns,
-          layout.nodes.length - row * layout.columns
-        );
-        const column = row % 2 === 0 ? offsetInRow : rowNodeCount - 1 - offsetInRow;
-        const x = centerX + (column - (rowNodeCount - 1) / 2) * NODE_SPACING;
-        const contentCenterOffset = (COMMUNITY_PADDING_TOP - COMMUNITY_PADDING_BOTTOM) / 2;
-        const y =
-          centerY +
-          (row - (layout.rows - 1) / 2) * NODE_SPACING +
-          contentCenterOffset;
-        sim.push({
-          ...node,
-          x,
-          y,
-          homeX: x,
-          homeY: y,
-          vx: 0,
-          vy: 0,
-          r: 3.5 + 9.5 * Math.sqrt(node.degree / maxD),
-        });
-      });
-    });
-    simRef.current = sim;
-    communityBoxesRef.current = boxes;
-    ticksRef.current = 0;
-    cameraTouchedRef.current = false;
-    const fitFrame = requestAnimationFrame(() => {
+    let cached = layoutCache.get(density);
+    if (!cached || cached.key !== layoutKey) {
       const wrap = wrapRef.current;
-      if (!wrap) return;
-      const camera = fitCameraToNodes(simRef.current, wrap.clientWidth, wrap.clientHeight);
-      if (camera) camRef.current = camera;
-      invalidateRef.current();
-    });
-    return () => cancelAnimationFrame(fitFrame);
-  }, [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
+      cached = {
+        key: layoutKey,
+        layout: createLearnCommunityLayout(
+          visibleNodes, visibleEdges, JSON.parse(communityOrderKey),
+          wrap?.clientWidth || 0, wrap?.clientHeight || 0
+        ),
+      };
+      layoutCache.set(density, cached);
+    }
+    layoutNodesRef.current = cached.layout.nodes;
+    communityBoxesRef.current = cached.layout.boxes;
+    cameraTouchedRef.current = false;
+  }, [density, layoutCache, layoutKey, communityOrderKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const wrap = wrapRef.current;
       if (!wrap) return;
-      const targetNodes = simRef.current.filter(
+      const targetNodes = layoutNodesRef.current.filter(
         (node) =>
           !hidden.has(node.communityId) &&
           (!routeFocusActive || activeRouteNodeIds.has(node.id))
@@ -673,7 +555,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       invalidateRef.current();
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeRouteNodeIds, hidden, layoutKey, routeFocusActive]);
+  }, [activeRouteNodeIds, hidden, layoutKey, layoutCache, density, routeFocusActive]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -682,8 +564,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const sim = simRef.current;
-    const byId = new Map(sim.map((node) => [node.id, node]));
+    const layoutNodes = layoutNodesRef.current;
+    const byId = new Map(layoutNodes.map((node) => [node.id, node]));
     const communityById = new Map(graph.communities.map((community) => [community.id, community]));
     const communityColors = new Map(graph.communities.map((community) => [community.id, communityColor(community.id)]));
     const edges = edgeShapes.flatMap(({ edge, bend }) => {
@@ -710,7 +592,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         routeCurves.push(makeRenderCurve(source, target, edgeBend(source.id, target.id), 4, 7));
       }
     }
-    const viewNodes = sim.filter((node) => !hidden.has(node.communityId));
+    const viewNodes = layoutNodes.filter((node) => !hidden.has(node.communityId));
     const fitNodes = routeFocusActive
       ? viewNodes.filter((node) => activeRouteNodeIds.has(node.id))
       : viewNodes;
@@ -728,96 +610,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     let h = wrap.clientHeight;
 
     const step = () => {
-      // A CSS-hidden pane is still mounted. Do not simulate or paint it.
+      // A CSS-hidden pane is still mounted. Do not paint it.
       if (document.hidden || w <= 0 || h <= 0) return false;
-      const tickCap = sim.length > 220 ? 180 : 420;
-      const alpha = Math.max(0.015, 0.12 * Math.pow(0.985, ticksRef.current));
-      let layoutUpdated = false;
-      if (ticksRef.current < tickCap && viewNodes.length) {
-        const range = sim.length > 220 ? 120 : 180;
-        const cellSize = range;
-        const buckets = new Map<string, number[]>();
-        for (let i = 0; i < sim.length; i++) {
-          const cellX = Math.floor(sim[i].x / cellSize);
-          const cellY = Math.floor(sim[i].y / cellSize);
-          const key = `${cellX},${cellY}`;
-          const bucket = buckets.get(key);
-          if (bucket) bucket.push(i);
-          else buckets.set(key, [i]);
-        }
-        for (let i = 0; i < sim.length; i++) {
-          const cellX = Math.floor(sim[i].x / cellSize);
-          const cellY = Math.floor(sim[i].y / cellSize);
-          const nearby: number[] = [];
-          for (let ox = -1; ox <= 1; ox++) {
-            for (let oy = -1; oy <= 1; oy++) {
-              const bucket = buckets.get(`${cellX + ox},${cellY + oy}`);
-              if (bucket) nearby.push(...bucket);
-            }
-          }
-          for (const j of nearby) {
-            if (j <= i) continue;
-            const a = sim[i];
-            const b = sim[j];
-            if (Math.abs(a.x - b.x) > range || Math.abs(a.y - b.y) > range) continue;
-            let dx = a.x - b.x;
-            let dy = a.y - b.y;
-            let d2 = dx * dx + dy * dy;
-            if (d2 < 0.01) {
-              dx = Math.random() - 0.5;
-              dy = Math.random() - 0.5;
-              d2 = dx * dx + dy * dy;
-            }
-            const dist = Math.sqrt(d2);
-            const minDistance = a.r + b.r + 18;
-            const collisionPush =
-              dist < minDistance ? (minDistance - dist) * 0.08 : 0;
-            const f = Math.max(collisionPush, Math.min(1.8, (alpha * 1400) / d2));
-            const fx = (dx / dist) * f;
-            const fy = (dy / dist) * f;
-            a.vx += fx;
-            a.vy += fy;
-            b.vx -= fx;
-            b.vy -= fy;
-          }
-        }
-
-        for (const { edge: e, curve: { source: a, target: b } } of edges) {
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-          const sameCommunity = a.communityId === b.communityId;
-          const rest = sameCommunity
-            ? e.relation === 'calls'
-              ? 82
-              : 108
-            : 180;
-          const f = alpha * (sameCommunity ? 0.04 : 0.006) * (dist - rest);
-          const fx = (dx / dist) * f;
-          const fy = (dy / dist) * f;
-          a.vx += fx;
-          a.vy += fy;
-          b.vx -= fx;
-          b.vy -= fy;
-        }
-
-        for (const n of sim) {
-          n.vx += (n.homeX - n.x) * 0.018;
-          n.vy += (n.homeY - n.y) * 0.018;
-          n.vx *= 0.72;
-          n.vy *= 0.72;
-          const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
-          if (speed > 8) {
-            n.vx = (n.vx / speed) * 8;
-            n.vy = (n.vy / speed) * 8;
-          }
-          n.x += n.vx;
-          n.y += n.vy;
-        }
-        ticksRef.current++;
-        layoutUpdated = true;
-      }
-
       const dpr = window.devicePixelRatio || 1;
       if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
         canvas.width = Math.floor(w * dpr);
@@ -828,14 +622,6 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           const camera = fitCameraToNodes(fitNodes, w, h);
           if (camera) camRef.current = camera;
         }
-      } else if (
-        !cameraTouchedRef.current &&
-        layoutUpdated &&
-        ticksRef.current > 0 &&
-        (ticksRef.current % 12 === 0 || ticksRef.current === tickCap)
-      ) {
-        const camera = fitCameraToNodes(fitNodes, w, h);
-        if (camera) camRef.current = camera;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
@@ -936,7 +722,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           const by = b.y * cam.k;
           if (!inViewport(Math.min(ax, bx) - 96, Math.min(ay, by) - 96,
             Math.max(ax, bx) + 96, Math.max(ay, by) + 96)) continue;
-          const geometry = cachedCurveGeometry(curve, cam.k, ticksRef.current);
+          const geometry = cachedCurveGeometry(curve, cam.k);
           if (!geometry) continue;
           ctx.moveTo(geometry.start.x, geometry.start.y);
           ctx.quadraticCurveTo(geometry.control.x, geometry.control.y, geometry.end.x, geometry.end.y);
@@ -970,7 +756,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         const margin = Math.max(a.label.length, b.label.length) * 12 + 96;
         if (!inViewport(Math.min(pa.x, pb.x) - margin, Math.min(pa.y, pb.y) - margin,
           Math.max(pa.x, pb.x) + margin, Math.max(pa.y, pb.y) + margin)) continue;
-        const geometry = cachedCurveGeometry(curve, cam.k, ticksRef.current);
+        const geometry = cachedCurveGeometry(curve, cam.k);
         if (!geometry) continue;
         const edgeColor = outgoing
           ? 'rgba(52,211,153,1)'
@@ -1021,7 +807,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           const to = toScreen(current.x, current.y);
           if (!inViewport(Math.min(from.x, to.x) - 96, Math.min(from.y, to.y) - 96,
             Math.max(from.x, to.x) + 96, Math.max(from.y, to.y) + 96)) continue;
-          const geometry = cachedCurveGeometry(curve, cam.k, ticksRef.current);
+          const geometry = cachedCurveGeometry(curve, cam.k);
           if (!geometry) continue;
           ctx.strokeStyle = 'rgba(3,7,18,0.9)';
           ctx.lineWidth = 7;
@@ -1051,7 +837,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       }
 
       const showLabels = cam.k > 1.35;
-      for (const n of sim) {
+      for (const n of layoutNodes) {
         if (hiddenComms.has(n.communityId)) continue;
         const p = toScreen(n.x, n.y);
         const r = n.r * Math.sqrt(cam.k);
@@ -1137,7 +923,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         ctx.globalAlpha = 1;
       }
 
-      return ticksRef.current < tickCap && viewNodes.length > 0;
+      return false;
     };
 
     const scheduler = createGraphFrameScheduler(step);
@@ -1179,11 +965,12 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     visibleEdges,
     visibleCommunityCounts,
     layoutKey,
+    layoutCache,
     connections,
     edgeShapes,
   ]);
 
-  const hitTest = (sx: number, sy: number): SimNode | null => {
+  const hitTest = (sx: number, sy: number): LearnLayoutNode | null => {
     const wrap = wrapRef.current;
     if (!wrap) return null;
     const w = wrap.clientWidth;
@@ -1191,9 +978,9 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     const cam = camRef.current;
     const wx = (sx - w / 2) / cam.k - cam.x;
     const wy = (sy - h / 2) / cam.k - cam.y;
-    let best: SimNode | null = null;
+    let best: LearnLayoutNode | null = null;
     let bestDistanceSquared = Infinity;
-    for (const n of simRef.current) {
+    for (const n of layoutNodesRef.current) {
       if (hidden.has(n.communityId)) continue;
       const dx = n.x - wx;
       const dy = n.y - wy;
@@ -1292,7 +1079,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
   const fitToView = () => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const visible = simRef.current.filter((node) => !hidden.has(node.communityId));
+    const visible = layoutNodesRef.current.filter((node) => !hidden.has(node.communityId));
     const camera = fitCameraToNodes(visible, wrap.clientWidth, wrap.clientHeight);
     if (camera) camRef.current = camera;
     cameraTouchedRef.current = false;

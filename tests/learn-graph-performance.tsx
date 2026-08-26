@@ -6,7 +6,23 @@ import type { LearnGraph, LearnNode } from '../src/types';
 import '../src/index.css';
 
 const counters = { draws: 0, curves: 0, textMeasures: 0, callbacks: 0, callbackMs: 0 };
-const lastPaint = { curves: 0, originX: 0, originY: 0 };
+const lastPaint = { curves: 0, originX: 0, originY: 0, firstNode: [] as number[] };
+const densityMeasurements: { mode: string; alreadyActive: boolean; draws: number; firstPaintMs: number | null; firstNode: number[] }[] = [];
+let densityStart: { start: number; firstPaintMs: number | null } | null = null;
+document.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('button') : null;
+  const mode = button?.textContent?.trim();
+  if (mode !== '简化' && mode !== '丰富') return;
+  const alreadyActive = button!.getAttribute('aria-pressed') === 'true';
+  const measurement = { start: performance.now(), firstPaintMs: null as number | null };
+  densityStart = measurement;
+  const before = counters.draws;
+  setTimeout(() => {
+    densityMeasurements.push({ mode, alreadyActive, draws: counters.draws - before,
+      firstPaintMs: measurement.firstPaintMs, firstNode: [...lastPaint.firstNode] });
+    if (densityStart === measurement) densityStart = null;
+  }, 1200);
+}, true);
 const nativeRaf = window.requestAnimationFrame.bind(window);
 window.requestAnimationFrame = (callback) => nativeRaf((time) => {
   const start = performance.now();
@@ -19,7 +35,16 @@ const clearRect = context.clearRect;
 context.clearRect = function (...args) {
   counters.draws++;
   lastPaint.curves = 0;
+  lastPaint.firstNode = [];
+  if (densityStart && densityStart.firstPaintMs === null) {
+    densityStart.firstPaintMs = Math.round((performance.now() - densityStart.start) * 10) / 10;
+  }
   return clearRect.apply(this, args);
+};
+const arc = context.arc;
+context.arc = function (...args) {
+  if (!lastPaint.firstNode.length) lastPaint.firstNode = args.slice(0, 3) as number[];
+  return arc.apply(this, args);
 };
 const translate = context.translate;
 context.translate = function (x, y) {
@@ -80,9 +105,10 @@ function makeGraph(): LearnGraph {
     stats: { filesParsed: 2400, symbolCount: 2400, edgeCount: edges.length, truncated: false, sourceFingerprint: 'fixture' },
   };
 }
-const graph = makeGraph();
+const initialGraph = makeGraph();
 
 function Fixture() {
+  const [graph, setGraph] = useState(initialGraph);
   const [selected, setSelected] = useState<string | null>(null);
   const [community, setCommunity] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -153,11 +179,18 @@ function Fixture() {
       <button onClick={() => setMounted(!mounted)}>{mounted ? '卸载画布' : '挂载画布'}</button>
       <button onClick={() => middleDrag(100)}>批量中键拖动</button>
       <button onClick={() => middleDrag(100000)}>拖到视口外</button>
+      <button onClick={() => setGraph((previous) => ({
+        ...previous,
+        nodes: previous.nodes.map((node, index) => index === 0
+          ? { ...node, label: 'UpdatedService0', degree: 42, communityId: '23' } : node),
+        stats: { ...previous.stats, sourceFingerprint: 'updated-fixture' },
+      }))}>更新图数据</button>
     </header>
     <p data-testid="selection">选中：{selected || '无'}；父组件更新：{parentTicks}</p>
     <pre data-testid="sample">{sample}</pre>
     <pre data-testid="interaction">{interaction}</pre>
     <p data-testid="counters">{JSON.stringify({ draws: counters.draws, lastPaint })}</p>
+    <pre data-testid="density-measurements">{JSON.stringify(densityMeasurements)}</pre>
     <div style={{ display: hidden ? 'none' : 'block', height: small ? '330px' : '680px' }}>
       {mounted && <LearnGraphCanvas key={revision} graph={graph} selectedNodeId={selected}
         selectedCommunityId={community} onSelectNode={setSelected} onSelectCommunity={setCommunity} />}
