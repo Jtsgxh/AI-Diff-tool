@@ -61,6 +61,7 @@ interface CachedLayout {
 }
 
 const MIN_ZOOM = 0.01;
+const DRAG_THRESHOLD = 4;
 const fitCameraToNodes = (
   nodes: LearnLayoutNode[],
   width: number,
@@ -210,7 +211,16 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
   const communityBoxesRef = useRef<LearnCommunityBox[]>([]);
   const camRef = useRef({ x: 0, y: 0, k: 1 });
   const cameraTouchedRef = useRef(false);
-  const dragRef = useRef<{ lx: number; ly: number } | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    button: number;
+    startX: number;
+    startY: number;
+    lx: number;
+    ly: number;
+    moved: boolean;
+    node: LearnLayoutNode | null;
+  } | null>(null);
   const hoverRef = useRef<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -712,7 +722,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       const labels: LearnGraphLabel[] = [];
       const labelObstacles: GraphLabelRect[] = [];
       const selected = selectedNodeId;
-      const focusedNodeId = hoverRef.current || selected;
+      const focusedNodeId = selected || hoverRef.current;
       const focusedNeighbors = new Set<string>();
       if (focusedNodeId) {
         focusedNeighbors.add(focusedNodeId);
@@ -951,7 +961,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         const r = n.r * Math.sqrt(cam.k);
         const isSel = n.id === selected;
         const isNb = focusedNeighbors.has(n.id);
-        const isHover = n.id === hoverRef.current;
+        const isHover = !selected && n.id === hoverRef.current;
         const isBusinessCore = businessCoreNodeIds.has(n.id);
         const isActiveRoute = activeRouteNodeIds.has(n.id);
         const commSel = selectedCommunityId && n.communityId === selectedCommunityId;
@@ -1134,23 +1144,34 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     invalidateRef.current();
   };
 
+  const clearHover = () => {
+    if (hoverRef.current === null) return;
+    hoverRef.current = null;
+    setHover(null);
+    invalidateRef.current();
+  };
+
+  const clearSelection = () => {
+    clearHover();
+    onSelectNode(null);
+    onSelectCommunity(null);
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0 && e.button !== 1) return;
+    if ((e.button !== 0 && e.button !== 1) || dragRef.current) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    if (e.button === 0) {
-      const node = hitTest(x, y);
-      if (node) {
-        onSelectNode(node.id);
-        onSelectCommunity(node.communityId);
-      } else {
-        onSelectNode(null);
-      }
-    }
-    dragRef.current = { lx: x, ly: y };
+    // Select only after a click finishes: dragging from a node or blank space
+    // must not replace or clear the pinned connections.
+    dragRef.current = {
+      pointerId: e.pointerId, button: e.button,
+      startX: x, startY: y, lx: x, ly: y, moved: false,
+      node: e.button === 0 ? hitTest(x, y) : null,
+    };
+    clearHover();
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1159,6 +1180,9 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     const y = e.clientY - rect.top;
     const drag = dragRef.current;
     if (drag) {
+      if (e.pointerId !== drag.pointerId) return;
+      if (!drag.moved && Math.hypot(x - drag.startX, y - drag.startY) < DRAG_THRESHOLD) return;
+      drag.moved = true;
       cameraTouchedRef.current = true;
       const cam = camRef.current;
       cam.x += (x - drag.lx) / cam.k;
@@ -1168,6 +1192,9 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       invalidateRef.current();
       return;
     }
+    // A pin owns both the canvas highlights and the connection details until
+    // another node is clicked or the user explicitly clears it.
+    if (selectedNodeId) return;
     const node = hitTest(x, y);
     const id = node?.id || null;
     if (id !== hoverRef.current) {
@@ -1177,18 +1204,29 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId || e.button !== drag.button) return;
     dragRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const distance = Math.hypot(e.clientX - rect.left - drag.startX, e.clientY - rect.top - drag.startY);
+    if (drag.button === 0 && !drag.moved && distance < DRAG_THRESHOLD && drag.node) {
+      onSelectNode(drag.node.id);
+      onSelectCommunity(drag.node.communityId);
+    }
+  };
+
+  const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null;
   };
 
   const onPointerLeave = () => {
     if (dragRef.current) return;
-    hoverRef.current = null;
-    setHover(null);
-    invalidateRef.current();
+    clearHover();
   };
 
-  const focusedDetailsNodeId = hover || selectedNodeId;
+  const focusedDetailsNodeId = selectedNodeId || hover;
   const focusedDetailsNode = focusedDetailsNodeId
     ? graphNodesById.get(focusedDetailsNodeId) || null
     : null;
@@ -1226,7 +1264,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onLostPointerCapture={onPointerCancel}
         onPointerLeave={onPointerLeave}
         onAuxClick={(e) => e.preventDefault()}
       />
@@ -1244,6 +1283,16 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         >
           适应视图
         </button>
+        {selectedNodeId && (
+          <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-amber-400/40 bg-black/70 px-2 py-0.5 text-[10px] text-amber-100">
+            <span className="max-w-52 truncate" title={focusedDetailsNode?.label || selectedNodeId}>
+              已固定：{focusedDetailsNode?.label || selectedNodeId}
+            </span>
+            <button type="button" onClick={clearSelection} className="shrink-0 text-slate-300 hover:text-white">
+              取消固定
+            </button>
+          </div>
+        )}
         <div className="pointer-events-auto flex items-center rounded-md border border-white/10 bg-black/50 p-0.5">
           <button
             type="button"
@@ -1295,8 +1344,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
                   [...previous].filter((communityId) => !nextCommunityIds.has(communityId))
                 ));
               }
-              onSelectNode(null);
-              onSelectCommunity(null);
+              clearSelection();
             }}
             title={activeRoute?.summary || '选择一条 AI 核实的业务路线并聚焦其类级节点'}
             className={`pointer-events-auto max-w-52 rounded-md border bg-black/50 px-2 py-1 text-[10px] ${
@@ -1368,10 +1416,10 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         {routeFocusActive && activeRoute
           ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步已映射`
           : ' · 社区总览'}
-        <span className="ml-2 text-slate-600">滚轮缩放 · 中键拖动画布 · 名称自动避让 · 悬停看方向与完整名称 · 左键固定节点</span>
+        <span className="ml-2 text-slate-600">滚轮缩放 · 左键/中键拖动画布 · 单击节点固定路线 · 固定后缩放、拖动、悬停不切换</span>
       </div>
       {focusedDetailsNode && (
-        <div className="absolute bottom-2 right-2 max-w-[320px] bg-black/80 border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-slate-200 pointer-events-none">
+        <div role="region" aria-label="节点连接详情" className="absolute bottom-2 right-2 max-w-[320px] bg-black/80 border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-slate-200 pointer-events-none">
           <div className="font-semibold text-slate-100">{focusedDetailsNode.label}</div>
           <div className="text-slate-400">
             {focusedDetailsNode.kind} · 度 {focusedDetailsNode.degree}

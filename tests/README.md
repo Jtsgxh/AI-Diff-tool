@@ -42,7 +42,8 @@ like a streaming workbench. It does not load a repository, call the backend or r
 9. In rich mode, run **连续拖动采样**, **连续缩放采样** and **连续悬停采样** separately. Each sends
    40 interactions across separate animation frames, not 100 events merged into a single paint.
    `continuous` reports frame-interval median/p95/max, all submitted curves (including the offscreen
-   background), bitmap composites and selection preservation. These frame intervals include browser
+   background), bitmap composites, selection preservation and `detailsUnchanged` (checked on every
+   frame, not just at the end). These frame intervals include browser
    rendering delays; `callbackMs` alone does not measure that cost. Keep the test tab foreground.
 
    - Within the buffered viewport, panning should reuse background pixels (`bitmapBlits` increases,
@@ -62,10 +63,20 @@ like a streaming workbench. It does not load a repository, call the backend or r
 11. Click **聚焦高连接枢纽**: the first class has 252 connections. Its name takes precedence over
     neighbor names and relation captions; labels should move to alternate positions or be omitted
     when there is no space, never pile up. All 2,400 classes and 14,640 edges remain in rich mode.
-    Hover still exposes complete names and incoming/outgoing connection details. Route number badges
+    The selected node pins its complete name and incoming/outgoing connection details. Use **取消固定**
+    to resume hover previews. Route number badges
     and the toolbar reserve their own space, and community headings are painted above edge lines.
     Shrink the pane and use **适应视图**: the camera must leave room for the wrapped toolbar above
     the graph instead of fitting the top-row nodes underneath those controls.
+12. After rich-mode layout settles, click **固定路线回归**. This exercises the production pointer
+    handlers and compares both the details panel and the actual submitted highlight curves, not
+    just the selected React prop. Every check must pass: node clicks pin on release, hover/leave,
+    blank clicks, left/middle drags (including drags starting on another node), pointer cancellation
+    and lost capture preserve the pin. Moving back to the drag's origin must not count as a click.
+    Zoom redraws without changing the pin, fit restores its curves, a new click switches the pin,
+    and the production **取消固定** button clears highlights and restores hover previews.
+    Also check these interactions with a real mouse and in simple mode. Choosing a business route
+    explicitly clears the node pin; switching density, resizing or hiding/reopening the pane does not.
 
 Measured on the local in-app browser with this synthetic fixture (not the user's repository):
 

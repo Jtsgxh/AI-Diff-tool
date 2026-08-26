@@ -24,6 +24,7 @@ window.Worker = class extends NativeWorker {
 };
 const lastPaint = { curves: 0, originX: 0, originY: 0, firstNode: [] as number[] };
 let paintedNodes: number[][] = [];
+let focusedCurves: string[] = [];
 const densityMeasurements: { mode: string; alreadyActive: boolean; draws: number; firstPaintMs: number | null; firstNode: number[] }[] = [];
 let densityStart: { start: number; firstPaintMs: number | null } | null = null;
 document.addEventListener('click', (event) => {
@@ -58,6 +59,7 @@ context.clearRect = function (...args) {
   lastPaint.curves = 0;
   lastPaint.firstNode = [];
   paintedNodes = [];
+  focusedCurves = [];
   if (densityStart && densityStart.firstPaintMs === null) {
     densityStart.firstPaintMs = Math.round((performance.now() - densityStart.start) * 10) / 10;
   }
@@ -82,7 +84,10 @@ context.translate = function (x, y) {
 const quadraticCurveTo = context.quadraticCurveTo;
 context.quadraticCurveTo = function (...args) {
   counters.curves++;
-  if (this.canvas.isConnected) lastPaint.curves++;
+  if (this.canvas.isConnected) {
+    lastPaint.curves++;
+    if (Math.abs(this.lineWidth - 2.4) < 0.01) focusedCurves.push(`${this.strokeStyle}:${this.getLineDash()}:${args}`);
+  }
   return quadraticCurveTo.apply(this, args);
 };
 const measureText = context.measureText;
@@ -150,6 +155,7 @@ function Fixture() {
   const [sample, setSample] = useState('尚未采样');
   const [interaction, setInteraction] = useState('尚未验证拖动');
   const [continuous, setContinuous] = useState('尚未连续采样');
+  const [pinning, setPinning] = useState('尚未验证固定路线');
   const [sampling, setSampling] = useState(false);
   const [parentTicks, setParentTicks] = useState(0);
   // The real workbench also updates elapsed time while analysis streams.
@@ -208,6 +214,8 @@ function Fixture() {
     const targets = paintedNodes.filter(([x, y]) => x > 0 && x < rect.width && y > 110 && y < rect.height - 30);
     const before = { ...counters };
     const selectedBefore = document.querySelector('[data-testid="selection"]')!.textContent!.split('；')[0];
+    const detailsBefore = document.querySelector('[aria-label="节点连接详情"]')?.textContent;
+    let detailsUnchanged = true;
     const intervals: number[] = [];
     const capture = canvas.setPointerCapture;
     canvas.setPointerCapture = () => {};
@@ -222,6 +230,7 @@ function Fixture() {
     let previous = performance.now();
     const start = previous;
     const advance = () => {
+      detailsUnchanged &&= document.querySelector('[aria-label="节点连接详情"]')?.textContent === detailsBefore;
       const now = performance.now();
       intervals.push(now - previous);
       previous = now;
@@ -250,10 +259,122 @@ function Fixture() {
         bitmapBlits: counters.bitmapBlits - before.bitmapBlits,
         callbackMs: +(counters.callbackMs - before.callbackMs).toFixed(1),
         selectionUnchanged: document.querySelector('[data-testid="selection"]')!.textContent!.split('；')[0] === selectedBefore,
+        detailsUnchanged,
       }));
       setSampling(false);
     };
     nativeRaf(advance);
+  };
+  const verifyPinning = async () => {
+    const canvas = document.querySelector('canvas');
+    const button = (name: string) => [...document.querySelectorAll('button')].find((item) => item.textContent === name);
+    if (!canvas || button('丰富')?.getAttribute('aria-pressed') !== 'true' || workers.active) {
+      setPinning('请先切换丰富，并等待布局完成');
+      return;
+    }
+    const capture = canvas.setPointerCapture;
+    canvas.setPointerCapture = () => {};
+    const painted = () => new Promise<void>((resolve) => nativeRaf(() => nativeRaf(() => resolve())));
+    const selection = () => document.querySelector('[data-testid="selection"]')!.textContent!.split('；')[0];
+    const details = () => document.querySelector('[aria-label="节点连接详情"]')?.textContent || '';
+    const curves = () => JSON.stringify(focusedCurves);
+    const point = (last = false) => {
+      const rect = canvas.getBoundingClientRect();
+      const candidates = paintedNodes.filter(([x, y]) => x > 20 && x < rect.width - 20 && y > 140 && y < rect.height - 40);
+      if (!candidates.length) throw new Error('没有可点击的可见节点');
+      return candidates[last ? candidates.length - 1 : 0];
+    };
+    const pointer = (type: string, [x, y]: number[], button = 0) => {
+      const rect = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 778, pointerType: 'mouse',
+        button, buttons: type === 'pointerup' ? 0 : button === 1 ? 4 : 1,
+        clientX: rect.left + x, clientY: rect.top + y }));
+    };
+    const passed: string[] = [];
+    const check = (name: string, condition: boolean) => {
+      if (!condition) throw new Error(name);
+      passed.push(name);
+    };
+    setSampling(true);
+    setPinning('正在验证固定路线');
+    try {
+      button('取消固定')?.click();
+      button('适应视图')!.click();
+      await painted();
+      pointer('pointermove', point());
+      await painted();
+      check('未固定时悬停预览', Boolean(details()) && selection() === '选中：无');
+      const first = point();
+      pointer('pointerdown', first);
+      await painted();
+      check('按下尚未改变选择', selection() === '选中：无');
+      pointer('pointerup', first);
+      await painted();
+      const pinnedSelection = selection(), pinnedDetails = details(), pinnedCurves = curves();
+      check('单击固定实际路线', pinnedSelection !== '选中：无' && Boolean(pinnedDetails) && focusedCurves.length > 0 && Boolean(button('取消固定')));
+      pointer('pointermove', point(true));
+      await painted();
+      check('悬停不替换详情或高亮曲线', selection() === pinnedSelection && details() === pinnedDetails && curves() === pinnedCurves);
+      pointer('pointerout', point(true));
+      await painted();
+      check('移出画布仍固定', details() === pinnedDetails && curves() === pinnedCurves);
+      for (const cancel of ['pointercancel', 'lostpointercapture']) {
+        const target = point(true);
+        pointer('pointerdown', target);
+        pointer(cancel, target);
+        pointer('pointerup', target);
+        await painted();
+        check(`${cancel}不误选节点`, selection() === pinnedSelection && details() === pinnedDetails);
+      }
+      for (const [name, fromNode, mouseButton, distance] of [
+        ['空白单击', false, 0, 0],
+        ['空白左键拖动', false, 0, 60],
+        ['从其他节点左键拖动', true, 0, 40],
+        ['从其他节点中键拖动', true, 1, 40],
+        ['中键单击', true, 1, 0],
+      ] as const) {
+        const start = fromNode ? point(true) : [5, 5];
+        const origin = lastPaint.originX;
+        pointer('pointerdown', [...start], mouseButton);
+        if (distance) pointer('pointermove', [start[0] + distance, start[1]], mouseButton);
+        pointer('pointerup', [start[0] + distance, start[1]], mouseButton);
+        await painted();
+        check(`${name}保持路线`, selection() === pinnedSelection && details() === pinnedDetails && curves() === pinnedCurves);
+        check(`${name}位移正确`, Math.abs(lastPaint.originX - origin - distance) < 0.01);
+      }
+      const backtrack = point(true);
+      pointer('pointerdown', backtrack);
+      pointer('pointermove', [backtrack[0] + 40, backtrack[1]]);
+      pointer('pointermove', backtrack);
+      pointer('pointerup', backtrack);
+      await painted();
+      check('拖回原位仍不是单击', selection() === pinnedSelection && details() === pinnedDetails && curves() === pinnedCurves);
+      canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 100 }));
+      await painted();
+      check('缩放保持路线并重画', selection() === pinnedSelection && details() === pinnedDetails && curves() !== pinnedCurves && focusedCurves.length > 0);
+      button('适应视图')!.click();
+      await painted();
+      check('适应视图恢复相同曲线', details() === pinnedDetails && curves() === pinnedCurves);
+      const other = point(true);
+      pointer('pointerdown', other);
+      pointer('pointermove', [other[0] + 1, other[1]]);
+      pointer('pointerup', [other[0] + 1, other[1]]);
+      await painted();
+      check('轻微抖动的单击可切换节点', selection() !== pinnedSelection && selection() !== '选中：无' && details() !== pinnedDetails && curves() !== pinnedCurves);
+      button('取消固定')!.click();
+      await painted();
+      check('主动取消清除详情与高亮', selection() === '选中：无' && !details() && focusedCurves.length === 0 && !button('取消固定'));
+      pointer('pointermove', point());
+      await painted();
+      check('取消后恢复悬停预览', Boolean(details()) && selection() === '选中：无' && focusedCurves.length > 0);
+      setPinning(JSON.stringify({ passed: passed.length, checks: passed }));
+    } catch (error) {
+      setPinning(JSON.stringify({ passed: passed.length, failed: error instanceof Error ? error.message : String(error),
+        selection: selection(), details: details(), highlightedCurves: focusedCurves.length, checks: passed }));
+    } finally {
+      canvas.setPointerCapture = capture;
+      setSampling(false);
+    }
   };
   return <main style={{ background: '#12131a', color: 'white', height: '100vh' }}>
     <header style={{ padding: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -269,6 +390,7 @@ function Fixture() {
       <button disabled={sampling} onClick={() => continuousInteraction('pan')}>连续拖动采样</button>
       <button disabled={sampling} onClick={() => continuousInteraction('zoom')}>连续缩放采样</button>
       <button disabled={sampling} onClick={() => continuousInteraction('hover')}>连续悬停采样</button>
+      <button disabled={sampling} onClick={verifyPinning}>固定路线回归</button>
       <button onClick={() => {
         const hubEdges = initialGraph.nodes.slice(300, 540).map((node) => ({
           source: initialGraph.nodes[0].id, target: node.id, relation: 'calls' as const,
@@ -294,6 +416,7 @@ function Fixture() {
     <pre data-testid="sample">{sample}</pre>
     <pre data-testid="interaction">{interaction}</pre>
     <pre data-testid="continuous">{continuous}</pre>
+    <pre data-testid="pinning" style={{ whiteSpace: 'pre-wrap' }}>{pinning}</pre>
     <p data-testid="counters">{JSON.stringify({ ...counters, lastPaint })}</p>
     <pre data-testid="density-measurements">{JSON.stringify(densityMeasurements)}</pre>
     <pre data-testid="workers">{JSON.stringify(workers)}</pre>
