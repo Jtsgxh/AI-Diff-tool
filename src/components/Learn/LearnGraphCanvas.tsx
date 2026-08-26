@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { LearnEdge, LearnGraph, LearnNode } from '../../types';
 import { communityColor } from '../../utils/learnGraph';
+import { createGraphFrameScheduler } from '../../utils/graphFrameScheduler';
 
 interface LearnGraphCanvasProps {
   graph: LearnGraph;
@@ -45,6 +46,22 @@ interface CurvedEdgeGeometry {
   end: ScreenPoint;
   midpoint: ScreenPoint;
   endAngle: number;
+}
+
+interface EdgeBend {
+  direction: number;
+  ratio: number;
+}
+
+interface RenderCurve {
+  source: SimNode;
+  target: SimNode;
+  bend: EdgeBend;
+  sourcePadding: number;
+  targetPadding: number;
+  zoom: number;
+  tick: number;
+  geometry: CurvedEdgeGeometry | null;
 }
 
 type GraphDensity = 'simple' | 'rich';
@@ -106,9 +123,24 @@ const EDGE_LABEL: Record<string, string> = {
   references: '引用',
 };
 
+const EDGE_DASH: Record<string, number[]> = {
+  calls: [], imports: [6, 4], references: [2, 4], inherits: [9, 4],
+};
+
+// IDs contain full file paths. Hash once per edge, never once per animation frame.
+const edgeBend = (sourceId: string, targetId: string): EdgeBend => {
+  const pairKey = sourceId < targetId
+    ? `${sourceId}|${targetId}`
+    : `${targetId}|${sourceId}`;
+  let hash = 0;
+  for (let index = 0; index < pairKey.length; index++) {
+    hash = ((hash << 5) - hash + pairKey.charCodeAt(index)) | 0;
+  }
+  return { direction: (hash & 1) === 0 ? 1 : -1, ratio: 0.08 + (Math.abs(hash >> 1) % 5) * 0.03 };
+};
+
 const curvedEdgeGeometry = (
-  sourceId: string,
-  targetId: string,
+  curve: EdgeBend,
   source: ScreenPoint,
   target: ScreenPoint,
   sourceRadius: number,
@@ -118,16 +150,7 @@ const curvedEdgeGeometry = (
   const dy = target.y - source.y;
   const distance = Math.sqrt(dx * dx + dy * dy);
   if (distance < 1) return null;
-  const pairKey = sourceId < targetId
-    ? `${sourceId}|${targetId}`
-    : `${targetId}|${sourceId}`;
-  let hash = 0;
-  for (let index = 0; index < pairKey.length; index++) {
-    hash = ((hash << 5) - hash + pairKey.charCodeAt(index)) | 0;
-  }
-  const bendDirection = (hash & 1) === 0 ? 1 : -1;
-  const bendRatio = 0.08 + (Math.abs(hash >> 1) % 5) * 0.03;
-  const bend = Math.min(64, Math.max(7, distance * bendRatio)) * bendDirection;
+  const bend = Math.min(64, Math.max(7, distance * curve.ratio)) * curve.direction;
   const normalX = -dy / distance;
   const normalY = dx / distance;
   const control = {
@@ -160,13 +183,37 @@ const curvedEdgeGeometry = (
   };
 };
 
-export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
+const makeRenderCurve = (
+  source: SimNode, target: SimNode, bend: EdgeBend, sourcePadding = 2, targetPadding = 5
+): RenderCurve => ({
+  source, target, bend, sourcePadding, targetPadding, zoom: NaN, tick: -1, geometry: null,
+});
+
+// Geometry is independent of camera translation. Panning reuses curves and arrows.
+const cachedCurveGeometry = (curve: RenderCurve, zoom: number, tick: number) => {
+  if (curve.zoom !== zoom || curve.tick !== tick) {
+    const { source, target } = curve;
+    const radiusScale = Math.sqrt(zoom);
+    curve.geometry = curvedEdgeGeometry(
+      curve.bend,
+      { x: source.x * zoom, y: source.y * zoom },
+      { x: target.x * zoom, y: target.y * zoom },
+      source.r * radiusScale + curve.sourcePadding,
+      target.r * radiusScale + curve.targetPadding
+    );
+    curve.zoom = zoom;
+    curve.tick = tick;
+  }
+  return curve.geometry;
+};
+
+export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
   graph,
   selectedNodeId,
   selectedCommunityId,
   onSelectNode,
   onSelectCommunity,
-}) => {
+}: LearnGraphCanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const simRef = useRef<SimNode[]>([]);
@@ -181,7 +228,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
   const [density, setDensity] = useState<GraphDensity>('simple');
   const [activeRouteId, setActiveRouteId] = useState('');
   const routeSetRef = useRef('');
-  const rafRef = useRef(0);
+  const invalidateRef = useRef<() => void>(() => {});
   const ticksRef = useRef(0);
 
   const activeRoute = useMemo(
@@ -219,6 +266,10 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
 
   const graphNodeIds = useMemo(
     () => new Set(graph.nodes.map((node) => node.id)),
+    [graph.nodes]
+  );
+  const graphNodesById = useMemo(
+    () => new Map(graph.nodes.map((node) => [node.id, node])),
     [graph.nodes]
   );
 
@@ -422,18 +473,41 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         if ((incidence.get(edge.target) || 0) >= 2) continue;
         add(edge);
       }
+      const firstIncidentEdge = new Map<string, LearnEdge>();
+      for (const edge of candidates) {
+        if (!firstIncidentEdge.has(edge.source)) firstIncidentEdge.set(edge.source, edge);
+        if (!firstIncidentEdge.has(edge.target)) firstIncidentEdge.set(edge.target, edge);
+      }
       for (const node of visibleNodes) {
         if ((incidence.get(node.id) || 0) > 0) continue;
-        const edge = candidates.find(
-          (candidate) =>
-            !keptKeys.has(`${candidate.source}|${candidate.target}`) &&
-            (candidate.source === node.id || candidate.target === node.id)
-        );
+        const edge = firstIncidentEdge.get(node.id);
         if (edge) add(edge);
       }
       return kept;
     },
     [density, graph.edges, visibleNodeIds, visibleNodes]
+  );
+
+  const connections = useMemo(() => {
+    const outgoing = new Map<string, LearnEdge[]>();
+    const incoming = new Map<string, LearnEdge[]>();
+    for (const edge of visibleEdges) {
+      const source = graphNodesById.get(edge.source);
+      const target = graphNodesById.get(edge.target);
+      if (!source || !target || hidden.has(source.communityId) || hidden.has(target.communityId)) continue;
+      const out = outgoing.get(edge.source);
+      if (out) out.push(edge);
+      else outgoing.set(edge.source, [edge]);
+      const into = incoming.get(edge.target);
+      if (into) into.push(edge);
+      else incoming.set(edge.target, [edge]);
+    }
+    return { outgoing, incoming };
+  }, [graphNodesById, hidden, visibleEdges]);
+
+  const edgeShapes = useMemo(
+    () => visibleEdges.map((edge) => ({ edge, bend: edgeBend(edge.source, edge.target) })),
+    [visibleEdges]
   );
 
   const maxDegree = useMemo(
@@ -579,6 +653,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       if (!wrap) return;
       const camera = fitCameraToNodes(simRef.current, wrap.clientWidth, wrap.clientHeight);
       if (camera) camRef.current = camera;
+      invalidateRef.current();
     });
     return () => cancelAnimationFrame(fitFrame);
   }, [layoutKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -595,6 +670,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       const camera = fitCameraToNodes(targetNodes, wrap.clientWidth, wrap.clientHeight);
       if (camera) camRef.current = camera;
       cameraTouchedRef.current = routeFocusActive;
+      invalidateRef.current();
     });
     return () => cancelAnimationFrame(frame);
   }, [activeRouteNodeIds, hidden, layoutKey, routeFocusActive]);
@@ -604,12 +680,60 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
 
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const sim = simRef.current;
+    const byId = new Map(sim.map((node) => [node.id, node]));
+    const communityById = new Map(graph.communities.map((community) => [community.id, community]));
+    const communityColors = new Map(graph.communities.map((community) => [community.id, communityColor(community.id)]));
+    const edges = edgeShapes.flatMap(({ edge, bend }) => {
+      const source = byId.get(edge.source);
+      const target = byId.get(edge.target);
+      if (!source || !target) return [];
+      return [{ edge, curve: makeRenderCurve(source, target, bend) }];
+    });
+    const edgesByRelation = new Map<string, typeof edges>();
+    const edgeByReference = new Map(edges.map((item) => [item.edge, item]));
+    for (const item of edges) {
+      const group = edgesByRelation.get(item.edge.relation);
+      if (group) group.push(item);
+      else edgesByRelation.set(item.edge.relation, [item]);
+    }
+    const routeCurves: RenderCurve[] = [];
+    const mappedSteps = activeRoute?.steps.filter(
+      (step) => step.nodeId && activeRouteNodeIds.has(step.nodeId)
+    ) || [];
+    for (let index = 1; index < mappedSteps.length; index++) {
+      const source = byId.get(mappedSteps[index - 1].nodeId!);
+      const target = byId.get(mappedSteps[index].nodeId!);
+      if (source && target && source.id !== target.id) {
+        routeCurves.push(makeRenderCurve(source, target, edgeBend(source.id, target.id), 4, 7));
+      }
+    }
+    const viewNodes = sim.filter((node) => !hidden.has(node.communityId));
+    const fitNodes = routeFocusActive
+      ? viewNodes.filter((node) => activeRouteNodeIds.has(node.id))
+      : viewNodes;
+    const textWidths = new Map<string, number>();
+    const textWidth = (text: string) => {
+      const key = `${ctx.font}:${text}`;
+      let width = textWidths.get(key);
+      if (width === undefined) {
+        width = ctx.measureText(text).width;
+        textWidths.set(key, width);
+      }
+      return width;
+    };
+    let w = wrap.clientWidth;
+    let h = wrap.clientHeight;
+
     const step = () => {
-      const sim = simRef.current;
+      // A CSS-hidden pane is still mounted. Do not simulate or paint it.
+      if (document.hidden || w <= 0 || h <= 0) return false;
       const tickCap = sim.length > 220 ? 180 : 420;
       const alpha = Math.max(0.015, 0.12 * Math.pow(0.985, ticksRef.current));
       let layoutUpdated = false;
-      if (ticksRef.current < tickCap && sim.length) {
+      if (ticksRef.current < tickCap && viewNodes.length) {
         const range = sim.length > 220 ? 120 : 180;
         const cellSize = range;
         const buckets = new Map<string, number[]>();
@@ -658,11 +782,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           }
         }
 
-        const byId = new Map(sim.map((n) => [n.id, n]));
-        for (const e of visibleEdges) {
-          const a = byId.get(e.source);
-          const b = byId.get(e.target);
-          if (!a || !b) continue;
+        for (const { edge: e, curve: { source: a, target: b } } of edges) {
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
@@ -699,15 +819,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       }
 
       const dpr = window.devicePixelRatio || 1;
-      const w = wrap.clientWidth;
-      const h = wrap.clientHeight;
       if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
         canvas.width = Math.floor(w * dpr);
         canvas.height = Math.floor(h * dpr);
         canvas.style.width = `${w}px`;
         canvas.style.height = `${h}px`;
         if (!cameraTouchedRef.current) {
-          const camera = fitCameraToNodes(sim, w, h);
+          const camera = fitCameraToNodes(fitNodes, w, h);
           if (camera) camRef.current = camera;
         }
       } else if (
@@ -716,13 +834,8 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ticksRef.current > 0 &&
         (ticksRef.current % 12 === 0 || ticksRef.current === tickCap)
       ) {
-        const camera = fitCameraToNodes(sim, w, h);
+        const camera = fitCameraToNodes(fitNodes, w, h);
         if (camera) camRef.current = camera;
-      }
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        rafRef.current = requestAnimationFrame(step);
-        return;
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
@@ -730,10 +843,15 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       ctx.fillRect(0, 0, w, h);
 
       const cam = camRef.current;
+      const originX = cam.x * cam.k + w / 2;
+      const originY = cam.y * cam.k + h / 2;
+      ctx.translate(originX, originY);
       const toScreen = (x: number, y: number) => ({
-        x: (x + cam.x) * cam.k + w / 2,
-        y: (y + cam.y) * cam.k + h / 2,
+        x: x * cam.k,
+        y: y * cam.k,
       });
+      const inViewport = (left: number, top: number, right: number, bottom: number) =>
+        right + originX >= 0 && bottom + originY >= 0 && left + originX <= w && top + originY <= h;
 
       const hiddenComms = hidden;
       const selected = selectedNodeId;
@@ -741,21 +859,14 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       const focusedNeighbors = new Set<string>();
       if (focusedNodeId) {
         focusedNeighbors.add(focusedNodeId);
-        for (const edge of visibleEdges) {
-          if (edge.source === focusedNodeId) focusedNeighbors.add(edge.target);
-          if (edge.target === focusedNodeId) focusedNeighbors.add(edge.source);
-        }
+        for (const edge of connections.outgoing.get(focusedNodeId) || []) focusedNeighbors.add(edge.target);
+        for (const edge of connections.incoming.get(focusedNodeId) || []) focusedNeighbors.add(edge.source);
       }
-      const byId = new Map(sim.map((n) => [n.id, n]));
-      const communityById = new Map(graph.communities.map((community) => [community.id, community]));
-      const drawArrowHead = (
+      const appendArrowHead = (
         point: ScreenPoint,
         angle: number,
-        size: number,
-        color: string
+        size: number
       ) => {
-        ctx.fillStyle = color;
-        ctx.beginPath();
         ctx.moveTo(point.x, point.y);
         ctx.lineTo(
           point.x - size * Math.cos(angle - Math.PI / 6),
@@ -766,6 +877,11 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           point.y - size * Math.sin(angle + Math.PI / 6)
         );
         ctx.closePath();
+      };
+      const drawArrowHead = (point: ScreenPoint, angle: number, size: number, color: string) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        appendArrowHead(point, angle, size);
         ctx.fill();
       };
 
@@ -774,11 +890,12 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         const topLeft = toScreen(box.x - box.width / 2, box.y - box.height / 2);
         const width = box.width * cam.k;
         const height = box.height * cam.k;
+        if (!inViewport(topLeft.x - 2, topLeft.y - 2, topLeft.x + width + 2, topLeft.y + height + 2)) continue;
         const dimmed = Boolean(
           (selectedCommunityId && selectedCommunityId !== box.id) ||
           (routeFocusActive && !activeRouteCommunityIds.has(box.id))
         );
-        const color = communityColor(box.id);
+        const color = communityColors.get(box.id) || communityColor(box.id);
         ctx.globalAlpha = dimmed ? 0.032 : 0.065;
         ctx.fillStyle = color;
         ctx.fillRect(topLeft.x, topLeft.y, width, height);
@@ -799,46 +916,69 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.globalAlpha = 1;
       }
 
-      for (const e of visibleEdges) {
-        const a = byId.get(e.source);
-        const b = byId.get(e.target);
-        if (!a || !b) continue;
+      // Thousands of separate strokes/dash state changes stall canvas rendering.
+      // Batch background edges by relation, then paint focused connections on top.
+      for (const [relation, group] of edgesByRelation) {
+        const color = EDGE_COLOR[relation] || EDGE_COLOR.references;
+        const arrows: CurvedEdgeGeometry[] = [];
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash(EDGE_DASH[relation] || EDGE_DASH.calls);
+        ctx.globalAlpha = routeFocusActive ? 0.13 : focusedNodeId ? 0.08 : 1;
+        ctx.beginPath();
+        for (const { curve } of group) {
+          const { source: a, target: b } = curve;
+          if (a.id === focusedNodeId || b.id === focusedNodeId) continue;
+          if (hiddenComms.has(a.communityId) || hiddenComms.has(b.communityId)) continue;
+          const ax = a.x * cam.k;
+          const ay = a.y * cam.k;
+          const bx = b.x * cam.k;
+          const by = b.y * cam.k;
+          if (!inViewport(Math.min(ax, bx) - 96, Math.min(ay, by) - 96,
+            Math.max(ax, bx) + 96, Math.max(ay, by) + 96)) continue;
+          const geometry = cachedCurveGeometry(curve, cam.k, ticksRef.current);
+          if (!geometry) continue;
+          ctx.moveTo(geometry.start.x, geometry.start.y);
+          ctx.quadraticCurveTo(geometry.control.x, geometry.control.y, geometry.end.x, geometry.end.y);
+          if (density === 'simple' || cam.k >= 0.85) arrows.push(geometry);
+        }
+        ctx.stroke();
+        ctx.setLineDash(EDGE_DASH.calls);
+        if (arrows.length) {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          for (const geometry of arrows) appendArrowHead(geometry.end, geometry.endAngle, 5.5);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      const focusedEdges = focusedNodeId ? [
+        ...(connections.outgoing.get(focusedNodeId) || []),
+        ...(connections.incoming.get(focusedNodeId) || []),
+      ] : [];
+      for (const e of focusedEdges) {
+        const item = edgeByReference.get(e);
+        if (!item) continue;
+        const { curve } = item;
+        const { source: a, target: b } = curve;
         if (hiddenComms.has(a.communityId) || hiddenComms.has(b.communityId)) continue;
         const pa = toScreen(a.x, a.y);
         const pb = toScreen(b.x, b.y);
-        const geometry = curvedEdgeGeometry(
-          e.source,
-          e.target,
-          pa,
-          pb,
-          a.r * Math.sqrt(cam.k) + 2,
-          b.r * Math.sqrt(cam.k) + 5
-        );
-        if (!geometry) continue;
         const outgoing = Boolean(focusedNodeId && e.source === focusedNodeId);
-        const incoming = Boolean(focusedNodeId && e.target === focusedNodeId);
-        const hot = outgoing || incoming;
+        // Quadratic control points bend at most 64px. Include arrows and focus labels.
+        const margin = Math.max(a.label.length, b.label.length) * 12 + 96;
+        if (!inViewport(Math.min(pa.x, pb.x) - margin, Math.min(pa.y, pb.y) - margin,
+          Math.max(pa.x, pb.x) + margin, Math.max(pa.y, pb.y) + margin)) continue;
+        const geometry = cachedCurveGeometry(curve, cam.k, ticksRef.current);
+        if (!geometry) continue;
         const edgeColor = outgoing
           ? 'rgba(52,211,153,1)'
-          : incoming
-            ? 'rgba(56,189,248,1)'
-            : EDGE_COLOR[e.relation] || EDGE_COLOR.references;
+          : 'rgba(56,189,248,1)';
         ctx.strokeStyle = edgeColor;
-        ctx.lineWidth = hot ? 2.4 : 1;
-        ctx.setLineDash(
-          e.relation === 'imports'
-            ? [6, 4]
-            : e.relation === 'references'
-              ? [2, 4]
-              : e.relation === 'inherits'
-                ? [9, 4]
-                : []
-        );
-        ctx.globalAlpha = routeFocusActive
-          ? (hot ? 0.9 : 0.13)
-          : focusedNodeId && !hot
-            ? 0.08
-            : 1;
+        ctx.lineWidth = 2.4;
+        ctx.setLineDash(EDGE_DASH[e.relation] || EDGE_DASH.calls);
+        ctx.globalAlpha = routeFocusActive ? 0.9 : 1;
         ctx.beginPath();
         ctx.moveTo(geometry.start.x, geometry.start.y);
         ctx.quadraticCurveTo(
@@ -850,58 +990,38 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        if (density === 'simple' || hot || cam.k >= 0.85) {
-          drawArrowHead(geometry.end, geometry.endAngle, hot ? 8 : 5.5, edgeColor);
-        }
+        drawArrowHead(geometry.end, geometry.endAngle, 8, edgeColor);
 
-        if (hot) {
-          const relation = EDGE_LABEL[e.relation] || e.relation;
-          const edgeLabel = outgoing
-            ? `出 · ${relation} · ${b.label}`
-            : `入 · ${a.label} · ${relation}`;
-          ctx.globalAlpha = 1;
-          ctx.font = '700 10px ui-sans-serif, system-ui';
-          const labelWidth = ctx.measureText(edgeLabel).width;
-          const screenDistance = Math.sqrt(
-            (pb.x - pa.x) * (pb.x - pa.x) + (pb.y - pa.y) * (pb.y - pa.y)
-          );
-          if (screenDistance > labelWidth + 42) {
-            const labelX = geometry.midpoint.x - labelWidth / 2;
-            const labelY = geometry.midpoint.y - 6;
-            ctx.fillStyle = 'rgba(3,7,18,0.9)';
-            ctx.fillRect(labelX - 4, labelY - 10, labelWidth + 8, 16);
-            ctx.fillStyle = outgoing ? '#a7f3d0' : '#bae6fd';
-            ctx.fillText(edgeLabel, labelX, labelY + 2);
-          }
+        const relation = EDGE_LABEL[e.relation] || e.relation;
+        const edgeLabel = outgoing
+          ? `出 · ${relation} · ${b.label}`
+          : `入 · ${a.label} · ${relation}`;
+        ctx.globalAlpha = 1;
+        ctx.font = '700 10px ui-sans-serif, system-ui';
+        const labelWidth = textWidth(edgeLabel);
+        const screenDistance = Math.sqrt(
+          (pb.x - pa.x) * (pb.x - pa.x) + (pb.y - pa.y) * (pb.y - pa.y)
+        );
+        if (screenDistance > labelWidth + 42) {
+          const labelX = geometry.midpoint.x - labelWidth / 2;
+          const labelY = geometry.midpoint.y - 6;
+          ctx.fillStyle = 'rgba(3,7,18,0.9)';
+          ctx.fillRect(labelX - 4, labelY - 10, labelWidth + 8, 16);
+          ctx.fillStyle = outgoing ? '#a7f3d0' : '#bae6fd';
+          ctx.fillText(edgeLabel, labelX, labelY + 2);
         }
         ctx.globalAlpha = 1;
       }
 
       if (routeFocusActive && activeRoute) {
-        const mappedSteps = activeRoute.steps
-          .map((step, index) => ({ nodeId: step.nodeId, index }))
-          .filter(
-            (step): step is { nodeId: string; index: number } =>
-              Boolean(step.nodeId && activeRouteNodeIds.has(step.nodeId))
-          );
-        for (let index = 1; index < mappedSteps.length; index++) {
-          const previousId = mappedSteps[index - 1].nodeId;
-          const currentId = mappedSteps[index].nodeId;
-          if (previousId === currentId) continue;
-          const previous = byId.get(previousId);
-          const current = byId.get(currentId);
-          if (!previous || !current) continue;
+        for (const curve of routeCurves) {
+          const { source: previous, target: current } = curve;
           if (hiddenComms.has(previous.communityId) || hiddenComms.has(current.communityId)) continue;
           const from = toScreen(previous.x, previous.y);
           const to = toScreen(current.x, current.y);
-          const geometry = curvedEdgeGeometry(
-            previousId,
-            currentId,
-            from,
-            to,
-            previous.r * Math.sqrt(cam.k) + 4,
-            current.r * Math.sqrt(cam.k) + 7
-          );
+          if (!inViewport(Math.min(from.x, to.x) - 96, Math.min(from.y, to.y) - 96,
+            Math.max(from.x, to.x) + 96, Math.max(from.y, to.y) + 96)) continue;
+          const geometry = cachedCurveGeometry(curve, cam.k, ticksRef.current);
           if (!geometry) continue;
           ctx.strokeStyle = 'rgba(3,7,18,0.9)';
           ctx.lineWidth = 7;
@@ -948,6 +1068,17 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           (routeFocusActive && !isActiveRoute && !inFocusedNeighborhood)
         );
         const hitSearch = searchHit?.has(n.id);
+        const label =
+          isSel || isHover || hitSearch || isActiveRoute ||
+          (focusedNodeId && isNb) ||
+          (!routeFocusActive && isBusinessCore) || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
+        const labelSize = isSel || isHover || (isActiveRoute && routeFocusActive) ? 12 : 10;
+        ctx.font = `${isActiveRoute && routeFocusActive ? '700 ' : ''}${labelSize}px ui-sans-serif, system-ui`;
+        const labelWidth = label ? textWidth(n.label) : 0;
+        // Keep offscreen-node labels/badges when their pixels still enter the viewport.
+        const badgeMargin = routeFocusActive ? 24 + (activeRouteStepNumbers.get(n.id)?.join('·').length || 0) * 10 : 8;
+        if (!inViewport(p.x - r - badgeMargin, p.y - r - 32,
+          p.x + r + 8 + labelWidth, p.y + r + 16)) continue;
         ctx.globalAlpha = dim && !hitSearch ? (routeFocusActive ? 0.34 : 0.22) : 1;
         if (isActiveRoute && routeFocusActive) {
           ctx.beginPath();
@@ -957,7 +1088,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         }
         ctx.beginPath();
         ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = communityColor(n.communityId);
+        ctx.fillStyle = communityColors.get(n.communityId) || communityColor(n.communityId);
         ctx.fill();
         if (n.degree >= maxDegree * 0.55) {
           ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -969,20 +1100,13 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
           ctx.lineWidth = isActiveRoute && routeFocusActive ? 3 : 2;
           ctx.stroke();
         }
-        const label =
-          isSel || isHover || hitSearch || isActiveRoute ||
-          (focusedNodeId && isNb) ||
-          (!routeFocusActive && isBusinessCore) || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
         if (label) {
-          const labelSize = isSel || isHover || (isActiveRoute && routeFocusActive) ? 12 : 10;
           const labelX = p.x + r + 5;
           const labelY = p.y + 4;
-          ctx.font = `${isActiveRoute && routeFocusActive ? '700 ' : ''}${labelSize}px ui-sans-serif, system-ui`;
           ctx.globalAlpha = dim && !hitSearch ? (routeFocusActive ? 0.48 : 0.35) : 1;
           if (isActiveRoute && routeFocusActive) {
-            const textWidth = ctx.measureText(n.label).width;
             ctx.fillStyle = 'rgba(3,7,18,0.88)';
-            ctx.fillRect(labelX - 3, labelY - labelSize - 2, textWidth + 7, labelSize + 6);
+            ctx.fillRect(labelX - 3, labelY - labelSize - 2, labelWidth + 7, labelSize + 6);
             ctx.fillStyle = '#ecfdf5';
           } else {
             ctx.fillStyle = '#e2e8f0';
@@ -993,7 +1117,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         if (stepNumbers && routeFocusActive) {
           const stepText = stepNumbers.join('·');
           ctx.font = '800 10px ui-sans-serif, system-ui';
-          const badgeWidth = Math.max(18, ctx.measureText(stepText).width + 10);
+          const badgeWidth = Math.max(18, textWidth(stepText) + 10);
           const badgeHeight = 18;
           const badgeX = p.x - r - badgeWidth * 0.7;
           const badgeY = p.y - r - badgeHeight * 0.75;
@@ -1013,11 +1137,29 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
         ctx.globalAlpha = 1;
       }
 
-      rafRef.current = requestAnimationFrame(step);
+      return ticksRef.current < tickCap && viewNodes.length > 0;
     };
 
-    rafRef.current = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafRef.current);
+    const scheduler = createGraphFrameScheduler(step);
+    invalidateRef.current = scheduler.invalidate;
+    const resize = () => {
+      w = wrap.clientWidth;
+      h = wrap.clientHeight;
+      if (w <= 0 || h <= 0 || document.hidden) scheduler.pause();
+      else scheduler.invalidate();
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(wrap);
+    document.addEventListener('visibilitychange', resize);
+    window.addEventListener('resize', resize); // Includes display/DPR changes.
+    scheduler.invalidate();
+    return () => {
+      scheduler.dispose();
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', resize);
+      window.removeEventListener('resize', resize);
+      invalidateRef.current = () => {};
+    };
   }, [
     activeRoute,
     activeRouteId,
@@ -1036,6 +1178,9 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     selectedNodeId,
     visibleEdges,
     visibleCommunityCounts,
+    layoutKey,
+    connections,
+    edgeShapes,
   ]);
 
   const hitTest = (sx: number, sy: number): SimNode | null => {
@@ -1047,15 +1192,16 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     const wx = (sx - w / 2) / cam.k - cam.x;
     const wy = (sy - h / 2) / cam.k - cam.y;
     let best: SimNode | null = null;
-    let bestD = Infinity;
+    let bestDistanceSquared = Infinity;
     for (const n of simRef.current) {
       if (hidden.has(n.communityId)) continue;
       const dx = n.x - wx;
       const dy = n.y - wy;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < n.r + 4 / cam.k && d < bestD) {
+      const distanceSquared = dx * dx + dy * dy;
+      const hitRadius = n.r + 4 / cam.k;
+      if (distanceSquared < hitRadius * hitRadius && distanceSquared < bestDistanceSquared) {
         best = n;
-        bestD = d;
+        bestDistanceSquared = distanceSquared;
       }
     }
     return best;
@@ -1067,6 +1213,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     const cam = camRef.current;
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
     cam.k = Math.min(4, Math.max(MIN_ZOOM, cam.k * factor));
+    invalidateRef.current();
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -1100,6 +1247,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       cam.y += (y - drag.ly) / cam.k;
       drag.lx = x;
       drag.ly = y;
+      invalidateRef.current();
       return;
     }
     const node = hitTest(x, y);
@@ -1107,6 +1255,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     if (id !== hoverRef.current) {
       hoverRef.current = id;
       setHover(id);
+      invalidateRef.current();
     }
   };
 
@@ -1118,26 +1267,25 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     if (dragRef.current) return;
     hoverRef.current = null;
     setHover(null);
+    invalidateRef.current();
   };
 
   const focusedDetailsNodeId = hover || selectedNodeId;
   const focusedDetailsNode = focusedDetailsNodeId
-    ? graph.nodes.find((node) => node.id === focusedDetailsNodeId) || null
+    ? graphNodesById.get(focusedDetailsNodeId) || null
     : null;
   const outgoingConnections = focusedDetailsNodeId
-    ? visibleEdges
-      .filter((edge) => edge.source === focusedDetailsNodeId)
+    ? (connections.outgoing.get(focusedDetailsNodeId) || [])
       .map((edge) => ({
         edge,
-        node: graph.nodes.find((node) => node.id === edge.target),
+        node: graphNodesById.get(edge.target),
       }))
     : [];
   const incomingConnections = focusedDetailsNodeId
-    ? visibleEdges
-      .filter((edge) => edge.target === focusedDetailsNodeId)
+    ? (connections.incoming.get(focusedDetailsNodeId) || [])
       .map((edge) => ({
         edge,
-        node: graph.nodes.find((node) => node.id === edge.source),
+        node: graphNodesById.get(edge.source),
       }))
     : [];
 
@@ -1148,6 +1296,7 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
     const camera = fitCameraToNodes(visible, wrap.clientWidth, wrap.clientHeight);
     if (camera) camRef.current = camera;
     cameraTouchedRef.current = false;
+    invalidateRef.current();
   };
 
   return (
@@ -1325,4 +1474,4 @@ export const LearnGraphCanvas: React.FC<LearnGraphCanvasProps> = ({
       )}
     </div>
   );
-};
+});
