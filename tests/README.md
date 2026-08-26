@@ -3,7 +3,7 @@
 Run the scheduler and layout tests:
 
 ```sh
-node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts
+node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts tests/learnGraphFilter.test.ts
 ```
 
 For real canvas/React checks, run `npm run client` and open
@@ -107,3 +107,24 @@ must not automatically call AI. Explicit analysis, reanalysis and file questions
 Leaving the page cancels an unfinished stream, and changing the prompt during that stream must
 not silently replace it with a new request. The expected five intercepted requests are all
 explicit test actions (analysis, reanalysis, a failed analysis, a file question, and a held stream).
+
+## Test-node display filter regression
+
+In the same session fixture, click **验证测试节点过滤**. All 14 checks must pass. The mixed graph
+contains five production classes and three test classes (including test-directory-only matches).
+The filter defaults on, works in both densities, removes incident edges and test-only communities,
+updates community details, and remembers its setting when reentering the workbench. `AbilitySpec`,
+`LatestSnapshot` and `ContestReward` remain visible. Turning it off restores all eight nodes/edges,
+including when the filtered graph is completely empty.
+
+Only one intercepted AI request is expected, from the fixture's explicit analysis click to create
+routes. Filter toggles do not call AI or rewrite cached reports. A route with a hidden middle step
+must report 2/3 visible steps and submit **zero** highlighted route curves, not a shortcut between
+the remaining classes; restoring that step must submit the original two curves. A wholly hidden
+test route is disabled with a filtering explanation, not an unmappable-data warning.
+
+After the checks, the normal mixed graph is available with filtering off. In rich mode, click
+`Entry` to pin it and turn filtering on: the pin stays, but its test neighbor and incident line
+disappear from both connection panels. Turn filtering off, pin `CombatTestPipelineAbilitySpec`,
+and enable filtering again: its pin/details must clear, and turning filtering off must not
+resurrect the old pin. Zooming/panning a retained business node must still preserve its pin.

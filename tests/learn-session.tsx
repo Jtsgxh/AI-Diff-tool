@@ -16,8 +16,9 @@ aiCache.set = (key, item) => {
   cache.set(key, { ...item, key, timestamp: Date.now() });
 };
 aiCache.remove = (key) => { cache.delete(key); };
-storage.get = () => null;
-storage.set = () => true;
+const preferences = new Map<string, string>();
+storage.get = (key) => preferences.get(key) ?? null;
+storage.set = (key, value) => { preferences.set(key, value); return true; };
 
 const config: AIProviderConfig = { provider: 'custom', apiKey: '', baseUrl: '', model: 'fixture-model' };
 const graph: LearnGraph = {
@@ -34,6 +35,50 @@ const report = '```learn-graph\n' + JSON.stringify({
       description: '测试步骤', relation: '调用', evidence: `${node.file}:1` })) }],
   runtimePath: ['0'],
 }) + '\n```\n\n这是测试业务路线讲解。';
+const filterNodes: LearnGraph['nodes'] = [
+  ...['Entry', 'Service', 'AbilitySpec', 'LatestSnapshot', 'ContestReward', 'CombatTestPipelineAbilitySpec']
+    .map((label) => ({ id: label, label, kind: 'class' as const, file: `src/${label}.cs`, communityId: '0', degree: 0 })),
+  { id: 'Helper', label: 'Helper', kind: 'class', file: 'src/__tests__/Helper.ts', communityId: '1', degree: 0 },
+  { id: 'Probe', label: 'Probe', kind: 'class', file: 'src/Demo.Tests/Probe.cs', communityId: '1', degree: 0 },
+];
+const filterGraph: LearnGraph = {
+  ...graph, nodes: filterNodes,
+  edges: [['Entry', 'Service'], ['Entry', 'AbilitySpec'], ['AbilitySpec', 'LatestSnapshot'], ['LatestSnapshot', 'ContestReward'],
+    ['Entry', 'CombatTestPipelineAbilitySpec'], ['CombatTestPipelineAbilitySpec', 'Service'], ['Service', 'Helper'], ['Helper', 'Probe']]
+    .map(([source, target]) => ({ source, target, relation: 'calls' })),
+  communities: ['0', '1'].map((id) => ({ id, label: id === '0' ? '业务社区' : '仅测试社区', summary: '',
+    files: filterNodes.filter((node) => node.communityId === id).map((node) => node.file!),
+    godNodes: [], nodeCount: filterNodes.filter((node) => node.communityId === id).length, cohesion: 1 })),
+  stats: { ...graph.stats, filesParsed: 8, symbolCount: 8, edgeCount: 8 },
+};
+for (const edge of filterGraph.edges) {
+  filterNodes.find((node) => node.id === edge.source)!.degree++;
+  filterNodes.find((node) => node.id === edge.target)!.degree++;
+}
+const filterReport = '```learn-graph\n' + JSON.stringify({
+  communities: filterGraph.communities,
+  businessRoutes: [
+    { id: 'mixed', label: '跨测试节点路线', ids: ['Entry', 'CombatTestPipelineAbilitySpec', 'Service'] },
+    { id: 'test-only', label: '纯测试路线', ids: ['Helper', 'Probe'] },
+  ].map((route) => ({ id: route.id, label: route.label, summary: '过滤回归', steps: route.ids.map((id) => {
+    const node = filterNodes.find((item) => item.id === id)!;
+    return { label: node.label, file: node.file, classSymbol: node.label, description: '步骤', relation: '调用', evidence: `${node.file}:1` };
+  }) })),
+}) + '\n```\n\n过滤回归讲解。';
+let useFilterGraph = false;
+let allTestNodes = false;
+// Observe actual foreground route submissions, not React state or expected data.
+let lastRouteCurves = 0;
+const originalClear = CanvasRenderingContext2D.prototype.clearRect;
+CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+  if (this.canvas.isConnected) lastRouteCurves = 0;
+  return originalClear.apply(this, args);
+};
+const originalCurve = CanvasRenderingContext2D.prototype.quadraticCurveTo;
+CanvasRenderingContext2D.prototype.quadraticCurveTo = function (...args) {
+  if (this.canvas.isConnected && Math.abs(this.lineWidth - 3.5) < 0.01) lastRouteCurves++;
+  return originalCurve.apply(this, args);
+};
 const requests: { repoPath: string; model: string; question?: string }[] = [];
 let aborted = 0;
 let responseMode: 'ok' | 'error' | 'hold' = 'ok';
@@ -44,7 +89,11 @@ window.fetch = async (input, init) => {
     return Response.json({ fileCount: 2, languages: [], topDirs: [], manifests: [], entryCandidates: [] });
   }
   if (url.pathname === '/api/repo/learn-graph') {
-    const source = { ...graph, stats: { ...graph.stats, sourceFingerprint: `fixture-source-${sourceRevision}` } };
+    const base = useFilterGraph ? filterGraph : graph;
+    const source = { ...base,
+      nodes: allTestNodes ? base.nodes.map((node) => ({ ...node, file: `tests/${node.file}` })) : base.nodes,
+      communities: allTestNodes ? base.communities.map((community) => ({ ...community, files: community.files.map((file) => `tests/${file}`) })) : base.communities,
+      stats: { ...base.stats, sourceFingerprint: `fixture-source-${sourceRevision}` } };
     await new Promise((resolve) => setTimeout(resolve, 40));
     return Response.json(source);
   }
@@ -61,7 +110,7 @@ window.fetch = async (input, init) => {
     }
     if (responseMode === 'error') return Response.json({ error: 'fixture AI failure' }, { status: 500 });
     return new Response([
-      `data: ${JSON.stringify({ type: 'chunk', text: body.userPrompt ? '这是测试追问回答。' : report })}\n\n`,
+      `data: ${JSON.stringify({ type: 'chunk', text: body.userPrompt ? '这是测试追问回答。' : useFilterGraph ? filterReport : report })}\n\n`,
       'data: {"type":"done"}\n\n',
     ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
   }
@@ -113,6 +162,7 @@ function Fixture() {
       aborted = 0;
       responseMode = 'ok';
       sourceRevision = 0;
+      useFilterGraph = false; allTestNodes = false; preferences.clear();
       setRepoPath('fixture/repo-a'); setHead('head-a'); setRevision(0); setConfig(config); setAskFile(null);
       setMounted(true);
       await until(ready);
@@ -185,9 +235,80 @@ function Fixture() {
       setRunning(false);
     }
   };
+  const runFilter = async () => {
+    const checks: string[] = [];
+    const workbench = () => document.querySelector('[data-testid="workbench"]')!;
+    const content = () => workbench().textContent || '';
+    const button = (name: string) => [...workbench().querySelectorAll<HTMLButtonElement>('button')]
+      .find((item) => item.getAttribute('aria-label') === name || item.textContent?.trim() === name);
+    const routeSelect = () => workbench().querySelector<HTMLSelectElement>('select[aria-label="聚焦业务路线"]')!;
+    const option = (value: string) => [...routeSelect().options].find((item) => item.value === value)!;
+    const delay = (ms = 100) => new Promise((resolve) => setTimeout(resolve, ms));
+    const until = async (condition: () => boolean) => {
+      const deadline = performance.now() + 5000;
+      while (!condition()) {
+        if (performance.now() > deadline) throw new Error('等待过滤界面超时');
+        await delay(20);
+      }
+      await delay();
+    };
+    const check = (name: string, condition: boolean) => {
+      if (!condition) throw new Error(name);
+      checks.push(name);
+    };
+    const toggle = async () => { button('隐藏测试节点')!.click(); await delay(); };
+    const ready = () => Boolean(button('开始 AI 分析') && !button('开始 AI 分析')!.disabled);
+    setRunning(true); setResult('正在验证测试节点过滤，所有数据与 AI 均为模拟');
+    try {
+      setMounted(false); await delay();
+      cache.clear(); preferences.clear(); savedReports = 0; requests.length = 0;
+      useFilterGraph = true; allTestNodes = false; sourceRevision = 0; responseMode = 'ok';
+      setRepoPath('fixture/filter'); setHead('head-a'); setRevision(0); setConfig(config); setAskFile(null);
+      setMounted(true); await until(ready);
+      check('默认隐藏测试节点且不调用 AI', button('隐藏测试节点')?.getAttribute('aria-pressed') === 'true' && requests.length === 0);
+      button('丰富')!.click(); await delay();
+      check('丰富视图只剩 5 个业务类和 4 条边', content().includes('丰富 · 5 类级节点 · 4 边'));
+      check('纯测试社区被隐藏', ![...workbench().querySelectorAll('button')].some((item) => item.textContent?.includes('仅测试社区')));
+      button('业务社区5')!.click(); await delay();
+      check('社区详情保留 Spec/Latest/Contest，不含测试类', ['AbilitySpec.cs', 'LatestSnapshot.cs', 'ContestReward.cs'].every((name) => content().includes(name)) && !content().includes('CombatTestPipelineAbilitySpec.cs'));
+      await toggle();
+      check('关闭过滤恢复全部节点和连线', content().includes('丰富 · 8 类级节点 · 8 边') && content().includes('仅测试社区'));
+      setMounted(false); await delay(); setMounted(true); await until(ready);
+      check('重新进入记住关闭状态且不调用 AI', button('隐藏测试节点')?.getAttribute('aria-pressed') === 'false' && requests.length === 0);
+      await toggle();
+      button('简化')!.click(); await delay();
+      check('简化模式同样过滤测试节点', content().includes('/5 类级节点') && content().includes('已隐藏 3 个测试节点'));
+      button('开始 AI 分析')!.click(); await until(() => savedReports === 1 && Boolean(button('重新分析')));
+      check('过滤不会影响完整报告解析与缓存', requests.length === 1 && cache.size === 1 && content().includes('过滤回归讲解'));
+      check('路线正确标注隐藏步骤而非映射失败', option('mixed').text.includes('2/3') && option('test-only').disabled && option('test-only').text.includes('测试步骤已隐藏'));
+      button('丰富')!.click();
+      routeSelect().value = 'mixed'; routeSelect().dispatchEvent(new Event('change', { bubbles: true }));
+      await until(() => !content().includes('正在后台整理社区布局'));
+      check('隐藏中间步骤不画虚假直连', content().includes('2/3 步可见') && lastRouteCurves === 0);
+      await toggle(); await until(() => lastRouteCurves === 2);
+      check('恢复测试节点后原路线两段连线恢复', option('mixed').text.includes('3/3') && !option('test-only').disabled && lastRouteCurves === 2);
+      await toggle();
+      check('反复切换不请求 AI 或改写 AI 缓存', requests.length === 1 && savedReports === 1);
+      allTestNodes = true; sourceRevision++; setRevision((previous) => previous + 1);
+      await until(() => content().includes('所有节点都已按测试规则隐藏'));
+      check('全隐藏时开关仍可用且不调用 AI', Boolean(button('隐藏测试节点')) && requests.length === 1);
+      await toggle();
+      button('丰富')!.click(); await delay();
+      check('空图能关闭过滤恢复所有节点', content().includes('丰富 · 8 类级节点 · 8 边') && !content().includes('所有节点都已按测试规则隐藏'));
+      // Leave the normal mixed graph available for manual pointer/selection checks.
+      allTestNodes = false; sourceRevision++; setRevision((previous) => previous + 1);
+      await until(ready);
+      setResult(JSON.stringify({ passed: checks.length, requests: requests.length, checks }, null, 2));
+    } catch (error) {
+      setResult(JSON.stringify({ passed: checks.length, failed: String(error), requests, checks }, null, 2));
+    } finally {
+      setRunning(false);
+    }
+  };
   return <main className="flex h-screen flex-col bg-[#12131a] text-slate-200">
     <header className="flex gap-4 p-3">
       <button disabled={running} onClick={run}>验证手动分析</button>
+      <button disabled={running} onClick={runFilter}>验证测试节点过滤</button>
       <button disabled={running} onClick={() => setMounted(!mounted)}>{mounted ? '离开学习' : '进入学习'}</button>
       <span>全部请求本地模拟，不使用真实仓库、模型或缓存</span>
     </header>

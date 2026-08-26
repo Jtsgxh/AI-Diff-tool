@@ -16,6 +16,9 @@ interface LearnGraphCanvasProps {
   selectedCommunityId: string | null;
   onSelectNode: (id: string | null) => void;
   onSelectCommunity: (id: string | null) => void;
+  hideTestNodes: boolean;
+  testNodeCount: number;
+  onHideTestNodesChange: (hide: boolean) => void;
 }
 
 interface Camera {
@@ -203,6 +206,9 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
   selectedCommunityId,
   onSelectNode,
   onSelectCommunity,
+  hideTestNodes,
+  testNodeCount,
+  onHideTestNodesChange,
 }: LearnGraphCanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -661,12 +667,10 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       else edgesByRelation.set(item.edge.relation, [item]);
     }
     const routeCurves: RenderCurve[] = [];
-    const mappedSteps = activeRoute?.steps.filter(
-      (step) => step.nodeId && activeRouteNodeIds.has(step.nodeId)
-    ) || [];
-    for (let index = 1; index < mappedSteps.length; index++) {
-      const source = byId.get(mappedSteps[index - 1].nodeId!);
-      const target = byId.get(mappedSteps[index].nodeId!);
+    const routeSteps = activeRoute?.steps || [];
+    for (let index = 1; index < routeSteps.length; index++) {
+      const source = byId.get(routeSteps[index - 1].nodeId!);
+      const target = byId.get(routeSteps[index].nodeId!);
       if (source && target && source.id !== target.id) {
         routeCurves.push(makeRenderCurve(source, target, edgeBend(source.id, target.id), 4, 7));
       }
@@ -1321,6 +1325,21 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             丰富
           </button>
         </div>
+        <button
+          type="button"
+          aria-label="隐藏测试节点"
+          aria-pressed={hideTestNodes}
+          title="隐藏类名或路径中的 Test / Tests / Testing，以及测试目录、.spec 文件；只过滤显示，不调用 AI"
+          onClick={() => {
+            clearHover();
+            onHideTestNodesChange(!hideTestNodes);
+          }}
+          className={`pointer-events-auto rounded-md border bg-black/50 px-2 py-1 text-[10px] ${
+            hideTestNodes ? 'border-sky-400/40 text-sky-200' : 'border-white/10 text-slate-400'
+          }`}
+        >
+          隐藏测试节点{hideTestNodes ? ' ✓' : ''} · {testNodeCount}
+        </button>
         {graph.businessRoutes.length > 0 && (
           <select
             aria-label="聚焦业务路线"
@@ -1356,10 +1375,11 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             <option value="">社区总览（不聚焦路线）</option>
             {graph.businessRoutes.map((route) => {
               const mappedSteps = routeMappedStepCounts.get(route.id) || 0;
+              const filteredSteps = hideTestNodes && route.steps.some((step) => step.nodeId && !graphNodeIds.has(step.nodeId));
               return (
                 <option key={route.id} value={route.id} disabled={mappedSteps === 0}>
                   {route.label} · {mappedSteps}/{route.steps.length} 步
-                  {mappedSteps === 0 ? '（无法映射）' : ''}
+                  {filteredSteps ? '（测试步骤已隐藏）' : mappedSteps === 0 ? '（无法映射）' : ''}
                 </option>
               );
             })}
@@ -1402,6 +1422,11 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           );
         })}
       </div>
+      {hideTestNodes && testNodeCount > 0 && graph.nodes.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs text-slate-400">
+          所有节点都已按测试规则隐藏，关闭「隐藏测试节点」即可恢复。
+        </div>
+      )}
       <div className="absolute bottom-2 left-2 text-[10px] text-slate-500 pointer-events-none">
         {(layoutCache.get(density)?.key !== layoutKey || layoutCache.get(density)?.worker) && (
           <span className="mr-2 text-amber-300">正在后台整理社区布局…</span>
@@ -1414,8 +1439,9 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           : `丰富 · ${graph.nodes.length} 类级节点 · ${graph.edges.length} 边`}
         {graph.stats.truncated ? ' · 已裁大图' : ''}
         {routeFocusActive && activeRoute
-          ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步已映射`
+          ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步可见`
           : ' · 社区总览'}
+        {hideTestNodes && testNodeCount > 0 ? ` · 已隐藏 ${testNodeCount} 个测试节点及相关连线` : ''}
         <span className="ml-2 text-slate-600">滚轮缩放 · 左键/中键拖动画布 · 单击节点固定路线 · 固定后缩放、拖动、悬停不切换</span>
       </div>
       {focusedDetailsNode && (

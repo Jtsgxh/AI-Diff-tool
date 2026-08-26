@@ -14,6 +14,7 @@ import {
 import type { AIProviderConfig, LearnNode } from '../../types';
 import { STORAGE_KEYS, storage } from '../../constants/storage';
 import { communityColor, looksLikeJsonBlob } from '../../utils/learnGraph';
+import { filterLearnTestNodes, learnGraphWithFilteredNodes } from '../../utils/learnGraphFilter';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
 import { LearnGraphCanvas } from './LearnGraphCanvas';
 import { useLearnSession } from './useLearnSession';
@@ -48,6 +49,24 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   const session = useLearnSession(repoPath, aiConfig, headHash, repositoryRevision);
   const [draft, setDraft] = useState('');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [hideTestNodes, setHideTestNodes] = useState(() => storage.get(STORAGE_KEYS.learnHideTestNodes) !== 'false');
+  const testFreeTopology = useMemo(
+    () => session.graph ? filterLearnTestNodes(session.graph) : null,
+    [session.graph?.nodes, session.graph?.edges]
+  );
+  const testFreeGraph = useMemo(
+    () => session.graph && testFreeTopology ? learnGraphWithFilteredNodes(session.graph, testFreeTopology) : null,
+    [session.graph, testFreeTopology]
+  );
+  const displayGraph = hideTestNodes ? testFreeGraph : session.graph;
+  const onHideTestNodesChange = useCallback((hide: boolean) => {
+    setHideTestNodes(hide);
+    storage.set(STORAGE_KEYS.learnHideTestNodes, String(hide));
+    if (hide) {
+      setSelectedNodeId((id) => testFreeGraph?.nodes.some((node) => node.id === id) ? id : null);
+      session.setSelectedCommunityId((id) => testFreeGraph?.communities.some((community) => community.id === id) ? id : null);
+    }
+  }, [testFreeGraph, session.setSelectedCommunityId]);
   const [graphPanePct, setGraphPanePct] = useState(() => {
     const raw = storage.get(STORAGE_KEYS.learnGraphPanePct);
     const stored = raw === null ? Number.NaN : Number(raw);
@@ -116,30 +135,30 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   );
 
   const selectedNode: LearnNode | null =
-    session.graph?.nodes.find((n) => n.id === selectedNodeId) || null;
+    displayGraph?.nodes.find((n) => n.id === selectedNodeId) || null;
   const selectedCommunity =
-    session.graph?.communities.find((c) => c.id === session.selectedCommunityId) ||
+    displayGraph?.communities.find((c) => c.id === session.selectedCommunityId) ||
     (selectedNode
-      ? session.graph?.communities.find((c) => c.id === selectedNode.communityId)
+      ? displayGraph?.communities.find((c) => c.id === selectedNode.communityId)
       : null) ||
     null;
 
   const neighbors = useMemo(() => {
-    if (!session.graph || !selectedNode) return [];
+    if (!displayGraph || !selectedNode) return [];
     const ids = new Set<string>();
     const rels: { node: LearnNode; relation: string }[] = [];
-    for (const e of session.graph.edges) {
+    for (const e of displayGraph.edges) {
       let other: string | null = null;
       if (e.source === selectedNode.id) other = e.target;
       else if (e.target === selectedNode.id) other = e.source;
       if (!other || ids.has(other)) continue;
-      const node = session.graph.nodes.find((n) => n.id === other);
+      const node = displayGraph.nodes.find((n) => n.id === other);
       if (!node) continue;
       ids.add(other);
       rels.push({ node, relation: e.relation });
     }
     return rels.sort((a, b) => b.node.degree - a.node.degree).slice(0, 12);
-  }, [session.graph, selectedNode]);
+  }, [displayGraph, selectedNode]);
 
   return (
     <div className="flex-1 min-w-0 h-full flex flex-col bg-[#13141A] overflow-hidden">
@@ -214,13 +233,17 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         className={isGraphPaneOpen ? `min-h-0 relative ${isDetailsPaneOpen ? 'shrink-0' : 'flex-1'}` : 'hidden'}
         style={isDetailsPaneOpen ? { height: `${graphPanePct}%` } : undefined}
       >
-        {session.graph?.communities.length ? (
+        {session.graph?.communities.length && displayGraph ? (
           <LearnGraphCanvas
-            graph={session.graph}
-            selectedNodeId={selectedNodeId}
-            selectedCommunityId={session.selectedCommunityId}
+            graph={displayGraph}
+            selectedNodeId={selectedNode?.id || null}
+            selectedCommunityId={displayGraph.communities.some((community) => community.id === session.selectedCommunityId)
+              ? session.selectedCommunityId : null}
             onSelectNode={setSelectedNodeId}
             onSelectCommunity={session.setSelectedCommunityId}
+            hideTestNodes={hideTestNodes}
+            testNodeCount={session.graph.nodes.length - (testFreeGraph?.nodes.length || 0)}
+            onHideTestNodesChange={onHideTestNodesChange}
           />
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs gap-2">

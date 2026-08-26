@@ -16,6 +16,7 @@ export const STORAGE_KEYS = {
   learnGraphPanePct: 'git_learn_graph_pane_pct',
   learnGraphPaneOpen: 'git_learn_graph_pane_open',
   learnDetailsPaneOpen: 'git_learn_details_pane_open',
+  learnHideTestNodes: 'git_learn_hide_test_nodes',
   explanationOpen: 'git_ai_explanation_open',
   activeSessions: 'git_ai_active_sessions',
   activeSessionId: 'git_ai_active_session_id',

@@ -1,7 +1,8 @@
 // Isolated fixture: real graph component, generated data, no backend or AI requests.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LearnGraphCanvas } from '../src/components/Learn/LearnGraphCanvas';
+import { filterLearnTestNodes, learnGraphWithFilteredNodes } from '../src/utils/learnGraphFilter';
 import type { LearnGraph, LearnNode } from '../src/types';
 import '../src/index.css';
 
@@ -146,6 +147,9 @@ const initialGraph = makeGraph();
 
 function Fixture() {
   const [graph, setGraph] = useState(initialGraph);
+  const [hideTestNodes, setHideTestNodes] = useState(true);
+  const filteredTopology = useMemo(() => filterLearnTestNodes(graph), [graph.nodes, graph.edges]);
+  const filteredGraph = useMemo(() => learnGraphWithFilteredNodes(graph, filteredTopology), [graph, filteredTopology]);
   const [selected, setSelected] = useState<string | null>(null);
   const [community, setCommunity] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -421,8 +425,10 @@ function Fixture() {
     <pre data-testid="density-measurements">{JSON.stringify(densityMeasurements)}</pre>
     <pre data-testid="workers">{JSON.stringify(workers)}</pre>
     <div style={{ display: hidden ? 'none' : 'block', height: small ? '330px' : '680px' }}>
-      {mounted && <LearnGraphCanvas key={revision} graph={graph} selectedNodeId={selected}
-        selectedCommunityId={community} onSelectNode={setSelected} onSelectCommunity={setCommunity} />}
+      {mounted && <LearnGraphCanvas key={revision} graph={hideTestNodes ? filteredGraph : graph} selectedNodeId={selected}
+        selectedCommunityId={community} onSelectNode={setSelected} onSelectCommunity={setCommunity}
+        hideTestNodes={hideTestNodes} testNodeCount={graph.nodes.length - filteredGraph.nodes.length}
+        onHideTestNodesChange={setHideTestNodes} />}
     </div>
   </main>;
 }
