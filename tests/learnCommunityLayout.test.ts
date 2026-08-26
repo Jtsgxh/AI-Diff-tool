@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { LearnNode, LearnEdge } from '../src/types';
-import { createLearnCommunityLayout } from '../src/utils/learnCommunityLayout';
+import { createLearnCommunityLayout, settleLearnCommunityLayout } from '../src/utils/learnCommunityLayout';
 
 const nodes: LearnNode[] = Array.from({ length: 200 }, (_, index) => ({
   id: `class-${index}`, label: `Class${index}`, kind: 'class',
@@ -62,4 +62,35 @@ test('empty graphs and isolated classes need no animation to become drawable', (
   assert.equal(single.nodes.length, 1);
   assert.equal(single.boxes.length, 1);
   assert.equal(single.nodes[0].r, 3.5);
+});
+
+test('settled layout restores relation-driven positions without changing the graph or input', () => {
+  const initial = createLearnCommunityLayout(nodes, edges, order, 1280, 680);
+  const before = structuredClone(initial);
+  const settled = settleLearnCommunityLayout(initial, edges);
+  assert.deepEqual(initial, before);
+  assert.deepEqual(settled.boxes, initial.boxes);
+  assert.deepEqual(settled.nodes.map((node) => [node.id, node.communityId]), initial.nodes.map((node) => [node.id, node.communityId]));
+  assert.ok(settled.nodes.some((node, index) => Math.abs(node.x - initial.nodes[index].x) > 1));
+  assert.ok(settled.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y) && !('vx' in node)));
+  for (const node of settled.nodes) {
+    const box = settled.boxes.find((item) => item.id === node.communityId)!;
+    assert.ok(Math.abs(node.x - box.x) + node.r < box.width / 2);
+    assert.ok(Math.abs(node.y - box.y) + node.r < box.height / 2);
+  }
+  assert.deepEqual(settleLearnCommunityLayout(initial, edges), settled);
+  assert.deepEqual(settleLearnCommunityLayout({ nodes: [], boxes: [] }, []), { nodes: [], boxes: [] });
+});
+
+test('cross-community hub attraction cannot drag a class outside its community', () => {
+  const initial = createLearnCommunityLayout(nodes, edges, order, 1280, 680);
+  const hubEdges: LearnEdge[] = nodes.slice(40).map((node) => ({
+    source: nodes[0].id, target: node.id, relation: 'calls',
+  }));
+  const settled = settleLearnCommunityLayout(initial, [...edges, ...hubEdges]);
+  for (const node of settled.nodes) {
+    const box = settled.boxes.find((item) => item.id === node.communityId)!;
+    assert.ok(Math.abs(node.x - box.x) + node.r < box.width / 2);
+    assert.ok(Math.abs(node.y - box.y) + node.r < box.height / 2);
+  }
 });

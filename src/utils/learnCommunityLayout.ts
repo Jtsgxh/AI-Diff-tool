@@ -151,3 +151,87 @@ export function createLearnCommunityLayout(
   });
   return { nodes: positioned, boxes };
 }
+
+/** The original community-anchored force layout, settled once in a worker. */
+export function settleLearnCommunityLayout(
+  layout: LearnCommunityLayout,
+  edges: LearnEdge[]
+): LearnCommunityLayout {
+  const nodes = layout.nodes.map((node) => ({ ...node, homeX: node.x, homeY: node.y, vx: 0, vy: 0 }));
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const boxes = new Map(layout.boxes.map((box) => [box.id, box]));
+  const links = edges.flatMap((edge) => {
+    const source = byId.get(edge.source), target = byId.get(edge.target);
+    return source && target ? [{ source, target, relation: edge.relation }] : [];
+  });
+  const iterations = nodes.length > 220 ? 180 : 420;
+  const range = nodes.length > 220 ? 120 : 180;
+  for (let tick = 0; tick < iterations && nodes.length > 1; tick++) {
+    const alpha = Math.max(0.015, 0.12 * Math.pow(0.985, tick));
+    const buckets = new Map<string, number[]>();
+    nodes.forEach((node, index) => {
+      const key = `${Math.floor(node.x / range)},${Math.floor(node.y / range)}`;
+      const bucket = buckets.get(key);
+      if (bucket) bucket.push(index);
+      else buckets.set(key, [index]);
+    });
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      const cellX = Math.floor(a.x / range), cellY = Math.floor(a.y / range);
+      for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+        for (const j of buckets.get(`${cellX + ox},${cellY + oy}`) || []) {
+          if (j <= i) continue;
+          const b = nodes[j];
+          let dx = a.x - b.x, dy = a.y - b.y;
+          if (Math.abs(dx) > range || Math.abs(dy) > range) continue;
+          let squared = dx * dx + dy * dy;
+          if (squared < 0.01) {
+            // Stable separation for coincident nodes, so a new run is reproducible.
+            dx = 0.1;
+            dy = (i + j) % 2 ? 0.1 : -0.1;
+            squared = dx * dx + dy * dy;
+          }
+          const distance = Math.sqrt(squared);
+          const collision = Math.max(0, a.r + b.r + 18 - distance) * 0.08;
+          const force = Math.max(collision, Math.min(1.8, alpha * 1400 / squared));
+          const fx = dx / distance * force, fy = dy / distance * force;
+          a.vx += fx; a.vy += fy;
+          b.vx -= fx; b.vy -= fy;
+        }
+      }
+    }
+    for (const { source: a, target: b, relation } of links) {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const distance = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const sameCommunity = a.communityId === b.communityId;
+      const rest = sameCommunity ? (relation === 'calls' ? 82 : 108) : 180;
+      const force = alpha * (sameCommunity ? 0.04 : 0.006) * (distance - rest);
+      const fx = dx / distance * force, fy = dy / distance * force;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    }
+    for (const node of nodes) {
+      node.vx = (node.vx + (node.homeX - node.x) * 0.018) * 0.72;
+      node.vy = (node.vy + (node.homeY - node.y) * 0.018) * 0.72;
+      const speed = Math.hypot(node.vx, node.vy);
+      if (speed > 8) { node.vx *= 8 / speed; node.vy *= 8 / speed; }
+      node.x += node.vx;
+      node.y += node.vy;
+      const box = boxes.get(node.communityId);
+      if (!box) throw new Error(`社区布局缺少边界：${node.communityId}`);
+      // A highly connected hub must not be pulled into another community.
+      const x = Math.max(box.x - box.width / 2 + node.r + 12,
+        Math.min(box.x + box.width / 2 - node.r - 12, node.x));
+      const y = Math.max(box.y - box.height / 2 + node.r + 32,
+        Math.min(box.y + box.height / 2 - node.r - 12, node.y));
+      if (x !== node.x) node.vx = 0;
+      if (y !== node.y) node.vy = 0;
+      node.x = x;
+      node.y = y;
+    }
+  }
+  return {
+    boxes: layout.boxes,
+    nodes: nodes.map(({ homeX, homeY, vx, vy, ...node }) => node),
+  };
+}

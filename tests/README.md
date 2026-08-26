@@ -1,9 +1,9 @@
 # Learn graph performance regression
 
-Run the scheduler tests:
+Run the scheduler and layout tests:
 
 ```sh
-node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts
+node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts
 ```
 
 For real canvas/React checks, run `npm run client` and open
@@ -12,9 +12,10 @@ This fixture uses 2,400 synthetic class nodes, 14,400 directed edges and 24 comm
 It imports the production component, runs in React StrictMode, and updates its parent every 500ms
 like a streaming workbench. It does not load a repository, call the backend or request AI analysis.
 
-1. Switch to **丰富**, then click
+1. Switch to **丰富**, wait for **正在后台整理社区布局** to disappear, then click
    **采样 2 秒**. `draws`, `curves`, `callbacks` and `callbackMs` should all be zero while idle.
-   The community layout is immediately drawable: there is no multi-frame physics simulation.
+   The grid preview is immediately drawable. The original community-anchored layout settles in a
+   worker and replaces the preview once; it does not repaint the whole graph on every physics step.
    These are instrumented JavaScript/canvas submission measurements, not end-to-end GPU frame times.
 2. Click **选中首个类**, then **批量中键拖动**. The 100 pointer moves should coalesce to one draw,
    `selectionUnchanged` should be true, `panPixels` should be 100, and `textMeasures` should be zero
@@ -31,11 +32,53 @@ like a streaming workbench. It does not load a repository, call the backend or r
 7. Toggle **简化 / 丰富** repeatedly, leaving at least 1.2 seconds between clicks for the measurement
    window. `density-measurements` records first canvas submission latency and draw count, not GPU
    presentation latency. Every switch should take only the initial/resize paint(s), never 180/420
-   animation frames. A second click on the already-active mode should draw nothing. Returning to
+   animation frames. A first visit may also paint the worker result once. A second click on the
+   already-active mode should draw nothing. Returning to
    rich mode should reproduce the same first-node position. Resizing the pane should not discard
    either mode's stored community arrangement.
 8. After visiting both modes, click **更新图数据** and switch modes again. Select the first class:
    its updated label (`UpdatedService0`), degree (42) and community must be used even though its ID
    is unchanged. This checks that cached layouts cannot survive a source-graph update.
+9. In rich mode, run **连续拖动采样**, **连续缩放采样** and **连续悬停采样** separately. Each sends
+   40 interactions across separate animation frames, not 100 events merged into a single paint.
+   `continuous` reports frame-interval median/p95/max, all submitted curves (including the offscreen
+   background), bitmap composites and selection preservation. These frame intervals include browser
+   rendering delays; `callbackMs` alone does not measure that cost. Keep the test tab foreground.
+
+   - Within the buffered viewport, panning should reuse background pixels (`bitmapBlits` increases,
+     with no background curve submissions); only focused connections are drawn live.
+   - Wheel gestures scale the background buffer while nodes/focus remain live. About 120ms after the
+     last wheel event the background is rebuilt at exact scale. Check both the smooth gesture and
+     the final crisp image; the gesture timing does not include this deferred redraw.
+   - Crossing a partial buffer's boundary, changing the graph/hidden communities, resizing or switching
+     density must rebuild the background. A buffer containing the whole graph can be panned any distance
+     without rebuilding. Large panning must not leave blank strips or stale lines.
+   - Hide/show the pane after zooming, and unmount during zoom. There must be no recurring frames or
+     retained rendering work after cleanup.
+10. Check `workers` after both modes have settled: repeated density switches must not increase
+    `started`. Update source data during a calculation and check that the old worker cannot restore
+    stale nodes. Unmount: `active` must become zero. StrictMode's initial discarded mount may start
+    and cancel one extra worker; it must not prevent the second mount from finishing its layout.
+11. Click **聚焦高连接枢纽**: the first class has 252 connections. Its name takes precedence over
+    neighbor names and relation captions; labels should move to alternate positions or be omitted
+    when there is no space, never pile up. All 2,400 classes and 14,640 edges remain in rich mode.
+    Hover still exposes complete names and incoming/outgoing connection details. Route number badges
+    and the toolbar reserve their own space, and community headings are painted above edge lines.
+    Shrink the pane and use **适应视图**: the camera must leave room for the wrapped toolbar above
+    the graph instead of fitting the top-row nodes underneath those controls.
+
+Measured on the local in-app browser with this synthetic fixture (not the user's repository):
+
+| Rich-mode interaction | Before (median ms/frame) | After (median ms/frame) |
+| --- | ---: | ---: |
+| Continuous pan | 444.6 | 16.5 |
+| Continuous wheel zoom | 570.6 | 16.6 |
+
+The pan comparison submitted 576,000 background curves before and reused 40 bitmap composites
+after. Initial rendering, buffer-boundary rebuilds and the final post-zoom redraw are still work;
+these measurements do not claim that every operation on every repository runs at 60fps.
+After restoring the settled layout and adding label placement, the 252-connection hub variant
+also measured 16.7ms median / 18.1ms p95 for continuous pan. Repeated simple/rich switches did not
+start new workers, and idle/hidden/unmounted samples had zero draws and zero rendering callbacks.
 
 The fixture is a separate development entry point and is not included in the production bundle.

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { LearnEdge, LearnGraph, LearnNode } from '../../types';
 import { communityColor } from '../../utils/learnGraph';
 import { createGraphFrameScheduler } from '../../utils/graphFrameScheduler';
+import { placeLearnGraphLabels, type LearnGraphLabel, type GraphLabelRect } from '../../utils/learnGraphLabels';
 import {
   createLearnCommunityLayout,
   type LearnCommunityLayout,
@@ -52,12 +53,19 @@ interface RenderCurve {
 }
 
 type GraphDensity = 'simple' | 'rich';
+interface CachedLayout {
+  key: string;
+  layout: LearnCommunityLayout;
+  worker: Worker | null;
+  error: string | null;
+}
 
 const MIN_ZOOM = 0.01;
 const fitCameraToNodes = (
   nodes: LearnLayoutNode[],
   width: number,
-  height: number
+  height: number,
+  controlsHeight: number
 ): Camera | null => {
   if (!nodes.length || width <= 0 || height <= 0) return null;
   let minX = Infinity;
@@ -71,6 +79,7 @@ const fitCameraToNodes = (
     maxY = Math.max(maxY, node.y + node.r);
   }
   const padding = 72;
+  const topPadding = Math.max(padding, controlsHeight + 24);
   const graphWidth = Math.max(1, maxX - minX);
   const graphHeight = Math.max(1, maxY - minY);
   const zoom = Math.min(
@@ -79,13 +88,13 @@ const fitCameraToNodes = (
       MIN_ZOOM,
       Math.min(
         Math.max(1, width - padding * 2) / graphWidth,
-        Math.max(1, height - padding * 2) / graphHeight
+        Math.max(1, height - topPadding - padding) / graphHeight
       )
     )
   );
   return {
     x: -(minX + maxX) / 2,
-    y: -(minY + maxY) / 2,
+    y: -(minY + maxY) / 2 + (topPadding - padding) / (2 * zoom),
     k: zoom,
   };
 };
@@ -196,6 +205,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
 }: LearnGraphCanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const layoutNodesRef = useRef<LearnLayoutNode[]>([]);
   const communityBoxesRef = useRef<LearnCommunityBox[]>([]);
   const camRef = useRef({ x: 0, y: 0, k: 1 });
@@ -209,6 +219,9 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
   const [activeRouteId, setActiveRouteId] = useState('');
   const routeSetRef = useRef('');
   const invalidateRef = useRef<() => void>(() => {});
+  const wheelTimerRef = useRef<number | null>(null);
+  const [layoutRevision, setLayoutRevision] = useState(0);
+  const activeLayoutRef = useRef<CachedLayout | null>(null);
 
   const activeRoute = useMemo(
     () => graph.businessRoutes.find((route) => route.id === activeRouteId) || null,
@@ -518,13 +531,23 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     [graph.communities]
   );
   const layoutCache = useMemo(
-    () => new Map<GraphDensity, { key: string; layout: LearnCommunityLayout }>(),
+    () => new Map<GraphDensity, CachedLayout>(),
     [graph.nodes, graph.edges, graph.stats.sourceFingerprint, communityOrderKey]
   );
+
+  useEffect(() => () => {
+    for (const entry of layoutCache.values()) {
+      entry.worker?.terminate();
+      entry.worker = null;
+    }
+    layoutCache.clear();
+    activeLayoutRef.current = null;
+  }, [layoutCache]);
 
   useEffect(() => {
     let cached = layoutCache.get(density);
     if (!cached || cached.key !== layoutKey) {
+      cached?.worker?.terminate();
       const wrap = wrapRef.current;
       cached = {
         key: layoutKey,
@@ -532,13 +555,52 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           visibleNodes, visibleEdges, JSON.parse(communityOrderKey),
           wrap?.clientWidth || 0, wrap?.clientHeight || 0
         ),
+        worker: null,
+        error: null,
       };
       layoutCache.set(density, cached);
+      const entry = cached;
+      try {
+        const worker = new Worker(new URL('../../workers/learnGraphLayout.worker.ts', import.meta.url), { type: 'module' });
+        entry.worker = worker;
+        worker.onmessage = ({ data }: MessageEvent<LearnCommunityLayout>) => {
+          if (layoutCache.get(density) !== entry || entry.worker !== worker) return;
+          const active = activeLayoutRef.current === entry;
+          entry.layout = data;
+          entry.worker = null;
+          worker.terminate();
+          if (active) setLayoutRevision((revision) => revision + 1);
+        };
+        worker.onerror = (event) => {
+          if (layoutCache.get(density) !== entry || entry.worker !== worker) return;
+          entry.error = event.message || '社区布局计算失败';
+          entry.worker = null;
+          worker.terminate();
+          if (activeLayoutRef.current === entry) setLayoutRevision((revision) => revision + 1);
+        };
+        worker.postMessage({ layout: entry.layout, edges: visibleEdges });
+      } catch (error) {
+        entry.worker?.terminate();
+        entry.worker = null;
+        entry.error = error instanceof Error ? error.message : String(error);
+        setLayoutRevision((revision) => revision + 1);
+      }
     }
+    const changedView = activeLayoutRef.current !== cached;
+    activeLayoutRef.current = cached;
     layoutNodesRef.current = cached.layout.nodes;
     communityBoxesRef.current = cached.layout.boxes;
-    cameraTouchedRef.current = false;
-  }, [density, layoutCache, layoutKey, communityOrderKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (changedView) {
+      cameraTouchedRef.current = false;
+    } else if (!cameraTouchedRef.current && wrapRef.current) {
+      // A completed background calculation must not undo a pan/zoom performed
+      // while it was running. Untouched views can still fit the settled positions.
+      const targets = cached.layout.nodes.filter((node) => !hidden.has(node.communityId) &&
+        (!routeFocusActive || activeRouteNodeIds.has(node.id)));
+      const camera = fitCameraToNodes(targets, wrapRef.current.clientWidth, wrapRef.current.clientHeight, controlsRef.current?.offsetHeight || 0);
+      if (camera) camRef.current = camera;
+    }
+  }, [density, layoutCache, layoutKey, communityOrderKey, layoutRevision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -549,7 +611,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           !hidden.has(node.communityId) &&
           (!routeFocusActive || activeRouteNodeIds.has(node.id))
       );
-      const camera = fitCameraToNodes(targetNodes, wrap.clientWidth, wrap.clientHeight);
+      const camera = fitCameraToNodes(targetNodes, wrap.clientWidth, wrap.clientHeight, controlsRef.current?.offsetHeight || 0);
       if (camera) camRef.current = camera;
       cameraTouchedRef.current = routeFocusActive;
       invalidateRef.current();
@@ -564,6 +626,13 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // Only the background relationship network is cached. Nodes, focus arrows,
+    // labels and route steps remain live, so pointer interaction keeps its meaning.
+    const edgeCanvas = document.createElement('canvas');
+    const edgeCtx = edgeCanvas.getContext('2d');
+    if (!edgeCtx) throw new Error('无法创建图谱连线画布');
+    let edgeRaster: { left: number; top: number; width: number; height: number;
+      zoom: number; dpr: number; viewportWidth: number; viewportHeight: number; complete: boolean } | null = null;
     const layoutNodes = layoutNodesRef.current;
     const byId = new Map(layoutNodes.map((node) => [node.id, node]));
     const communityById = new Map(graph.communities.map((community) => [community.id, community]));
@@ -619,7 +688,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         canvas.style.width = `${w}px`;
         canvas.style.height = `${h}px`;
         if (!cameraTouchedRef.current) {
-          const camera = fitCameraToNodes(fitNodes, w, h);
+          const camera = fitCameraToNodes(fitNodes, w, h, controlsRef.current?.offsetHeight || 0);
           if (camera) camRef.current = camera;
         }
       }
@@ -640,6 +709,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         right + originX >= 0 && bottom + originY >= 0 && left + originX <= w && top + originY <= h;
 
       const hiddenComms = hidden;
+      const labels: LearnGraphLabel[] = [];
+      const labelObstacles: GraphLabelRect[] = [];
       const selected = selectedNodeId;
       const focusedNodeId = hoverRef.current || selected;
       const focusedNeighbors = new Set<string>();
@@ -649,25 +720,26 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         for (const edge of connections.incoming.get(focusedNodeId) || []) focusedNeighbors.add(edge.source);
       }
       const appendArrowHead = (
+        target: CanvasRenderingContext2D,
         point: ScreenPoint,
         angle: number,
         size: number
       ) => {
-        ctx.moveTo(point.x, point.y);
-        ctx.lineTo(
+        target.moveTo(point.x, point.y);
+        target.lineTo(
           point.x - size * Math.cos(angle - Math.PI / 6),
           point.y - size * Math.sin(angle - Math.PI / 6)
         );
-        ctx.lineTo(
+        target.lineTo(
           point.x - size * Math.cos(angle + Math.PI / 6),
           point.y - size * Math.sin(angle + Math.PI / 6)
         );
-        ctx.closePath();
+        target.closePath();
       };
       const drawArrowHead = (point: ScreenPoint, angle: number, size: number, color: string) => {
         ctx.fillStyle = color;
         ctx.beginPath();
-        appendArrowHead(point, angle, size);
+        appendArrowHead(ctx, point, angle, size);
         ctx.fill();
       };
 
@@ -694,50 +766,86 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         ctx.globalAlpha = dimmed ? 0.58 : 0.95;
         ctx.fillStyle = color;
         ctx.font = '600 11px ui-sans-serif, system-ui';
-        ctx.fillText(
-          `${community?.label || `社区 ${box.id}`} · ${visibleCommunityCounts.get(box.id) || 0}`,
-          topLeft.x + 10,
-          topLeft.y + 18
-        );
+        const title = `${community?.label || `社区 ${box.id}`} · ${visibleCommunityCounts.get(box.id) || 0}`;
+        labels.push({ text: title, font: ctx.font, color, alpha: dimmed ? 0.58 : 0.95,
+          priority: 120, width: textWidth(title) + 8, height: 19,
+          positions: [{ x: topLeft.x + 7, y: topLeft.y + 4 }] });
         ctx.globalAlpha = 1;
       }
 
-      // Thousands of separate strokes/dash state changes stall canvas rendering.
-      // Batch background edges by relation, then paint focused connections on top.
-      for (const [relation, group] of edgesByRelation) {
-        const color = EDGE_COLOR[relation] || EDGE_COLOR.references;
-        const arrows: CurvedEdgeGeometry[] = [];
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash(EDGE_DASH[relation] || EDGE_DASH.calls);
-        ctx.globalAlpha = routeFocusActive ? 0.13 : focusedNodeId ? 0.08 : 1;
-        ctx.beginPath();
-        for (const { curve } of group) {
-          const { source: a, target: b } = curve;
-          if (a.id === focusedNodeId || b.id === focusedNodeId) continue;
-          if (hiddenComms.has(a.communityId) || hiddenComms.has(b.communityId)) continue;
-          const ax = a.x * cam.k;
-          const ay = a.y * cam.k;
-          const bx = b.x * cam.k;
-          const by = b.y * cam.k;
-          if (!inViewport(Math.min(ax, bx) - 96, Math.min(ay, by) - 96,
-            Math.max(ax, bx) + 96, Math.max(ay, by) + 96)) continue;
-          const geometry = cachedCurveGeometry(curve, cam.k);
-          if (!geometry) continue;
-          ctx.moveTo(geometry.start.x, geometry.start.y);
-          ctx.quadraticCurveTo(geometry.control.x, geometry.control.y, geometry.end.x, geometry.end.y);
-          if (density === 'simple' || cam.k >= 0.85) arrows.push(geometry);
+      // Rasterizing thousands of crossing/dashed curves is much slower than the
+      // JS callback suggests. Reuse those pixels while panning/hovering. Overscan
+      // keeps newly exposed areas covered; crossing its bounds rebuilds the image.
+      // During a wheel gesture only the background bitmap scales. Once the wheel
+      // settles, regenerate exact curves/arrow sizes at the final zoom.
+      const rasterScale = edgeRaster ? cam.k / edgeRaster.zoom : 1;
+      if (!edgeRaster || edgeRaster.dpr !== dpr ||
+        edgeRaster.viewportWidth !== w || edgeRaster.viewportHeight !== h ||
+        (edgeRaster.zoom !== cam.k && wheelTimerRef.current === null) ||
+        (!edgeRaster.complete && (edgeRaster.left * rasterScale > -originX ||
+        edgeRaster.top * rasterScale > -originY ||
+        (edgeRaster.left + edgeRaster.width) * rasterScale < w - originX ||
+        (edgeRaster.top + edgeRaster.height) * rasterScale < h - originY))) {
+        const paddingX = Math.ceil(w / 4);
+        const paddingY = Math.ceil(h / 4);
+        const left = Math.floor((-originX - paddingX) * dpr) / dpr;
+        const top = Math.floor((-originY - paddingY) * dpr) / dpr;
+        const pixelWidth = Math.ceil((w + paddingX * 2) * dpr);
+        const pixelHeight = Math.ceil((h + paddingY * 2) * dpr);
+        if (edgeCanvas.width !== pixelWidth) edgeCanvas.width = pixelWidth;
+        if (edgeCanvas.height !== pixelHeight) edgeCanvas.height = pixelHeight;
+        const width = pixelWidth / dpr;
+        const height = pixelHeight / dpr;
+        let complete = true;
+        edgeCtx.setTransform(dpr, 0, 0, dpr, -left * dpr, -top * dpr);
+        edgeCtx.clearRect(left, top, width, height);
+        for (const [relation, group] of edgesByRelation) {
+          const color = EDGE_COLOR[relation] || EDGE_COLOR.references;
+          const arrows: CurvedEdgeGeometry[] = [];
+          let batchSize = 0;
+          edgeCtx.strokeStyle = color;
+          edgeCtx.lineWidth = 1;
+          edgeCtx.setLineDash(EDGE_DASH[relation] || EDGE_DASH.calls);
+          edgeCtx.beginPath();
+          for (const { curve } of group) {
+            const { source: a, target: b } = curve;
+            if (hiddenComms.has(a.communityId) || hiddenComms.has(b.communityId)) continue;
+            const ax = a.x * cam.k, ay = a.y * cam.k;
+            const bx = b.x * cam.k, by = b.y * cam.k;
+            if (Math.min(ax, bx) - 96 < left || Math.min(ay, by) - 96 < top ||
+              Math.max(ax, bx) + 96 > left + width || Math.max(ay, by) + 96 > top + height) complete = false;
+            if (Math.max(ax, bx) + 96 < left || Math.max(ay, by) + 96 < top ||
+              Math.min(ax, bx) - 96 > left + width || Math.min(ay, by) - 96 > top + height) continue;
+            const geometry = cachedCurveGeometry(curve, cam.k);
+            if (!geometry) continue;
+            edgeCtx.moveTo(geometry.start.x, geometry.start.y);
+            edgeCtx.quadraticCurveTo(geometry.control.x, geometry.control.y, geometry.end.x, geometry.end.y);
+            // Small paths avoid a costly single raster operation for the entire graph.
+            if (++batchSize === 64) {
+              edgeCtx.stroke();
+              edgeCtx.beginPath();
+              batchSize = 0;
+            }
+            if (density === 'simple' || cam.k >= 0.85) arrows.push(geometry);
+          }
+          if (batchSize) edgeCtx.stroke();
+          edgeCtx.setLineDash([]);
+          if (arrows.length) {
+            edgeCtx.fillStyle = color;
+            edgeCtx.beginPath();
+            for (const geometry of arrows) appendArrowHead(edgeCtx, geometry.end, geometry.endAngle, 5.5);
+            edgeCtx.fill();
+          }
         }
-        ctx.stroke();
-        ctx.setLineDash(EDGE_DASH.calls);
-        if (arrows.length) {
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          for (const geometry of arrows) appendArrowHead(geometry.end, geometry.endAngle, 5.5);
-          ctx.fill();
-        }
-        ctx.globalAlpha = 1;
+        // When the whole graph fits in the image, even a long pan exposes only
+        // empty space, so it never needs another background rasterization.
+        edgeRaster = { left, top, width, height, zoom: cam.k, dpr, viewportWidth: w, viewportHeight: h, complete };
       }
+      const scale = cam.k / edgeRaster.zoom;
+      ctx.globalAlpha = routeFocusActive ? 0.13 : focusedNodeId ? 0.08 : 1;
+      ctx.drawImage(edgeCanvas, edgeRaster.left * scale, edgeRaster.top * scale,
+        edgeRaster.width * scale, edgeRaster.height * scale);
+      ctx.globalAlpha = 1;
 
       const focusedEdges = focusedNodeId ? [
         ...(connections.outgoing.get(focusedNodeId) || []),
@@ -789,12 +897,12 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           (pb.x - pa.x) * (pb.x - pa.x) + (pb.y - pa.y) * (pb.y - pa.y)
         );
         if (screenDistance > labelWidth + 42) {
-          const labelX = geometry.midpoint.x - labelWidth / 2;
-          const labelY = geometry.midpoint.y - 6;
-          ctx.fillStyle = 'rgba(3,7,18,0.9)';
-          ctx.fillRect(labelX - 4, labelY - 10, labelWidth + 8, 16);
-          ctx.fillStyle = outgoing ? '#a7f3d0' : '#bae6fd';
-          ctx.fillText(edgeLabel, labelX, labelY + 2);
+          labels.push({ text: edgeLabel, font: ctx.font, color: outgoing ? '#a7f3d0' : '#bae6fd',
+            alpha: 1, priority: 10, width: labelWidth + 8, height: 18,
+            positions: [0.5, 0.3, 0.7].map((t) => ({
+              x: (1 - t) ** 2 * geometry.start.x + 2 * (1 - t) * t * geometry.control.x + t ** 2 * geometry.end.x - (labelWidth + 8) / 2,
+              y: (1 - t) ** 2 * geometry.start.y + 2 * (1 - t) * t * geometry.control.y + t ** 2 * geometry.end.y - 18,
+            })) });
         }
         ctx.globalAlpha = 1;
       }
@@ -856,14 +964,14 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         const hitSearch = searchHit?.has(n.id);
         const label =
           isSel || isHover || hitSearch || isActiveRoute ||
-          (focusedNodeId && isNb) ||
-          (!routeFocusActive && isBusinessCore) || n.degree >= maxDegree * 0.42 || (showLabels && r > 5);
+          (focusedNodeId ? isNb :
+            (!routeFocusActive && isBusinessCore) || n.degree >= maxDegree * 0.42 || (showLabels && r > 5));
         const labelSize = isSel || isHover || (isActiveRoute && routeFocusActive) ? 12 : 10;
         ctx.font = `${isActiveRoute && routeFocusActive ? '700 ' : ''}${labelSize}px ui-sans-serif, system-ui`;
         const labelWidth = label ? textWidth(n.label) : 0;
         // Keep offscreen-node labels/badges when their pixels still enter the viewport.
         const badgeMargin = routeFocusActive ? 24 + (activeRouteStepNumbers.get(n.id)?.join('·').length || 0) * 10 : 8;
-        if (!inViewport(p.x - r - badgeMargin, p.y - r - 32,
+        if (!inViewport(p.x - r - badgeMargin - labelWidth, p.y - r - 32,
           p.x + r + 8 + labelWidth, p.y + r + 16)) continue;
         ctx.globalAlpha = dim && !hitSearch ? (routeFocusActive ? 0.34 : 0.22) : 1;
         if (isActiveRoute && routeFocusActive) {
@@ -887,17 +995,16 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           ctx.stroke();
         }
         if (label) {
-          const labelX = p.x + r + 5;
-          const labelY = p.y + 4;
-          ctx.globalAlpha = dim && !hitSearch ? (routeFocusActive ? 0.48 : 0.35) : 1;
-          if (isActiveRoute && routeFocusActive) {
-            ctx.fillStyle = 'rgba(3,7,18,0.88)';
-            ctx.fillRect(labelX - 3, labelY - labelSize - 2, labelWidth + 7, labelSize + 6);
-            ctx.fillStyle = '#ecfdf5';
-          } else {
-            ctx.fillStyle = '#e2e8f0';
-          }
-          ctx.fillText(n.label, labelX, labelY);
+          const width = labelWidth + 8, height = labelSize + 8;
+          labels.push({ text: n.label, font: ctx.font, color: isActiveRoute && routeFocusActive ? '#ecfdf5' : '#e2e8f0',
+            alpha: dim && !hitSearch ? (routeFocusActive ? 0.48 : 0.35) : 1,
+            priority: isSel || isHover ? 110 : isActiveRoute ? 105 : hitSearch ? 104 : isNb ? 80 : isBusinessCore ? 70 : 30,
+            width, height, positions: [
+              { x: p.x + r + 5, y: p.y - height / 2 },
+              { x: p.x - r - 5 - width, y: p.y - height / 2 },
+              { x: p.x - width / 2, y: p.y - r - height - 5 },
+              { x: p.x - width / 2, y: p.y + r + 5 },
+            ] });
         }
         const stepNumbers = activeRouteStepNumbers.get(n.id);
         if (stepNumbers && routeFocusActive) {
@@ -907,6 +1014,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           const badgeHeight = 18;
           const badgeX = p.x - r - badgeWidth * 0.7;
           const badgeY = p.y - r - badgeHeight * 0.75;
+          labelObstacles.push({ x: badgeX, y: badgeY, width: badgeWidth, height: badgeHeight });
           ctx.globalAlpha = 1;
           ctx.fillStyle = '#34d399';
           ctx.fillRect(badgeX, badgeY, badgeWidth, badgeHeight);
@@ -922,6 +1030,20 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         }
         ctx.globalAlpha = 1;
       }
+
+      const controlsHeight = (controlsRef.current?.offsetHeight || 0) + 16;
+      for (const label of placeLearnGraphLabels(labels, {
+        x: -originX + 4, y: -originY + controlsHeight,
+        width: Math.max(0, w - 8), height: Math.max(0, h - controlsHeight - 24),
+      }, labelObstacles)) {
+        ctx.globalAlpha = label.alpha;
+        ctx.fillStyle = 'rgba(3,7,18,0.92)';
+        ctx.fillRect(label.x, label.y, label.width, label.height);
+        ctx.font = label.font;
+        ctx.fillStyle = label.color;
+        ctx.fillText(label.text, label.x + 4, label.y + label.height - 5);
+      }
+      ctx.globalAlpha = 1;
 
       return false;
     };
@@ -941,6 +1063,9 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     scheduler.invalidate();
     return () => {
       scheduler.dispose();
+      if (wheelTimerRef.current !== null) window.clearTimeout(wheelTimerRef.current);
+      wheelTimerRef.current = null;
+      edgeCanvas.width = edgeCanvas.height = 0;
       observer.disconnect();
       document.removeEventListener('visibilitychange', resize);
       window.removeEventListener('resize', resize);
@@ -966,6 +1091,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     visibleCommunityCounts,
     layoutKey,
     layoutCache,
+    layoutRevision,
     connections,
     edgeShapes,
   ]);
@@ -1000,6 +1126,11 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     const cam = camRef.current;
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
     cam.k = Math.min(4, Math.max(MIN_ZOOM, cam.k * factor));
+    if (wheelTimerRef.current !== null) window.clearTimeout(wheelTimerRef.current);
+    wheelTimerRef.current = window.setTimeout(() => {
+      wheelTimerRef.current = null;
+      invalidateRef.current();
+    }, 120);
     invalidateRef.current();
   };
 
@@ -1080,7 +1211,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
     const wrap = wrapRef.current;
     if (!wrap) return;
     const visible = layoutNodesRef.current.filter((node) => !hidden.has(node.communityId));
-    const camera = fitCameraToNodes(visible, wrap.clientWidth, wrap.clientHeight);
+    const camera = fitCameraToNodes(visible, wrap.clientWidth, wrap.clientHeight, controlsRef.current?.offsetHeight || 0);
     if (camera) camRef.current = camera;
     cameraTouchedRef.current = false;
     invalidateRef.current();
@@ -1099,7 +1230,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         onPointerLeave={onPointerLeave}
         onAuxClick={(e) => e.preventDefault()}
       />
-      <div className="absolute top-2 left-2 right-2 flex flex-wrap items-center gap-1.5 pointer-events-none">
+      <div ref={controlsRef} className="absolute top-2 left-2 right-2 flex flex-wrap items-center gap-1.5 pointer-events-none">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -1224,6 +1355,12 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         })}
       </div>
       <div className="absolute bottom-2 left-2 text-[10px] text-slate-500 pointer-events-none">
+        {(layoutCache.get(density)?.key !== layoutKey || layoutCache.get(density)?.worker) && (
+          <span className="mr-2 text-amber-300">正在后台整理社区布局…</span>
+        )}
+        {layoutCache.get(density)?.key === layoutKey && layoutCache.get(density)?.error && (
+          <span className="mr-2 text-rose-300">布局失败：{layoutCache.get(density)?.error}</span>
+        )}
         {density === 'simple'
           ? `简化（${businessCoreNodeIds.size ? 'AI 业务核心' : '候选调用骨架'}）· ${visibleNodes.length}/${graph.nodes.length} 类级节点 · ${visibleEdges.length}/${graph.edges.length} 边`
           : `丰富 · ${graph.nodes.length} 类级节点 · ${graph.edges.length} 边`}
@@ -1231,7 +1368,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         {routeFocusActive && activeRoute
           ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步已映射`
           : ' · 社区总览'}
-        <span className="ml-2 text-slate-600">滚轮缩放 · 中键拖动画布 · 悬停看方向 · 左键固定节点</span>
+        <span className="ml-2 text-slate-600">滚轮缩放 · 中键拖动画布 · 名称自动避让 · 悬停看方向与完整名称 · 左键固定节点</span>
       </div>
       {focusedDetailsNode && (
         <div className="absolute bottom-2 right-2 max-w-[320px] bg-black/80 border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-slate-200 pointer-events-none">
