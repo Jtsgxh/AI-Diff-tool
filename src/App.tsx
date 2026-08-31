@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, PanelLeftOpen, Terminal } from 'lucide-react';
+import { AlertCircle, PanelLeftOpen } from 'lucide-react';
 import type { AIProviderConfig, DiffFile } from './types';
 import { fetchBatchCommitsDiff, fetchCommitDiff } from './services/api';
-import { aiLogger, type AILoggerSummary } from './services/aiLogger';
 import { STORAGE_KEYS, storage } from './constants/storage';
 import { useRepository } from './hooks/useRepository';
 import { Header } from './components/Header';
@@ -102,13 +101,6 @@ export const App: React.FC = () => {
   const [aiConfig, setAiConfig] = useState<AIProviderConfig>(() =>
     storage.getJson<AIProviderConfig>(STORAGE_KEYS.aiConfig, DEFAULT_AI_CONFIG)
   );
-
-  /**
-   * Only the counts are needed here. Subscribing to the full session list would
-   * re-render the entire workspace on every streamed token.
-   */
-  const [aiSummary, setAiSummary] = useState<AILoggerSummary>(() => aiLogger.getSummary());
-  useEffect(() => aiLogger.subscribeSummary(setAiSummary), []);
 
   useEffect(() => {
     storage.set(STORAGE_KEYS.explanationOpen, String(isExplanationOpen));
@@ -294,8 +286,6 @@ export const App: React.FC = () => {
       ) || null
     );
   }, [diffResult, selectedFilePath]);
-
-  const isAIRunning = aiSummary.running > 0;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#181920] text-slate-100 overflow-hidden font-sans">
@@ -508,28 +498,6 @@ export const App: React.FC = () => {
           />
         </div>
       </div>
-
-      {/* Floating AI console trigger */}
-      <button
-        onClick={() => setIsAIInspectorOpen(true)}
-        style={{ right: isExplanationOpen ? aiPaneWidth + 16 : 16 }}
-        className={`fixed bottom-4 z-40 flex items-center space-x-2 px-3 py-2 rounded-full border shadow-xl transition-[right] duration-200 transform active:scale-95 ${
-          isAIRunning
-            ? 'bg-emerald-600/90 hover:bg-emerald-600 text-white border-emerald-400 shadow-emerald-500/30 animate-pulse'
-            : 'bg-[#181924]/90 hover:bg-[#202230] text-slate-300 hover:text-white border-purple-500/30 hover:border-purple-500/60 shadow-purple-500/10'
-        }`}
-        title="打开 AI 实时调用控制台"
-      >
-        <Terminal className={`w-4 h-4 ${isAIRunning ? 'text-white' : 'text-purple-400'}`} />
-        <span className="text-xs font-semibold">
-          {isAIRunning ? 'AI 流式输出中...' : 'AI 控制台'}
-        </span>
-        {aiSummary.total > 0 && !isAIRunning && (
-          <span className="bg-purple-500/30 text-purple-200 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-            {aiSummary.total}
-          </span>
-        )}
-      </button>
 
       <OpenRepoModal
         isOpen={isOpenRepoModal}
