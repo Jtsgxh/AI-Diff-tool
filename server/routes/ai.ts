@@ -9,10 +9,24 @@ export const aiRouter = Router();
 
 /** Both engines accept the same body; only the agent one needs a repo root. */
 function readExplainRequest(body: any): ExplainRequest {
-  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task, config } =
+  const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task,
+    learnRequestMode, existingBusinessRoutes, config } =
     body ?? {};
 
   const isLearn = task === 'learn' || scopeType === 'repo';
+  if (learnRequestMode !== undefined && learnRequestMode !== 'question' && learnRequestMode !== 'expand_graph') {
+    throw badRequest('Invalid learnRequestMode');
+  }
+  if (learnRequestMode !== undefined && (typeof userPrompt !== 'string' || !userPrompt.trim())) {
+    throw badRequest('userPrompt is required for learn requests');
+  }
+  if (existingBusinessRoutes !== undefined && (!Array.isArray(existingBusinessRoutes) ||
+      !existingBusinessRoutes.every((route: any) => route && typeof route.id === 'string' &&
+        typeof route.label === 'string' && Array.isArray(route.steps) && route.steps.every((step: any) =>
+          step && ['file', 'classSymbol', 'methodSymbol', 'kind'].every((field) =>
+            typeof step[field] === 'string' && step[field].trim()))))) {
+    throw badRequest('Invalid existingBusinessRoutes');
+  }
   if (!diff && !targetLine && !isLearn) {
     throw badRequest('Diff content or targetLine is required');
   }
@@ -25,6 +39,8 @@ function readExplainRequest(body: any): ExplainRequest {
     commitMessage,
     userPrompt,
     task,
+    learnRequestMode,
+    existingBusinessRoutes,
     config,
   };
 }

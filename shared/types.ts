@@ -297,6 +297,13 @@ export type ScopeType = 'line' | 'chunk' | 'file' | 'commit' | 'repo';
  * free-form review so the server does not have to sniff the prompt text.
  */
 export type ExplainTask = 'review' | 'pseudocode' | 'natural_language' | 'learn';
+export type LearnRequestMode = 'question' | 'expand_graph';
+
+export interface LearnExistingRouteContext {
+  id: string;
+  label: string;
+  steps: Pick<LearnBusinessRouteStep, 'file' | 'classSymbol' | 'methodSymbol' | 'kind'>[];
+}
 
 export interface TargetLineInfo {
   lineNumber?: number;
@@ -312,6 +319,8 @@ export interface ExplainRequest {
   commitMessage?: string;
   userPrompt?: string;
   task?: ExplainTask;
+  learnRequestMode?: LearnRequestMode;
+  existingBusinessRoutes?: LearnExistingRouteContext[];
   config?: PartialAIProviderConfig;
 }
 

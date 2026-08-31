@@ -156,6 +156,14 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
     [draft, session]
   );
 
+  const handleExpandGraph = useCallback(() => {
+    const text = draft.trim();
+    if (!text || session.isStreaming) return;
+    setGraphMode('business');
+    session.expandGraph(text);
+    setDraft('');
+  }, [draft, session]);
+
   const selectedNode: LearnNode | null =
     displayGraph?.nodes.find((n) => n.id === selectedNodeId) || null;
   const selectedBusinessNode: LearnBusinessBusNode | null =
@@ -571,16 +579,29 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           placeholder={
             session.isStreaming
               ? '正在探查仓库…'
-              : '问这个仓库：例如「登录之后怎么进战斗？」或「这个枢纽为什么度这么高？」'
+              : '输入问题；回车只问答，点“补图”会把核实出的新路线加入业务总线'
           }
-          className="flex-1 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-amber-500/50 placeholder:text-slate-500 disabled:opacity-50"
+          className="flex-1 min-w-0 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-amber-500/50 placeholder:text-slate-500 disabled:opacity-50"
         />
         <button
           type="submit"
-          disabled={!draft.trim() || session.isStreaming}
+          aria-label="发送文字提问"
+          title="只回答问题，不修改节点图"
+          disabled={!draft.trim() || session.isStreaming || session.graphLoading || !session.graph}
           className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white p-2 rounded-lg transition"
         >
           <Send className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={handleExpandGraph}
+          aria-label="提问并补充节点图"
+          title="沿源码核实这个问题，并把新业务路线追加到业务总线"
+          disabled={!draft.trim() || session.isStreaming || session.graphLoading || !session.graph}
+          className="h-8 px-2.5 rounded-lg border border-emerald-400/30 bg-emerald-500/15 text-emerald-100 text-xs flex items-center gap-1.5 hover:bg-emerald-500/25 disabled:opacity-40 transition"
+        >
+          <Workflow className="w-3.5 h-3.5" />
+          补图
         </button>
       </form>
       </div>

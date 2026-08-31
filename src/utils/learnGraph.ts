@@ -1,5 +1,6 @@
 import type {
   LearnAnalysisEnvelope,
+  LearnBusinessRoute,
   LearnGraph,
   LearnNode,
 } from '../types';
@@ -102,6 +103,84 @@ export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
     businessRoutes,
     runtimePath: runtimePath.length ? runtimePath : base.runtimePath,
   };
+}
+
+function businessRouteSignature(route: LearnBusinessRoute): string {
+  return JSON.stringify(route.steps.map((step) => ({
+    file: step.file.replace(/\\/g, '/').toLowerCase(),
+    classSymbol: step.classSymbol.toLowerCase(),
+    methodSymbol: step.methodSymbol.toLowerCase(),
+    kind: step.kind,
+    relation: step.relation,
+    description: step.description,
+    inputs: step.inputs,
+    outputs: step.outputs,
+    stateChanges: step.stateChanges,
+    failurePaths: step.failurePaths,
+  })));
+}
+
+export interface LearnGraphExpansionResult {
+  hasOverlay: boolean;
+  graph: LearnGraph;
+  addedRoutes: LearnBusinessRoute[];
+  invalidRouteLabels: string[];
+  duplicateRouteLabels: string[];
+}
+
+/** Bind and append a manual supplement without changing accepted routes or labels. */
+export function mergeLearnGraphExpansion(base: LearnGraph, text: string): LearnGraphExpansionResult {
+  const overlay = parseLearnOverlay(text);
+  if (!overlay) {
+    return { hasOverlay: false, graph: base, addedRoutes: [], invalidRouteLabels: [], duplicateRouteLabels: [] };
+  }
+  const mapped = applyLearnAnalysis(base, text);
+  const mappedIds = new Set(mapped.businessRoutes.map((route) => route.id));
+  const invalidRouteLabels = overlay.businessRoutes
+    .filter((route) => !mappedIds.has(route.id))
+    .map((route) => route.label);
+  if (invalidRouteLabels.length) {
+    return { hasOverlay: true, graph: base, addedRoutes: [], invalidRouteLabels, duplicateRouteLabels: [] };
+  }
+
+  const routeIds = new Set(base.businessRoutes.map((route) => route.id));
+  const signatures = new Set(base.businessRoutes.map(businessRouteSignature));
+  const duplicateRouteLabels: string[] = [];
+  for (const route of mapped.businessRoutes) {
+    const signature = businessRouteSignature(route);
+    if (routeIds.has(route.id) || signatures.has(signature)) duplicateRouteLabels.push(route.label);
+    routeIds.add(route.id);
+    signatures.add(signature);
+  }
+  if (duplicateRouteLabels.length) {
+    return { hasOverlay: true, graph: base, addedRoutes: [], invalidRouteLabels: [], duplicateRouteLabels };
+  }
+
+  const graph = {
+    ...base,
+    businessRoutes: [...base.businessRoutes, ...mapped.businessRoutes],
+  };
+  return {
+    hasOverlay: true,
+    graph,
+    addedRoutes: mapped.businessRoutes,
+    invalidRouteLabels: [],
+    duplicateRouteLabels: [],
+  };
+}
+
+export function serializeLearnGraphReport(graph: LearnGraph, prose = ''): string {
+  const envelope: LearnAnalysisEnvelope = {
+    communities: graph.communities.map(({ id, label, summary, entry, files }) => ({
+      id, label, summary, entry, files,
+    })),
+    businessRoutes: graph.businessRoutes.map((route) => ({
+      ...route,
+      steps: route.steps.map(({ nodeId: _nodeId, ...step }) => step),
+    })),
+    runtimePath: graph.runtimePath,
+  };
+  return `\`\`\`learn-graph\n${JSON.stringify(envelope)}\n\`\`\`${prose.trim() ? `\n\n${prose.trim()}` : ''}`;
 }
 
 export function looksLikeJsonBlob(text: string): boolean {

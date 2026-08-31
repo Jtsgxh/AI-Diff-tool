@@ -202,7 +202,8 @@ export class CodexAgentEngine {
 
     const isFollowUp = Boolean(options.userPrompt && options.userPrompt.trim());
     const learnTask = isLearnTask(options);
-    const needsLearnGraph = learnTask && !isFollowUp;
+    const isLearnExpansion = learnTask && options.learnRequestMode === 'expand_graph';
+    const needsLearnGraph = learnTask && (!isFollowUp || isLearnExpansion);
     let promptCtx: PromptContext = options;
     if (learnTask) {
       try {
@@ -458,6 +459,7 @@ export class CodexAgentEngine {
           userPrompt: options.userPrompt,
           isFollowUp,
           isLearn: learnTask,
+          isLearnExpansion,
           requiresLearnGraph,
           hasPartialContent: accumulatedContent.length > 0 && !requiresLearnGraph,
           contextChars,
@@ -472,7 +474,9 @@ export class CodexAgentEngine {
       stream.send({
         type: 'status',
         phase: 'completed',
-        message: learnTask ? '仓库主要业务路线分析已完成' : 'Codex 智能体审查已完成',
+        message: isLearnExpansion
+          ? '手动业务总线补图已完成'
+          : learnTask ? '仓库主要业务路线分析已完成' : 'Codex 智能体审查已完成',
       });
       stream.send({ type: 'done' });
       stream.close();
@@ -502,6 +506,7 @@ export class CodexAgentEngine {
     userPrompt?: string;
     isFollowUp: boolean;
     isLearn: boolean;
+    isLearnExpansion: boolean;
     requiresLearnGraph: boolean;
     hasPartialContent: boolean;
     contextChars: number;
@@ -517,7 +522,7 @@ export class CodexAgentEngine {
       message: params.truncatedDraft
         ? `${params.isLearn ? '业务路线报告' : '终审报告'}不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
         : `Codex 探查阶段结束（已获取 ${explorationLog.length} 处上下文），正在实时流式输出${
-            params.isFollowUp ? '追问解答' : params.isLearn ? '业务路线报告' : '深度审查报告'
+            params.isLearnExpansion ? '业务总线补图' : params.isFollowUp ? '追问解答' : params.isLearn ? '业务路线报告' : '深度审查报告'
           }...`,
     });
 
@@ -528,10 +533,11 @@ export class CodexAgentEngine {
     const fullSynthesisPrompt = buildSynthesisPrompt(explorationLog, params.userPrompt, {
       truncatedDraft: params.truncatedDraft,
       learnTask: params.isLearn,
+      learnExpansion: params.isLearnExpansion,
     });
     const synthesisSystemPrompt = `${params.systemPrompt}
 
-【当前为无工具的最终综合阶段】代码探查已经结束，本阶段没有任何可调用工具。只能基于用户消息和下方已经取得的探查证据生成最终回答；禁止请求继续探查，禁止用 XML、普通 JSON、<@read_file> 或其他标签模拟工具调用。证据不足时明确写入“待核实”，初次仓库分析仍须输出合法的 learn-graph，不能用工具调用文本代替最终报告。`;
+【当前为无工具的最终综合阶段】代码探查已经结束，本阶段没有任何可调用工具。只能基于用户消息和下方已经取得的探查证据生成最终回答；禁止请求继续探查，禁止用 XML、普通 JSON、<@read_file> 或其他标签模拟工具调用。证据不足时明确写入“待核实”，需要图谱输出的学习请求仍须输出合法的 learn-graph，不能用工具调用文本代替最终报告。`;
     const inputBudget = Math.round(contextChars * SYNTHESIS_INPUT_FRACTION);
     const userBudget = inputBudget - synthesisSystemPrompt.length;
     if (userBudget <= 0) {

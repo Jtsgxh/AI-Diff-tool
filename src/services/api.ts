@@ -7,6 +7,8 @@ import type {
   ExplainTask,
   RepoInfo,
   LearnGraph,
+  LearnExistingRouteContext,
+  LearnRequestMode,
   RepoOverview,
   ScopeType,
   TargetLineInfo,
@@ -154,6 +156,8 @@ interface BaseStreamPayload {
   commitMessage?: string;
   userPrompt?: string;
   task?: ExplainTask;
+  learnRequestMode?: LearnRequestMode;
+  existingBusinessRoutes?: LearnExistingRouteContext[];
   config?: AIProviderConfig;
   onReasoning?: (chunk: string) => void;
   onChunk: (chunk: string) => void;
@@ -356,7 +360,8 @@ export async function streamAgentExplainDiff(
     payload.sessionId ||
     `agent::${payload.repoPath}::${payload.scopeType || ''}::${payload.filePath || ''}::${
       payload.userPrompt || ''
-    }::${payload.diff?.length || 0}`;
+    }::${payload.learnRequestMode || ''}::${
+      payload.diff?.length || 0}`;
 
   const fileName = payload.filePath ? payload.filePath.split('/').pop() : '全库探查';
 
@@ -371,6 +376,9 @@ export async function streamAgentExplainDiff(
       filePath: payload.filePath,
       commitMessage: payload.commitMessage,
       userPrompt: payload.userPrompt,
+      task: payload.task,
+      learnRequestMode: payload.learnRequestMode,
+      existingBusinessRoutes: payload.existingBusinessRoutes,
       config: payload.config,
     },
     logSession: { title: `🧠 Codex 智能体深度审查 (${fileName})`, type: 'agent' },

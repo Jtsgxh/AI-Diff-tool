@@ -3,7 +3,13 @@ import { test } from 'node:test';
 import { parseLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
 import type { LearnBusinessRoute, LearnBusinessRouteStep, LearnGraph, LearnNode } from '../src/types';
 import { buildLearnBusinessBus, layoutLearnBusinessBus } from '../src/utils/learnBusinessBus';
-import { applyLearnAnalysis, parseLearnOverlay } from '../src/utils/learnGraph';
+import { buildLearnSystemPrompt, buildLearnUserMessage } from '../server/prompts';
+import {
+  applyLearnAnalysis,
+  mergeLearnGraphExpansion,
+  parseLearnOverlay,
+  serializeLearnGraphReport,
+} from '../src/utils/learnGraph';
 
 function step(
   node: LearnNode,
@@ -135,4 +141,62 @@ test('hidden middle step creates a gap instead of an invented shortcut', () => {
   assert.equal(bus.routes[0].visibleStepCount, 2);
   assert.deepEqual(bus.routes[0].nodeIds.map(Boolean), [true, false, true]);
   assert.deepEqual(bus.edges, []);
+});
+
+test('manual graph expansion appends only new bound routes and serializes the combined graph', () => {
+  const base = graphWithRoutes([sharedRoutes[0]]);
+  const supplement = envelope([sharedRoutes[1]]);
+  const result = mergeLearnGraphExpansion(base, `\`\`\`learn-graph\n${JSON.stringify(supplement)}\n\`\`\``);
+  assert.equal(result.hasOverlay, true);
+  assert.deepEqual(result.addedRoutes.map((item) => item.id), ['b']);
+  assert.deepEqual(result.graph.businessRoutes.map((item) => item.id), ['a', 'b']);
+  assert.deepEqual(base.businessRoutes.map((item) => item.id), ['a']);
+
+  const persisted = serializeLearnGraphReport(result.graph, '原始讲解');
+  const restored = applyLearnAnalysis(graphWithRoutes([]), persisted);
+  assert.deepEqual(restored.businessRoutes.map((item) => item.id), ['a', 'b']);
+  assert.equal(persisted.endsWith('原始讲解'), true);
+});
+
+test('manual graph expansion rejects duplicate and unmappable routes without changing the graph', () => {
+  const base = graphWithRoutes([sharedRoutes[0]]);
+  const duplicate = mergeLearnGraphExpansion(base,
+    `\`\`\`learn-graph\n${JSON.stringify(envelope([sharedRoutes[0]]))}\n\`\`\``);
+  assert.deepEqual(duplicate.duplicateRouteLabels, ['路线 A']);
+  assert.equal(duplicate.graph, base);
+
+  const missingRoute = route('missing', '无法绑定', [
+    step(byId.get('entry-b')!, 'entry', 'start'),
+    { ...step(byId.get('finish-b')!, 'result', 'finish'), classSymbol: 'MissingClass' },
+  ]);
+  const invalid = mergeLearnGraphExpansion(base,
+    `\`\`\`learn-graph\n${JSON.stringify(envelope([missingRoute]))}\n\`\`\``);
+  assert.deepEqual(invalid.invalidRouteLabels, ['无法绑定']);
+  assert.equal(invalid.graph, base);
+});
+
+test('manual graph expansion prompt requires supplemental graph data while normal questions stay prose-only', () => {
+  const existingBusinessRoutes = [{
+    id: 'a',
+    label: '路线 A',
+    steps: sharedRoutes[0].steps.map(({ file, classSymbol, methodSymbol, kind }) => ({
+      file, classSymbol, methodSymbol, kind,
+    })),
+  }];
+  const expansion = {
+    scopeType: 'repo' as const,
+    task: 'learn' as const,
+    userPrompt: '补充管理流程',
+    learnRequestMode: 'expand_graph' as const,
+    existingBusinessRoutes,
+    graphDigest: 'EXTRACTED',
+  };
+  assert.match(buildLearnSystemPrompt(expansion), /手动补充业务总线/);
+  assert.match(buildLearnSystemPrompt(expansion), /只能包含本轮新增路线/);
+  assert.match(buildLearnUserMessage(expansion), /路线 A/);
+  assert.match(buildLearnUserMessage(expansion), /补充管理流程/);
+
+  const questionSystem = buildLearnSystemPrompt({ ...expansion, learnRequestMode: 'question' });
+  assert.match(questionSystem, /禁止输出 JSON/);
+  assert.doesNotMatch(questionSystem, /手动补充业务总线/);
 });

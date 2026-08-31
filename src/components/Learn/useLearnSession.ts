@@ -5,13 +5,16 @@ import {
   type AgentToolEvent,
   type AIProviderConfig,
   type LearnGraph,
+  type LearnRequestMode,
   type RepoOverview,
 } from '../../types';
 import { fetchLearnGraph, fetchRepoOverview, streamAgentExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
 import {
   humanizeLearnReport,
+  mergeLearnGraphExpansion,
   parseLearnOverlay,
+  serializeLearnGraphReport,
   visibleLearnProse,
 } from '../../utils/learnGraph';
 import { flushStreamsNow, scheduleStreamFlush } from '../../services/streamScheduler';
@@ -64,6 +67,7 @@ export function useLearnSession(
   const structuralRef = useRef<LearnGraph | null>(null);
   const structuralPathRef = useRef('');
   const graphRef = useRef<LearnGraph | null>(null);
+  const acceptedReportRef = useRef('');
 
   const effectiveLearnPrompt = aiConfig.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
   const cacheKeyForGraph = useCallback(
@@ -128,6 +132,7 @@ export function useLearnSession(
     cancelInFlight();
     structuralRef.current = null;
     structuralPathRef.current = '';
+    acceptedReportRef.current = '';
     setStructureReady(false);
     setIsStreaming(false);
     setGraph(null);
@@ -159,9 +164,10 @@ export function useLearnSession(
   }, [repoPath, headHash, repositoryRevision, cancelInFlight]);
 
   const runAgent = useCallback(
-    async (opts: { userPrompt?: string; filePath?: string }) => {
+    async (opts: { userPrompt?: string; filePath?: string; learnRequestMode?: LearnRequestMode }) => {
       const config = configRef.current;
       const isFollowUp = Boolean(opts.userPrompt?.trim());
+      const isExpansion = opts.learnRequestMode === 'expand_graph';
       const base = isFollowUp
         ? graphRef.current || structuralRef.current
         : structuralRef.current;
@@ -184,7 +190,10 @@ export function useLearnSession(
       setStatus(null);
       if (isFollowUp) {
         setFollowUpStream('');
-        setChat((prev) => [...prev, { role: 'user', content: opts.userPrompt!.trim() }]);
+        setChat((prev) => [...prev, {
+          role: 'user',
+          content: isExpansion ? `补图：${opts.userPrompt!.trim()}` : opts.userPrompt!.trim(),
+        }]);
       } else {
         const previous = graphRef.current;
         const hasPreviousRoutes = Boolean(previous?.businessRoutes.length);
@@ -224,6 +233,14 @@ export function useLearnSession(
           diff: '',
           filePath: opts.filePath,
           userPrompt: opts.userPrompt,
+          learnRequestMode: opts.learnRequestMode || (isFollowUp ? 'question' : undefined),
+          existingBusinessRoutes: isExpansion ? base.businessRoutes.map((route) => ({
+            id: route.id,
+            label: route.label,
+            steps: route.steps.map(({ file, classSymbol, methodSymbol, kind }) => ({
+              file, classSymbol, methodSymbol, kind,
+            })),
+          })) : undefined,
           config,
           onStatusUpdate: setStatus,
           onToolEvent: (event) => {
@@ -250,11 +267,38 @@ export function useLearnSession(
           onComplete: () => {
             const raw = textRef.current;
             const { graph: next, prose } = humanizeLearnReport(raw, base);
-            if (isFollowUp) {
-              if (next) setGraph(next);
+            if (isExpansion) {
+              const expansion = mergeLearnGraphExpansion(base, raw);
+              if (!expansion.hasOverlay) {
+                setError('补图请求已结束，但 AI 没有返回合法的 learn-graph 数据。现有业务总线未改变。');
+              } else if (expansion.invalidRouteLabels.length > 0) {
+                setError(`补充路线无法绑定到当前类图：${expansion.invalidRouteLabels.join('、')}。现有业务总线未改变。`);
+              } else if (expansion.duplicateRouteLabels.length > 0) {
+                setError(`补充路线与现有业务总线重复或 id 冲突：${expansion.duplicateRouteLabels.join('、')}。请换个缺失业务继续补图。`);
+              } else {
+                if (expansion.addedRoutes.length > 0) {
+                  graphRef.current = expansion.graph;
+                  setGraph(expansion.graph);
+                  setSettled(true);
+                  const retainedProse = visibleLearnProse(acceptedReportRef.current);
+                  const combinedReport = serializeLearnGraphReport(expansion.graph, retainedProse);
+                  acceptedReportRef.current = combinedReport;
+                  aiCache.set(cacheKey, {
+                    report: combinedReport,
+                    model: config.model,
+                    provider: config.provider,
+                  });
+                }
+                const reply = prose || (expansion.addedRoutes.length > 0
+                  ? `已补充 ${expansion.addedRoutes.length} 条业务路线到节点图。`
+                  : '已核实这次提问，但没有找到可形成新业务闭环的路线，节点图未改变。');
+                setChat((prev) => [...prev, { role: 'assistant', content: reply }]);
+              }
+              setFollowUpStream('');
+            } else if (isFollowUp) {
               const reply =
                 prose ||
-                (next ? '已根据仓库更新说明。' : '没有读到有效说明，换个问法或点重新开仓。');
+                '没有读到有效说明，换个问法或点重新开仓。';
               setChat((prev) => [...prev, { role: 'assistant', content: reply }]);
               setFollowUpStream('');
             } else {
@@ -264,6 +308,7 @@ export function useLearnSession(
               if (overlay && rejectedRoutes.length === 0) {
                 graphRef.current = next;
                 setGraph(next);
+                acceptedReportRef.current = raw;
                 aiCache.set(cacheKey, {
                   report: raw,
                   model: config.model,
@@ -272,6 +317,7 @@ export function useLearnSession(
               } else if (overlay) {
                 graphRef.current = base;
                 setGraph(base);
+                acceptedReportRef.current = '';
                 setError(
                   `AI 返回的路线无法绑定到当前类图：${rejectedRoutes.join('、')}。已拒绝这份路线数据，请重新分析。`
                 );
@@ -309,7 +355,12 @@ export function useLearnSession(
   );
 
   const ask = useCallback(
-    (question: string, filePath?: string) => runAgent({ userPrompt: question, filePath }),
+    (question: string, filePath?: string) => runAgent({ userPrompt: question, filePath, learnRequestMode: 'question' }),
+    [runAgent]
+  );
+
+  const expandGraph = useCallback(
+    (question: string, filePath?: string) => runAgent({ userPrompt: question, filePath, learnRequestMode: 'expand_graph' }),
     [runAgent]
   );
 
@@ -325,17 +376,20 @@ export function useLearnSession(
     setBriefing('');
     setError(null);
     setSettled(false);
+    acceptedReportRef.current = '';
     const cacheKey = cacheKeyForGraph(base);
     const cached = aiCache.get(cacheKey);
     if (!cached?.report?.trim()) return;
     const { graph: next, prose } = humanizeLearnReport(cached.report, base);
     const rejectedRoutes = rejectedRouteLabels(cached.report, next);
     if (!parseLearnOverlay(cached.report) || rejectedRoutes.length > 0) {
+      acceptedReportRef.current = '';
       aiCache.remove(cacheKey);
       setError('已有分析结果无效或无法绑定到当前类图，请手动开始 AI 分析。');
       return;
     }
     graphRef.current = next;
+    acceptedReportRef.current = cached.report;
     setGraph(next);
     setBriefing(prose);
     setSettled(true);
@@ -360,5 +414,6 @@ export function useLearnSession(
     settled,
     startBriefing,
     ask,
+    expandGraph,
   };
 }

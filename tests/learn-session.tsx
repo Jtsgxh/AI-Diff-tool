@@ -37,6 +37,16 @@ const report = '```learn-graph\n' + JSON.stringify({
       inputs: [], outputs: [], stateChanges: [], failurePaths: [] })) }],
   runtimePath: ['0'],
 }) + '\n```\n\n这是测试业务路线讲解。';
+const expansionReport = '```learn-graph\n' + JSON.stringify({
+  communities: [{ id: '0', label: '测试业务社区', summary: '手动补图', files: ['src/Entry.ts', 'src/Service.ts'] }],
+  businessRoutes: [{ id: 'manual-route', label: '手动补充路线', summary: '用户主动补充的业务闭环',
+    steps: graph.nodes.map((node, index, routeNodes) => ({ label: `补图${node.label}`, file: node.file, classSymbol: node.label,
+      methodSymbol: index === 0 ? 'manualStart' : 'manualFinish', communityId: node.communityId,
+      kind: index === 0 ? 'entry' : index === routeNodes.length - 1 ? 'result' : 'process',
+      description: '手动问题核实出的步骤', relation: index === 0 ? '入口' : '返回', evidence: `${node.label}.manual(...)`,
+      inputs: [], outputs: [], stateChanges: [], failurePaths: [] })) }],
+  runtimePath: ['0'],
+}) + '\n```\n\n已根据手动问题补充业务路线。';
 const filterNodes: LearnGraph['nodes'] = [
   ...['Entry', 'Service', 'AbilitySpec', 'LatestSnapshot', 'ContestReward', 'CombatTestPipelineAbilitySpec']
     .map((label) => ({ id: label, label, kind: 'class' as const, file: `src/${label}.cs`, communityId: '0', degree: 0 })),
@@ -84,7 +94,7 @@ CanvasRenderingContext2D.prototype.quadraticCurveTo = function (...args) {
   if (this.canvas.isConnected && Math.abs(this.lineWidth - 3.5) < 0.01) lastRouteCurves++;
   return originalCurve.apply(this, args);
 };
-const requests: { repoPath: string; model: string; question?: string }[] = [];
+const requests: { repoPath: string; model: string; question?: string; mode?: string }[] = [];
 let aborted = 0;
 let responseMode: 'ok' | 'error' | 'hold' = 'ok';
 let sourceRevision = 0;
@@ -104,7 +114,7 @@ window.fetch = async (input, init) => {
   }
   if (url.pathname === '/api/ai/agent/explain/stream') {
     const body = JSON.parse(String(init?.body));
-    requests.push({ repoPath: body.repoPath, model: body.config.model, question: body.userPrompt });
+    requests.push({ repoPath: body.repoPath, model: body.config.model, question: body.userPrompt, mode: body.learnRequestMode });
     if (responseMode === 'hold') {
       return new Promise<Response>((_resolve, reject) => {
         init!.signal!.addEventListener('abort', () => {
@@ -115,7 +125,8 @@ window.fetch = async (input, init) => {
     }
     if (responseMode === 'error') return Response.json({ error: 'fixture AI failure' }, { status: 500 });
     return new Response([
-      `data: ${JSON.stringify({ type: 'chunk', text: body.userPrompt ? '这是测试追问回答。' : useFilterGraph ? filterReport : report })}\n\n`,
+      `data: ${JSON.stringify({ type: 'chunk', text: body.learnRequestMode === 'expand_graph'
+        ? expansionReport : body.userPrompt ? '这是测试追问回答。' : useFilterGraph ? filterReport : report })}\n\n`,
       'data: {"type":"done"}\n\n',
     ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
   }
@@ -137,6 +148,12 @@ function Fixture() {
       .find((item) => item.textContent?.trim() === name);
     const content = () => document.querySelector('[data-testid="workbench"]')?.textContent || '';
     const delay = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
+    const enterQuestion = async (value: string) => {
+      const input = document.querySelector<HTMLInputElement>('[data-testid="workbench"] input[type="text"]')!;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await delay();
+    };
     const until = async (condition: () => boolean) => {
       const deadline = performance.now() + 5000;
       while (!condition()) {
@@ -195,46 +212,55 @@ function Fixture() {
       cache.set(key, cached);
       await reopen();
       check('有效缓存仍可恢复', requests.length === 2 && content().includes('这是测试业务路线讲解'));
+      await enterQuestion('补充自动分析遗漏的管理流程');
+      button('补图')!.click();
+      await until(() => savedReports === 3 && content().includes('已根据手动问题补充业务路线'));
+      const busRouteOptions = () => [...document.querySelectorAll<HTMLOptionElement>('select[aria-label="聚焦业务总线路线"] option')];
+      check('手动提问以补图模式追加路线并更新缓存', requests.length === 3 && requests[2].mode === 'expand_graph' &&
+        busRouteOptions().some((option) => option.value === 'manual-route') && cache.size === 1);
+      await reopen();
+      check('手动补充路线可从合并缓存恢复且不重复请求', requests.length === 3 &&
+        busRouteOptions().some((option) => option.value === 'manual-route'));
       setConfig((previous) => ({ ...previous, learnPrompt: 'fixture new prompt' }));
       await until(ready); await delay();
-      check('换提示词不自动分析也不复用旧报告', requests.length === 2 && !content().includes('这是测试业务路线讲解'));
+      check('换提示词不自动分析也不复用旧报告', requests.length === 3 && !content().includes('这是测试业务路线讲解'));
       setConfig((previous) => ({ ...previous, model: 'fixture-model-2' }));
       await delay();
-      check('换模型不自动分析', requests.length === 2 && ready());
+      check('换模型不自动分析', requests.length === 3 && ready());
       sourceRevision++;
       setRevision((previous) => previous + 1);
       await delay(); await until(ready);
-      check('源码变化刷新不自动分析', requests.length === 2 && ready());
+      check('源码变化刷新不自动分析', requests.length === 3 && ready());
       setHead('head-b');
       await delay(); await until(ready);
-      check('切换提交不自动分析', requests.length === 2 && ready());
+      check('切换提交不自动分析', requests.length === 3 && ready());
       setRepoPath('fixture/repo-b');
       await delay(); await until(ready);
-      check('切换仓库不自动分析', requests.length === 2 && ready());
+      check('切换仓库不自动分析', requests.length === 3 && ready());
       responseMode = 'error';
       button('开始 AI 分析')!.click();
       await until(() => content().includes('fixture AI failure'));
       await delay();
-      check('手动分析失败后不自动重试', requests.length === 3);
+      check('手动分析失败后不自动重试', requests.length === 4);
       await reopen();
-      check('失败后重新进入不自动重试', requests.length === 3 && ready());
+      check('失败后重新进入不自动重试', requests.length === 4 && ready());
       responseMode = 'ok';
       setAskFile('src/Entry.ts');
       await until(() => content().includes('这是测试追问回答'));
-      check('主动询问文件仅发出追问请求', requests.length === 4 && Boolean(requests[3].question));
+      check('主动询问文件仅发出文字追问请求', requests.length === 5 && Boolean(requests[4].question) && requests[4].mode === 'question');
       responseMode = 'hold';
       button('开始 AI 分析')!.click();
-      await until(() => requests.length === 5 && Boolean(button('分析中…')));
+      await until(() => requests.length === 6 && Boolean(button('分析中…')));
       setConfig((previous) => ({ ...previous, learnPrompt: 'fixture prompt during stream' }));
       await delay();
-      check('进行中修改提示词不另开 AI 请求', requests.length === 5 && Boolean(button('分析中…')));
+      check('进行中修改提示词不另开 AI 请求', requests.length === 6 && Boolean(button('分析中…')));
       setMounted(false);
       await until(() => aborted === 1);
       check('离开页面取消未完成请求', aborted === 1);
       responseMode = 'ok';
       setMounted(true);
       await until(ready); await delay();
-      check('中断后重新进入不自动续跑', requests.length === 5 && ready());
+      check('中断后重新进入不自动续跑', requests.length === 6 && ready());
       setResult(JSON.stringify({ passed: checks.length, requests: requests.length, aborted, checks }, null, 2));
     } catch (error) {
       setResult(JSON.stringify({ passed: checks.length, failed: String(error), requests, checks }, null, 2));

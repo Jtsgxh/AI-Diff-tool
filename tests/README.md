@@ -104,12 +104,13 @@ This StrictMode fixture runs the production workbench, hook, report validator an
 All fetches are intercepted; AI responses and cache entries are in memory, with no real model
 requests or user-cache writes. Unexpected request paths fail instead of reaching the backend.
 
-All 19 checks must pass: entering/reentering without a cache, restoring a valid cache, invalid
+All 21 checks must pass: entering/reentering without a cache, restoring a valid cache, invalid
 or unmapped reports, source/HEAD/repository/model/prompt changes, failed or cancelled analyses
-must not automatically call AI. Explicit analysis, reanalysis and file questions still work.
+must not automatically call AI. Explicit analysis, reanalysis, manual graph expansion and file questions still work.
 Leaving the page cancels an unfinished stream, and changing the prompt during that stream must
-not silently replace it with a new request. The expected five intercepted requests are all
-explicit test actions (analysis, reanalysis, a failed analysis, a file question, and a held stream).
+not silently replace it with a new request. The expected six intercepted requests are all
+explicit test actions (analysis, reanalysis, manual graph expansion, a failed analysis,
+a file question, and a held stream).
 
 ## Test-node display filter regression
 
