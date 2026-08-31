@@ -43,9 +43,11 @@ export {
   LEARN_ANALYSIS_SCHEMA_VERSION,
   LEARN_BUSINESS_STEP_KINDS,
   REQUEST_TIMEOUT_SECONDS,
+  STREAM_IDLE_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   inferContextWindowTokens,
   resolveRequestTimeoutSeconds,
+  resolveStreamIdleTimeoutSeconds,
 } from '../../shared/types';
 
 import type { CommitNode } from '../../shared/types';

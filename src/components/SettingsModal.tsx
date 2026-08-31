@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   CONTEXT_WINDOW_TOKENS,
   REQUEST_TIMEOUT_SECONDS,
+  STREAM_IDLE_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   type AIProviderConfig,
 } from '../types';
@@ -118,6 +119,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     maxExplorationTurns:
       config.maxExplorationTurns !== undefined ? config.maxExplorationTurns : 0,
     timeoutSeconds: config.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default,
+    streamIdleTimeoutSeconds:
+      config.streamIdleTimeoutSeconds || STREAM_IDLE_TIMEOUT_SECONDS.default,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
     maxReadFileLines: config.maxReadFileLines || 2000,
     maxSearchResults: config.maxSearchResults || 200,
@@ -170,6 +173,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       ...prev,
       maxExplorationTurns: 0,
       timeoutSeconds: REQUEST_TIMEOUT_SECONDS.default,
+      streamIdleTimeoutSeconds: STREAM_IDLE_TIMEOUT_SECONDS.default,
       maxRetries: 2,
       maxReadFileLines: 2000,
       maxSearchResults: 200,
@@ -879,7 +883,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-1.5">
                   <label className="font-semibold text-slate-300 text-xs flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-sky-400" />
-                    <span>单次调用 / 静默超时</span>
+                    <span>首包等待超时 (TTFB)</span>
                   </label>
                   <input
                     type="number"
@@ -893,7 +897,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                   />
                   <p className="text-[10px] text-slate-500">
-                    每次模型或工具调用、以及页面连续没有 AI 进度，都受此上限保护
+                    只限制模型迟迟不开始响应；开始流式输出后不会按总时长截断
+                  </p>
+                </div>
+
+                {/* Stream idle timeout */}
+                <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-1.5">
+                  <label className="font-semibold text-slate-300 text-xs flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>流式静默超时</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={STREAM_IDLE_TIMEOUT_SECONDS.min}
+                    max={STREAM_IDLE_TIMEOUT_SECONDS.max}
+                    step={30}
+                    value={form.streamIdleTimeoutSeconds || STREAM_IDLE_TIMEOUT_SECONDS.default}
+                    onChange={(e) =>
+                      setForm({ ...form, streamIdleTimeoutSeconds: parseInt(e.target.value, 10) })
+                    }
+                    className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    流式开始后连续无真实 AI 进度才中止；正常持续输出可运行任意时长
                   </p>
                 </div>
 

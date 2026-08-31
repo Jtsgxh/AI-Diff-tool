@@ -10,6 +10,8 @@ export interface SseRequest {
   url: string;
   body: unknown;
   signal: AbortSignal;
+  /** Maximum time to establish the HTTP/SSE response. */
+  connectTimeoutMs?: number;
   /** Maximum time without a real `data:` event. Keep-alive comments do not reset it. */
   idleTimeoutMs?: number;
   /**
@@ -38,6 +40,7 @@ export async function readEventStream({
   body,
   signal,
   onEvent,
+  connectTimeoutMs,
   idleTimeoutMs,
 }: SseRequest): Promise<void> {
   const requestController = new AbortController();
@@ -47,11 +50,11 @@ export async function readEventStream({
 
   let firstByteTimedOut = false;
   let firstByteTimer: ReturnType<typeof setTimeout> | undefined;
-  if (idleTimeoutMs !== undefined) {
+  if (connectTimeoutMs !== undefined) {
     firstByteTimer = setTimeout(() => {
       firstByteTimedOut = true;
       requestController.abort();
-    }, idleTimeoutMs);
+    }, connectTimeoutMs);
   }
 
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -97,6 +100,7 @@ export async function readEventStream({
       clearTimeout(firstByteTimer);
       firstByteTimer = undefined;
     }
+    lastEventAt = Date.now();
 
     if (!res.ok) {
       throw new SseHttpError(res.status, await res.text());
@@ -139,7 +143,7 @@ export async function readEventStream({
     }
   } catch (err) {
     if (firstByteTimedOut && !signal.aborted) {
-      throw new Error(`超过 ${Math.ceil(idleTimeoutMs! / 1000)} 秒未建立 AI 流式连接，已中止本次请求。`);
+      throw new Error(`超过 ${Math.ceil(connectTimeoutMs! / 1000)} 秒未建立 AI 流式连接，已中止本次请求。`);
     }
     throw err;
   } finally {

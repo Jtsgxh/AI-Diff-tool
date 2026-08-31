@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveRequestTimeoutSeconds } from '../shared/types';
+import {
+  resolveRequestTimeoutSeconds,
+  resolveStreamIdleTimeoutSeconds,
+} from '../shared/types';
 import { readEventStream } from '../src/services/sseClient';
 
 const encoder = new TextEncoder();
@@ -10,6 +13,50 @@ test('AI timeout configuration is finite and clamped', () => {
   assert.equal(resolveRequestTimeoutSeconds(Number.NaN), 180);
   assert.equal(resolveRequestTimeoutSeconds(1), 20);
   assert.equal(resolveRequestTimeoutSeconds(999_999), 1800);
+  assert.equal(resolveRequestTimeoutSeconds(35), 35);
+  assert.equal(resolveStreamIdleTimeoutSeconds(undefined), 180);
+  assert.equal(resolveStreamIdleTimeoutSeconds(1), 30);
+});
+
+test('active AI progress may continue beyond the connection timeout', async () => {
+  const originalFetch = globalThis.fetch;
+  let progress: ReturnType<typeof setInterval> | undefined;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      let count = 0;
+      progress = setInterval(() => {
+        count++;
+        controller.enqueue(encoder.encode(`data: {"type":"status","step":${count}}\n\n`));
+        if (count === 6) {
+          controller.enqueue(encoder.encode('data: {"type":"done"}\n\n'));
+          clearInterval(progress);
+          controller.close();
+        }
+      }, 10);
+    },
+    cancel() {
+      if (progress) clearInterval(progress);
+    },
+  }), { status: 200 });
+
+  try {
+    let statuses = 0;
+    await readEventStream({
+      url: '/fixture',
+      body: {},
+      signal: new AbortController().signal,
+      connectTimeoutMs: 25,
+      idleTimeoutMs: 25,
+      onEvent(event) {
+        if (event.type === 'status') statuses++;
+        return event.type === 'done';
+      },
+    });
+    assert.equal(statuses, 6);
+  } finally {
+    if (progress) clearInterval(progress);
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('AI event stream completes when the terminal data event arrives', async () => {
@@ -85,7 +132,8 @@ test('a proxy that never returns SSE headers is also timed out', async () => {
         url: '/fixture',
         body: {},
         signal: new AbortController().signal,
-        idleTimeoutMs: 25,
+        connectTimeoutMs: 25,
+        idleTimeoutMs: 100,
         onEvent() {},
       }),
       /未建立 AI 流式连接/

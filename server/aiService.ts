@@ -1,4 +1,4 @@
-import type { Response } from 'express';
+import type { Response as ExpressResponse } from 'express';
 import {
   chatCompletionsUrl,
   extractReasoningDelta,
@@ -34,10 +34,10 @@ function clipTail(text: string, limit: number): string {
  * to the browser and continuing only when the provider reports truncation.
  */
 export class AIService {
-  async streamExplainDiff(options: ExplainOptions, res: Response): Promise<void> {
+  async streamExplainDiff(options: ExplainOptions, res: ExpressResponse): Promise<void> {
     const stream = new SseStream(res);
     const provider = resolveProvider(options.config);
-    const modelCallTimeoutMs = resolveRequestTimeoutSeconds(options.config?.timeoutSeconds) * 1000;
+    const providerFirstByteTimeoutMs = resolveRequestTimeoutSeconds(options.config?.timeoutSeconds) * 1000;
 
     if (!provider.apiKey && provider.requiresApiKey) {
       stream.send({ error: MISSING_API_KEY_MESSAGE });
@@ -65,11 +65,17 @@ export class AIService {
         let passText = '';
         let passReasoning = '';
         let finishReason: string | null = null;
-        const timeoutSignal = AbortSignal.timeout(modelCallTimeoutMs);
-        const callSignal = AbortSignal.any([stream.signal, timeoutSignal]);
+        const firstByteController = new AbortController();
+        const firstByteSignal = AbortSignal.any([stream.signal, firstByteController.signal]);
+        let firstByteTimedOut = false;
+        const firstByteTimer = setTimeout(() => {
+          firstByteTimedOut = true;
+          firstByteController.abort();
+        }, providerFirstByteTimeoutMs);
 
+        let response: Response;
         try {
-          const response = await fetch(chatCompletionsUrl(provider.baseUrl), {
+          response = await fetch(chatCompletionsUrl(provider.baseUrl), {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -77,46 +83,45 @@ export class AIService {
               messages,
               stream: true,
             }),
-            // Stop pulling tokens once the browser is gone or this individual
-            // model call exceeds the configured wall-clock limit.
-            signal: callSignal,
+            // This timer only waits for provider headers / the first byte.
+            // Once fetch resolves, normal long-lived streaming is allowed.
+            signal: firstByteSignal,
           });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-              `大模型接口请求失败 (${response.status}): ${errorText}\n请检查 API Key、Base URL 与模型名称。`
-            );
-          }
-          if (!response.body) throw new Error('未收到模型服务端的流式响应');
-
-          for await (const parsed of readSseJson(response.body, callSignal)) {
-            if (stream.isClosed) return;
-
-            const choice = parsed.choices?.[0];
-            const delta = choice?.delta;
-            if (choice?.finish_reason) finishReason = choice.finish_reason;
-
-            const reasoning = extractReasoningDelta(delta);
-            if (reasoning) {
-              passReasoning += reasoning;
-              stream.send({ reasoning });
-            }
-
-            const text = delta?.content;
-            if (text) {
-              passText += text;
-              stream.send({ text });
-            }
-          }
         } catch (err) {
-          if (timeoutSignal.aborted && !stream.signal.aborted) {
-            throw new Error(`单次模型调用超过 ${Math.ceil(modelCallTimeoutMs / 1000)} 秒`);
+          if (firstByteTimedOut && !stream.signal.aborted) {
+            throw new Error(`等待模型开始响应超过 ${Math.ceil(providerFirstByteTimeoutMs / 1000)} 秒`);
           }
           throw err;
+        } finally {
+          clearTimeout(firstByteTimer);
         }
-        if (timeoutSignal.aborted && !stream.signal.aborted) {
-          throw new Error(`单次模型调用超过 ${Math.ceil(modelCallTimeoutMs / 1000)} 秒`);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `大模型接口请求失败 (${response.status}): ${errorText}\n请检查 API Key、Base URL 与模型名称。`
+          );
+        }
+        if (!response.body) throw new Error('未收到模型服务端的流式响应');
+
+        for await (const parsed of readSseJson(response.body, stream.signal)) {
+          if (stream.isClosed) return;
+
+          const choice = parsed.choices?.[0];
+          const delta = choice?.delta;
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
+
+          const reasoning = extractReasoningDelta(delta);
+          if (reasoning) {
+            passReasoning += reasoning;
+            stream.send({ reasoning });
+          }
+
+          const text = delta?.content;
+          if (text) {
+            passText += text;
+            stream.send({ text });
+          }
         }
 
         if (finishReason === 'length') {
