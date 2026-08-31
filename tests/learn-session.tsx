@@ -250,17 +250,22 @@ function Fixture() {
       check('主动询问文件仅发出文字追问请求', requests.length === 5 && Boolean(requests[4].question) && requests[4].mode === 'question');
       responseMode = 'hold';
       button('开始 AI 分析')!.click();
-      await until(() => requests.length === 6 && Boolean(button('分析中…')));
+      await until(() => requests.length === 6 && Boolean(button('取消分析')));
       setConfig((previous) => ({ ...previous, learnPrompt: 'fixture prompt during stream' }));
       await delay();
-      check('进行中修改提示词不另开 AI 请求', requests.length === 6 && Boolean(button('分析中…')));
+      check('进行中修改提示词不另开 AI 请求', requests.length === 6 && Boolean(button('取消分析')));
+      button('取消分析')!.click();
+      await until(() => aborted === 1 && content().includes('已取消本次 AI 分析'));
+      check('用户可取消卡住的分析并恢复操作', aborted === 1 && !button('取消分析'));
+      (button('重新分析') || button('开始 AI 分析'))!.click();
+      await until(() => requests.length === 7 && Boolean(button('取消分析')));
       setMounted(false);
-      await until(() => aborted === 1);
-      check('离开页面取消未完成请求', aborted === 1);
+      await until(() => aborted === 2);
+      check('离开页面取消未完成请求', aborted === 2);
       responseMode = 'ok';
       setMounted(true);
       await until(ready); await delay();
-      check('中断后重新进入不自动续跑', requests.length === 6 && ready());
+      check('中断后重新进入不自动续跑', requests.length === 7 && ready());
       setResult(JSON.stringify({ passed: checks.length, requests: requests.length, aborted, checks }, null, 2));
     } catch (error) {
       setResult(JSON.stringify({ passed: checks.length, failed: String(error), requests, checks }, null, 2));

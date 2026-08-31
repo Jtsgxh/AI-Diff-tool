@@ -254,14 +254,27 @@ export function totalContextChars(tokens: number): number {
 }
 
 /**
- * Wait for the provider's first response byte (headers / first SSE frame).
- * Streaming the rest of the body is not bound by this — a review can run
- * for many minutes after the stream has started.
+ * Maximum silence allowed for one model/tool call and for the browser's AI
+ * event stream. This bounds both first-byte waits and stalls after streaming
+ * has started, so a dead provider or proxy cannot leave the UI pending forever.
  */
 export const REQUEST_TIMEOUT_SECONDS = {
   min: 20,
   default: 180,
+  max: 1800,
 } as const;
+
+export function resolveRequestTimeoutSeconds(value: number | undefined): number {
+  return Math.min(
+    REQUEST_TIMEOUT_SECONDS.max,
+    Math.max(
+      REQUEST_TIMEOUT_SECONDS.min,
+      typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : REQUEST_TIMEOUT_SECONDS.default
+    )
+  );
+}
 
 export interface AIRuntimeConfig {
   maxExplorationTurns?: number;

@@ -27,7 +27,7 @@ import {
 import { buildLearnGraph, formatLearnGraphDigest } from './learnGraphBuild';
 import {
   inferContextWindowTokens,
-  REQUEST_TIMEOUT_SECONDS,
+  resolveRequestTimeoutSeconds,
   totalContextChars,
 } from '../shared/types';
 import type { AgentExplainRequest, PartialAIProviderConfig } from '../shared/types';
@@ -39,6 +39,7 @@ export type AgentExplainOptions = AgentExplainRequest;
 const RETRY_DEFAULT = 2;
 const TOOL_CONTEXT_FRACTION = 0.9;
 const SYNTHESIS_INPUT_FRACTION = 0.8;
+const MAX_SYNTHESIS_PASSES = 4;
 
 function nonNegativeInt(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -100,6 +101,8 @@ export class CodexAgentEngine {
     const { repoPath, config } = options;
     const stream = new SseStream(res);
     const provider = resolveProvider(config);
+    const modelCallTimeoutSeconds = resolveRequestTimeoutSeconds(config?.timeoutSeconds);
+    const modelCallTimeoutMs = modelCallTimeoutSeconds * 1000;
 
     if (!provider.apiKey && provider.requiresApiKey) {
       stream.send({ type: 'error', message: MISSING_API_KEY_MESSAGE });
@@ -149,6 +152,8 @@ export class CodexAgentEngine {
         start_line: z.number().optional().describe('起始行号 (可选，从 1 开始)'),
         end_line: z.number().optional().describe('结束行号 (可选)'),
       }),
+      timeoutMs: modelCallTimeoutMs,
+      timeoutBehavior: 'raise_exception',
       execute: withLogging('read_file'),
     });
 
@@ -165,6 +170,8 @@ export class CodexAgentEngine {
         offset: z.number().optional().describe('结果翻页偏移量；工具提示有下一页时使用'),
         max_results: z.number().optional().describe('本次需要的结果数；不填则使用设置页默认值'),
       }),
+      timeoutMs: modelCallTimeoutMs,
+      timeoutBehavior: 'raise_exception',
       execute: withLogging('search_code'),
     });
 
@@ -177,6 +184,8 @@ export class CodexAgentEngine {
         offset: z.number().optional().describe('结果翻页偏移量；工具提示有下一页时使用'),
         max_results: z.number().optional().describe('本次需要的结果数；不填则使用设置页默认值'),
       }),
+      timeoutMs: modelCallTimeoutMs,
+      timeoutBehavior: 'raise_exception',
       execute: withLogging('find_files'),
     });
 
@@ -187,6 +196,8 @@ export class CodexAgentEngine {
       parameters: z.object({
         note: z.string().optional().describe('可选备注，通常留空'),
       }),
+      timeoutMs: modelCallTimeoutMs,
+      timeoutBehavior: 'raise_exception',
       execute: withLogging('repo_overview'),
     });
 
@@ -197,6 +208,8 @@ export class CodexAgentEngine {
       parameters: z.object({
         note: z.string().optional().describe('可选备注，通常留空'),
       }),
+      timeoutMs: modelCallTimeoutMs,
+      timeoutBehavior: 'raise_exception',
       execute: withLogging('repo_graph'),
     });
 
@@ -221,11 +234,6 @@ export class CodexAgentEngine {
     const systemPrompt = buildAgentSystemPrompt(promptCtx);
     const initialUserMsg = buildAgentUserMessage(promptCtx);
     usedChars = systemPrompt.length + initialUserMsg.length;
-
-    const headerTimeoutMs = Math.max(
-      REQUEST_TIMEOUT_SECONDS.min * 1000,
-      (config?.timeoutSeconds ?? REQUEST_TIMEOUT_SECONDS.default) * 1000
-    );
 
     let openaiClient: OpenAI | undefined;
     let accumulatedContent = '';
@@ -308,7 +316,7 @@ export class CodexAgentEngine {
       openaiClient = new OpenAI({
         apiKey: provider.apiKey || 'dummy-key-for-ollama',
         baseURL: provider.baseUrl,
-        timeout: headerTimeoutMs,
+        timeout: modelCallTimeoutMs,
         maxRetries: nonNegativeInt(config?.maxRetries, RETRY_DEFAULT),
         defaultHeaders: provider.isOpenRouter ? openRouterHeaders() : undefined,
         fetch: customFetch,
@@ -320,14 +328,17 @@ export class CodexAgentEngine {
         name: 'AutonomousCodexReviewer',
         instructions: systemPrompt,
         model,
+        modelSettings: { timeoutMs: modelCallTimeoutMs },
         tools: learnTask
           ? [repoOverviewTool, repoGraphTool, readFileTool, searchCodeTool, findFilesTool]
           : [repoOverviewTool, readFileTool, searchCodeTool, findFilesTool],
       });
 
-      // 0 or unset means full autonomy: no turn ceiling at all.
+      // 0 or unset delegates to the SDK's finite default (currently 10 turns).
       const configuredTurns = config?.maxExplorationTurns;
-      const maxTurns = configuredTurns === 0 || configuredTurns === undefined ? undefined : configuredTurns;
+      const maxTurns = typeof configuredTurns === 'number' && Number.isFinite(configuredTurns) && configuredTurns > 0
+        ? Math.trunc(configuredTurns)
+        : undefined;
 
       const runner = new Runner({ tracingDisabled: true });
 
@@ -465,6 +476,7 @@ export class CodexAgentEngine {
           contextChars,
           truncatedDraft: outputTruncated ? lastTurnContent || accumulatedContent : undefined,
           preserveReasoningOnAssistant: requiresReasoningRoundTrip,
+          modelCallTimeoutMs,
           onReasoning: (chunk) => {
             accumulatedReasoningContent += chunk;
           },
@@ -512,6 +524,7 @@ export class CodexAgentEngine {
     contextChars: number;
     truncatedDraft?: string;
     preserveReasoningOnAssistant: boolean;
+    modelCallTimeoutMs: number;
     onReasoning: (chunk: string) => void;
   }): Promise<void> {
     const { stream, openaiClient, model, explorationLog, contextChars } = params;
@@ -565,52 +578,70 @@ export class CodexAgentEngine {
     let learnOutputStarted = false;
     let bufferedLearnOutput = '';
 
-    while (!stream.isClosed) {
+    for (let pass = 1; pass <= MAX_SYNTHESIS_PASSES && !stream.isClosed; pass++) {
       let passText = '';
       let passReasoning = '';
       let finishReason: string | null = null;
+      const timeoutSignal = AbortSignal.timeout(params.modelCallTimeoutMs);
 
-      const synthesisStream = await openaiClient.chat.completions.create(
-        {
-          model,
-          messages,
-          stream: true,
-        },
-        { signal: stream.signal }
-      );
+      try {
+        const synthesisStream = await openaiClient.chat.completions.create(
+          {
+            model,
+            messages,
+            stream: true,
+          },
+          { signal: AbortSignal.any([stream.signal, timeoutSignal]) }
+        );
 
-      for await (const chunk of synthesisStream) {
-        if (stream.isClosed) return;
+        for await (const chunk of synthesisStream) {
+          if (stream.isClosed) return;
 
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta as any;
-        if (choice?.finish_reason) finishReason = choice.finish_reason;
+          const choice = chunk.choices?.[0];
+          const delta = choice?.delta as any;
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
 
-        const reasoningChunk = extractReasoningDelta(delta);
-        if (reasoningChunk) {
-          passReasoning += reasoningChunk;
-          params.onReasoning(reasoningChunk);
-          stream.send({ type: 'thought', text: reasoningChunk });
-        }
-        if (delta?.content) {
-          passText += delta.content;
-          synthesisOutput += delta.content;
-          if (!params.requiresLearnGraph || learnOutputStarted) {
-            stream.send({ type: 'chunk', text: delta.content });
-          } else {
-            bufferedLearnOutput += delta.content;
-            if (hasValidLearnGraphOutput(bufferedLearnOutput)) {
-              learnOutputStarted = true;
-              stream.send({ type: 'chunk', text: bufferedLearnOutput });
-              bufferedLearnOutput = '';
+          const reasoningChunk = extractReasoningDelta(delta);
+          if (reasoningChunk) {
+            passReasoning += reasoningChunk;
+            params.onReasoning(reasoningChunk);
+            stream.send({ type: 'thought', text: reasoningChunk });
+          }
+          if (delta?.content) {
+            passText += delta.content;
+            synthesisOutput += delta.content;
+            if (!params.requiresLearnGraph || learnOutputStarted) {
+              stream.send({ type: 'chunk', text: delta.content });
+            } else {
+              bufferedLearnOutput += delta.content;
+              if (hasValidLearnGraphOutput(bufferedLearnOutput)) {
+                learnOutputStarted = true;
+                stream.send({ type: 'chunk', text: bufferedLearnOutput });
+                bufferedLearnOutput = '';
+              }
             }
           }
         }
+      } catch (err) {
+        if (timeoutSignal.aborted && !stream.signal.aborted) {
+          throw new Error(
+            `最终综合单次模型调用超过 ${Math.ceil(params.modelCallTimeoutMs / 1000)} 秒`
+          );
+        }
+        throw err;
+      }
+      if (timeoutSignal.aborted && !stream.signal.aborted) {
+        throw new Error(
+          `最终综合单次模型调用超过 ${Math.ceil(params.modelCallTimeoutMs / 1000)} 秒`
+        );
       }
 
       if (finishReason === 'length') {
         if (!passText && !passReasoning) {
           throw new Error('综合输出达到单次长度上限，但没有返回可继续的内容');
+        }
+        if (pass === MAX_SYNTHESIS_PASSES) {
+          throw new Error(`综合输出连续 ${MAX_SYNTHESIS_PASSES} 次达到长度上限，已停止自动续写`);
         }
 
         const assistantMessage: any = {

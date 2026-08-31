@@ -10,6 +10,8 @@ export interface SseRequest {
   url: string;
   body: unknown;
   signal: AbortSignal;
+  /** Maximum time without a real `data:` event. Keep-alive comments do not reset it. */
+  idleTimeoutMs?: number;
   /**
    * Handles one decoded frame. Return `true` to stop reading — used for the
    * terminal `[DONE]` / `{type:'done'}` sentinels.
@@ -36,26 +38,26 @@ export async function readEventStream({
   body,
   signal,
   onEvent,
+  idleTimeoutMs,
 }: SseRequest): Promise<void> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
+  const requestController = new AbortController();
+  const abortFromCaller = () => requestController.abort();
+  if (signal.aborted) requestController.abort();
+  else signal.addEventListener('abort', abortFromCaller, { once: true });
 
-  if (!res.ok) {
-    throw new SseHttpError(res.status, await res.text());
+  let firstByteTimedOut = false;
+  let firstByteTimer: ReturnType<typeof setTimeout> | undefined;
+  if (idleTimeoutMs !== undefined) {
+    firstByteTimer = setTimeout(() => {
+      firstByteTimedOut = true;
+      requestController.abort();
+    }, idleTimeoutMs);
   }
 
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error('Readable stream not supported');
-
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const decoder = new TextDecoder('utf-8');
   let buffer = '';
+  let lastEventAt = Date.now();
 
   const emitLine = (line: string): boolean => {
     const trimmed = line.trim();
@@ -64,6 +66,7 @@ export async function readEventStream({
 
     const dataStr = trimmed.slice(5).trim();
     if (!dataStr) return false;
+    lastEventAt = Date.now();
 
     if (dataStr === '[DONE]') {
       return onEvent(SSE_DONE, dataStr) === true;
@@ -81,8 +84,45 @@ export async function readEventStream({
   };
 
   try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify(body),
+      signal: requestController.signal,
+    });
+    if (firstByteTimer !== undefined) {
+      clearTimeout(firstByteTimer);
+      firstByteTimer = undefined;
+    }
+
+    if (!res.ok) {
+      throw new SseHttpError(res.status, await res.text());
+    }
+
+    reader = res.body?.getReader();
+    if (!reader) throw new Error('Readable stream not supported');
+
     while (true) {
-      const { done, value } = await reader.read();
+      const remaining = idleTimeoutMs === undefined
+        ? undefined
+        : Math.max(0, idleTimeoutMs - (Date.now() - lastEventAt));
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const read = reader.read();
+      const { done, value } = remaining === undefined
+        ? await read
+        : await Promise.race([
+            read,
+            new Promise<never>((_, reject) => {
+              timeout = setTimeout(() => {
+                reject(new Error(`超过 ${Math.ceil(idleTimeoutMs! / 1000)} 秒未收到 AI 进度，已中止本次请求。`));
+              }, remaining);
+            }),
+          ]).finally(() => {
+            if (timeout !== undefined) clearTimeout(timeout);
+          });
       if (value) buffer += decoder.decode(value, { stream: true });
       if (done) buffer += decoder.decode();
 
@@ -97,7 +137,16 @@ export async function readEventStream({
 
       if (done) break;
     }
+  } catch (err) {
+    if (firstByteTimedOut && !signal.aborted) {
+      throw new Error(`超过 ${Math.ceil(idleTimeoutMs! / 1000)} 秒未建立 AI 流式连接，已中止本次请求。`);
+    }
+    throw err;
   } finally {
-    reader.releaseLock?.();
+    if (firstByteTimer !== undefined) clearTimeout(firstByteTimer);
+    signal.removeEventListener('abort', abortFromCaller);
+    requestController.abort();
+    await reader?.cancel().catch(() => {});
+    reader?.releaseLock?.();
   }
 }

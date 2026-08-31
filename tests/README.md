@@ -3,7 +3,7 @@
 Run the scheduler and layout tests:
 
 ```sh
-node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts tests/learnGraphFilter.test.ts tests/learnBusinessBus.test.ts
+node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts tests/learnGraphFilter.test.ts tests/learnBusinessBus.test.ts tests/sseClient.test.ts
 ```
 
 `learnBusinessBus.test.ts` covers the strict v2 AI envelope, structural binding,

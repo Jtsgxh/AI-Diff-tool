@@ -10,6 +10,7 @@ import {
   PanelTopOpen,
   RefreshCw,
   Send,
+  Square,
   Workflow,
 } from 'lucide-react';
 import type { AIProviderConfig, LearnNode } from '../../types';
@@ -259,13 +260,17 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => session.startBriefing()}
-            disabled={session.isStreaming || session.graphLoading || !session.graph}
-            title="仅点击时调用 AI 分析仓库，会消耗模型 token"
+            onClick={() => session.isStreaming ? session.cancel() : session.startBriefing()}
+            disabled={session.graphLoading || !session.graph}
+            title={session.isStreaming ? '取消当前 AI 请求并保留现有业务总线' : '仅点击时调用 AI 分析仓库，会消耗模型 token'}
             className="h-7 px-1.5 text-[11px] text-slate-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${session.isStreaming ? 'animate-spin' : ''}`} />
-            {session.isStreaming ? '分析中…' : session.settled ? '重新分析' : '开始 AI 分析'}
+            {session.isStreaming ? (
+              <Square className="w-3.5 h-3.5 text-rose-400" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" />
+            )}
+            {session.isStreaming ? '取消分析' : session.settled ? '重新分析' : '开始 AI 分析'}
           </button>
         </div>
       </div>

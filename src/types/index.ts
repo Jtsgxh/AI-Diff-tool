@@ -45,6 +45,7 @@ export {
   REQUEST_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   inferContextWindowTokens,
+  resolveRequestTimeoutSeconds,
 } from '../../shared/types';
 
 import type { CommitNode } from '../../shared/types';

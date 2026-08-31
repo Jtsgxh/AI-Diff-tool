@@ -68,6 +68,7 @@ export function useLearnSession(
   const structuralPathRef = useRef('');
   const graphRef = useRef<LearnGraph | null>(null);
   const acceptedReportRef = useRef('');
+  const rollbackGraphRef = useRef<LearnGraph | null>(null);
 
   const effectiveLearnPrompt = aiConfig.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
   const cacheKeyForGraph = useCallback(
@@ -101,12 +102,33 @@ export function useLearnSession(
   }, [stopTimer]);
 
   const cancelInFlight = useCallback(() => {
-    abortRef.current?.();
+    const cancel = abortRef.current;
     abortRef.current = null;
+    cancel?.();
     stopTimer();
+    return Boolean(cancel);
   }, [stopTimer]);
 
-  useEffect(() => () => cancelInFlight(), [cancelInFlight]);
+  const restoreInFlightGraph = useCallback(() => {
+    const rollback = rollbackGraphRef.current;
+    rollbackGraphRef.current = null;
+    if (!rollback) return;
+    graphRef.current = rollback;
+    setGraph(rollback);
+  }, []);
+
+  const cancel = useCallback(() => {
+    if (!cancelInFlight()) return;
+    restoreInFlightGraph();
+    setIsStreaming(false);
+    setStatus(null);
+    setFollowUpStream('');
+    setError('已取消本次 AI 分析，现有业务总线未改变。');
+  }, [cancelInFlight, restoreInFlightGraph]);
+
+  useEffect(() => () => {
+    cancelInFlight();
+  }, [cancelInFlight]);
 
   useEffect(() => {
     if (!repoPath) return;
@@ -130,6 +152,7 @@ export function useLearnSession(
     if (!repoPath) return;
     let cancelled = false;
     cancelInFlight();
+    rollbackGraphRef.current = null;
     structuralRef.current = null;
     structuralPathRef.current = '';
     acceptedReportRef.current = '';
@@ -185,6 +208,7 @@ export function useLearnSession(
       const cacheKey = cacheKeyForGraph(base);
 
       cancelInFlight();
+      rollbackGraphRef.current = graphRef.current || base;
       setIsStreaming(true);
       setError(null);
       setStatus(null);
@@ -315,22 +339,23 @@ export function useLearnSession(
                   provider: config.provider,
                 });
               } else if (overlay) {
-                graphRef.current = base;
-                setGraph(base);
-                acceptedReportRef.current = '';
+                restoreInFlightGraph();
                 setError(
                   `AI 返回的路线无法绑定到当前类图：${rejectedRoutes.join('、')}。已拒绝这份路线数据，请重新分析。`
                 );
               } else {
+                restoreInFlightGraph();
                 setError('AI 分析已结束，但没有返回有效的社区与路线数据。请重新分析。');
               }
             }
             setIsStreaming(false);
+            rollbackGraphRef.current = null;
             abortRef.current = null;
             stopTimer();
             if (!isFollowUp) setSettled(true);
           },
           onError: (err) => {
+            restoreInFlightGraph();
             setError(err.message);
             setIsStreaming(false);
             abortRef.current = null;
@@ -340,13 +365,14 @@ export function useLearnSession(
         });
         abortRef.current = cancel;
       } catch (err: any) {
+        restoreInFlightGraph();
         setError(err.message || '学习请求失败');
         setIsStreaming(false);
         stopTimer();
         if (!isFollowUp) setSettled(true);
       }
     },
-    [cacheKeyForGraph, cancelInFlight, repoPath, startTimer, stopTimer]
+    [cacheKeyForGraph, cancelInFlight, repoPath, restoreInFlightGraph, startTimer, stopTimer]
   );
 
   const startBriefing = useCallback(
@@ -415,5 +441,6 @@ export function useLearnSession(
     startBriefing,
     ask,
     expandGraph,
+    cancel,
   };
 }

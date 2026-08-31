@@ -794,7 +794,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-slate-200 flex items-center gap-1.5">
                     <Brain className="w-3.5 h-3.5 text-purple-400" />
-                    <span>探查模式与规划上限 (Autonomous Planning)</span>
+                    <span>探查模式与轮数上限 (Autonomous Planning)</span>
                   </label>
                   <span
                     className={`font-mono font-bold text-xs px-2 py-0.5 rounded border ${
@@ -804,7 +804,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }`}
                   >
                     {!form.maxExplorationTurns || form.maxExplorationTurns === 0
-                      ? '✨ 完全自主规划 (无上限)'
+                      ? '✨ 自动规划（最多 10 轮）'
                       : `${form.maxExplorationTurns} 轮限制`}
                   </span>
                 </div>
@@ -820,13 +820,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between font-semibold text-xs">
-                      <span>🤖 完全自主规划 (推荐)</span>
+                      <span>🤖 自动规划 (推荐)</span>
                       {(!form.maxExplorationTurns || form.maxExplorationTurns === 0) && (
                         <Check className="w-3.5 h-3.5 text-emerald-400" />
                       )}
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      无任何人为步数限制，由 Codex 自主决定何时收集充足并产出报告。
+                      由 Codex 自主决定何时收敛；安全上限使用 Agents SDK 默认的 10 轮，达到后自动进入综合阶段。
                     </p>
                   </button>
 
@@ -879,11 +879,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="p-3 bg-[#13141A] border border-white/5 rounded-lg space-y-1.5">
                   <label className="font-semibold text-slate-300 text-xs flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-sky-400" />
-                    <span>首包等待超时 (TTFB)</span>
+                    <span>单次调用 / 静默超时</span>
                   </label>
                   <input
                     type="number"
                     min={REQUEST_TIMEOUT_SECONDS.min}
+                    max={REQUEST_TIMEOUT_SECONDS.max}
                     step={30}
                     value={form.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default}
                     onChange={(e) =>
@@ -892,7 +893,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="w-full bg-[#181924] border border-white/10 rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-purple-500/50"
                   />
                   <p className="text-[10px] text-slate-500">
-                    仅限制等到模型开始吐字的时间；开始流式输出后不再受此限制
+                    每次模型或工具调用、以及页面连续没有 AI 进度，都受此上限保护
                   </p>
                 </div>
 

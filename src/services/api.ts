@@ -13,6 +13,7 @@ import type {
   ScopeType,
   TargetLineInfo,
 } from '../types';
+import { resolveRequestTimeoutSeconds } from '../types';
 import { aiLogger } from './aiLogger';
 import { readEventStream, SSE_DONE } from './sseClient';
 
@@ -263,14 +264,18 @@ function runStream(params: {
     if (settled) return;
     settled = true;
     cleanup();
+    abortController.abort();
     aiLogger.errorSession(logSessionId, err.message);
     payload.onError(err);
   };
+
+  const idleTimeoutSeconds = resolveRequestTimeoutSeconds(payload.config?.timeoutSeconds);
 
   readEventStream({
     url,
     body,
     signal: abortController.signal,
+    idleTimeoutMs: idleTimeoutSeconds * 1000,
     onEvent: (event, raw) => {
       if (event === SSE_DONE || event?.type === 'done') receivedDone = true;
       return params.onEvent(event, raw, { logSessionId });
