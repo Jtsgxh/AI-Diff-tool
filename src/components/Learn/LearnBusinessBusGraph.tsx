@@ -5,6 +5,7 @@ import {
   BUSINESS_BUS_NODE_HEIGHT,
   BUSINESS_BUS_NODE_WIDTH,
   layoutLearnBusinessBus,
+  truncateBusinessBusText,
   type LearnBusinessBus,
   type LearnBusinessBusOccurrence,
   type PositionedLearnBusinessBusNode,
@@ -37,7 +38,9 @@ const KIND_META: Record<LearnBusinessStepKind, { label: string; fill: string; st
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const short = (value: string, length: number) => value.length <= length ? value : `${value.slice(0, length - 1)}…`;
+const NODE_TEXT_WIDTH = BUSINESS_BUS_NODE_WIDTH - 28;
+const ROUTE_LABEL_WIDTH = 108;
+const EDGE_LABEL_WIDTH = 68;
 
 function edgePath(
   source: PositionedLearnBusinessBusNode,
@@ -239,6 +242,15 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
           <marker id={`${markerId}-active`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399" />
           </marker>
+          <clipPath id={`${markerId}-route-labels`}>
+            <rect x={16} y={0} width={ROUTE_LABEL_WIDTH} height={layout.height} />
+          </clipPath>
+          {layout.nodes.map((node, index) => (
+            <clipPath key={node.id} id={`${markerId}-node-text-${index}`}>
+              <rect x={node.x + 12} y={node.y + 8}
+                width={BUSINESS_BUS_NODE_WIDTH - 24} height={BUSINESS_BUS_NODE_HEIGHT - 16} />
+            </clipPath>
+          ))}
         </defs>
         <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
           {bus.routes.map((route, index) => {
@@ -247,7 +259,11 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
             return (
               <g key={route.id} opacity={active ? 1 : 0.2}>
                 <line x1={132} y1={y} x2={layout.width - 16} y2={y} stroke="#293241" strokeWidth={1} strokeDasharray="4 8" />
-                <text x={16} y={y - 7} fill="#cbd5e1" fontSize={12} fontWeight={500}>{short(route.label, 18)}</text>
+                <text data-bus-route-label="true" x={16} y={y - 7} fill="#cbd5e1" fontSize={12} fontWeight={500}
+                  clipPath={`url(#${markerId}-route-labels)`}>
+                  <title>{route.label}</title>
+                  {truncateBusinessBusText(route.label, ROUTE_LABEL_WIDTH, 12)}
+                </text>
                 <text x={16} y={y + 12} fill="#64748b" fontSize={10}>{route.visibleStepCount}/{route.totalStepCount} 步</text>
               </g>
             );
@@ -266,13 +282,13 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
                   markerEnd={`url(#${markerId}-${activeRouteId && active ? 'active' : 'edge'})`} />
                 <text x={geometry.labelX} y={geometry.labelY} textAnchor="middle" fill={geometry.back ? '#fbbf24' : '#94a3b8'}
                   fontSize={10} paintOrder="stroke" stroke="#11131A" strokeWidth={4}>
-                  {short(edge.relation, 14)}{geometry.back ? ' · 回边' : ''}
+                  {truncateBusinessBusText(`${edge.relation}${geometry.back ? ' · 回边' : ''}`, EDGE_LABEL_WIDTH, 10)}
                 </text>
               </g>
             );
           })}
 
-          {layout.nodes.map((node) => {
+          {layout.nodes.map((node, nodeIndex) => {
             const meta = KIND_META[node.kind];
             const active = !activeRouteId || activeNodeIds.has(node.id);
             const selected = selectedNodeId === node.id;
@@ -303,19 +319,26 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
                   onSelectNode(selected ? null : node.id);
                 }}
               >
+                <title>{`${node.label}\n${node.classSymbol}.${node.methodSymbol}\n${node.file}`}</title>
                 <NodeShape node={node} selected={selected} />
-                <text x={node.x + 14} y={node.y + 22} fill={meta.stroke} fontSize={10} fontWeight={500}>
-                  {meta.label}{node.routeIds.length > 1 ? ` · 共享 ${node.routeIds.length} 条路线` : ''}
-                </text>
-                <text x={node.x + 14} y={node.y + 45} fill="#f1f5f9" fontSize={13} fontWeight={500}>
-                  {short(node.label, 22)}
-                </text>
-                <text x={node.x + 14} y={node.y + 65} fill="#94a3b8" fontSize={10}>
-                  {short(`${node.classSymbol}.${node.methodSymbol}`, 30)}
-                </text>
-                <text x={node.x + 14} y={node.y + 82} fill="#64748b" fontSize={9}>
-                  {short(node.file, 34)}
-                </text>
+                <g data-bus-node-text="true" clipPath={`url(#${markerId}-node-text-${nodeIndex})`}>
+                  <text x={node.x + 14} y={node.y + 22} fill={meta.stroke} fontSize={10} fontWeight={500}>
+                    {truncateBusinessBusText(
+                      `${meta.label}${node.routeIds.length > 1 ? ` · 共享 ${node.routeIds.length} 条路线` : ''}`,
+                      NODE_TEXT_WIDTH,
+                      10
+                    )}
+                  </text>
+                  <text x={node.x + 14} y={node.y + 45} fill="#f1f5f9" fontSize={13} fontWeight={500}>
+                    {truncateBusinessBusText(node.label, NODE_TEXT_WIDTH, 13)}
+                  </text>
+                  <text x={node.x + 14} y={node.y + 65} fill="#94a3b8" fontSize={10}>
+                    {truncateBusinessBusText(`${node.classSymbol}.${node.methodSymbol}`, NODE_TEXT_WIDTH, 10)}
+                  </text>
+                  <text x={node.x + 14} y={node.y + 82} fill="#64748b" fontSize={9}>
+                    {truncateBusinessBusText(node.file, NODE_TEXT_WIDTH, 9)}
+                  </text>
+                </g>
               </g>
             );
           })}

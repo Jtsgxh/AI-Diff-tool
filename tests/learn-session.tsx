@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { LearnWorkbench } from '../src/components/Learn/LearnWorkbench';
 import { aiCache, type CachedReviewItem } from '../src/services/aiCache';
 import { storage } from '../src/constants/storage';
+import { BUSINESS_BUS_NODE_WIDTH } from '../src/utils/learnBusinessBus';
 import type { AIProviderConfig, LearnGraph } from '../src/types';
 import '../src/index.css';
 
@@ -28,10 +29,12 @@ const graph: LearnGraph = {
   businessRoutes: [], runtimePath: [], godNodes: [], bridges: [],
   stats: { filesParsed: 2, symbolCount: 2, edgeCount: 1, truncated: false, sourceFingerprint: 'fixture-source' },
 };
+const rootRouteLabel = '受理结果交付：Activate 激活链源码闭环';
+const rootEntryLabel = '进入门面内部激活链：守卫与执行上下文装配';
 const report = '```learn-graph\n' + JSON.stringify({
   communities: [{ id: '0', label: '测试业务社区', summary: '测试缓存恢复', files: ['src/Entry.ts', 'src/Service.ts'] }],
-  businessRoutes: [{ id: 'route', label: '测试业务路线', summary: '完整调用链',
-    steps: graph.nodes.map((node, index, nodes) => ({ label: node.label, file: node.file, classSymbol: node.label,
+  businessRoutes: [{ id: 'route', label: rootRouteLabel, summary: '完整调用链',
+    steps: graph.nodes.map((node, index, nodes) => ({ label: index === 0 ? rootEntryLabel : '返回受理结果给场景与调用方', file: node.file, classSymbol: node.label,
       methodSymbol: 'run', communityId: node.communityId, kind: index === 0 ? 'entry' : index === nodes.length - 1 ? 'result' : 'process',
       description: '测试步骤', relation: '调用', evidence: `${node.file}:1`,
       inputs: [], outputs: [], stateChanges: [], failurePaths: [] })) }],
@@ -221,8 +224,13 @@ function Fixture() {
       await until(() => savedReports === 1 && Boolean(button('重新分析')));
       check('手动开始仅调用一次并保存完整结果', requests.length === 1 && cache.size === 1 &&
         content().includes('这是测试业务路线讲解') && content().includes('源码分析 · 非运行时证明'));
+      const nodeTextFits = [...document.querySelectorAll<SVGTextElement>('[data-bus-node-text="true"] text')]
+        .every((text) => text.getComputedTextLength() <= BUSINESS_BUS_NODE_WIDTH - 28 + 1);
+      const routeTextFits = [...document.querySelectorAll<SVGTextElement>('[data-bus-route-label="true"]')]
+        .every((text) => text.getComputedTextLength() <= 109);
+      check('中英文长标题不会溢出业务节点或泳道标签区', nodeTextFits && routeTextFits);
       await reopen();
-      check('重新进入恢复缓存且不调用 AI', requests.length === 1 && content().includes('测试业务路线') && content().includes('这是测试业务路线讲解'));
+      check('重新进入恢复缓存且不调用 AI', requests.length === 1 && content().includes(rootRouteLabel) && content().includes('这是测试业务路线讲解'));
       button('重新分析')!.click();
       await until(() => savedReports === 2 && Boolean(button('重新分析')));
       check('手动重新分析仍可调用 AI', requests.length === 2 && cache.size === 1);
@@ -247,7 +255,7 @@ function Fixture() {
         busRouteOptions().some((option) => option.value === 'manual-route'));
       await selectFirstBusinessNode();
       const firstDrillButton = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="workbench"] button')]
-        .find((item) => item.textContent?.trim().startsWith('深入：测试业务路线'));
+        .find((item) => item.textContent?.trim().startsWith(`深入：${rootRouteLabel}`));
       if (!firstDrillButton) throw new Error('找不到顶层节点深入按钮');
       firstDrillButton.click();
       await until(() => requests.length === 4 && content().includes('递归业务子图 · 第 1 层'));
@@ -261,14 +269,14 @@ function Fixture() {
       await until(() => requests.length === 5 && content().includes('递归业务子图 · 第 2 层'));
       check('子节点可继续递归且证据到底时显示空子图', requests[4].mode === 'drilldown_graph' &&
         requests[4].drillDepth === 2 && content().includes('该节点已到源码证据粒度'));
-      button('Entry')!.click();
+      button(rootEntryLabel)!.click();
       await until(() => content().includes('递归业务子图 · 第 1 层'));
       button('顶层业务总线')!.click();
-      await until(() => !content().includes('递归业务子图 · 第 1 层') && content().includes('测试业务路线'));
+      await until(() => !content().includes('递归业务子图 · 第 1 层') && content().includes(rootRouteLabel));
       check('面包屑可逐层返回且恢复顶层总线', requests.length === 5);
       await selectFirstBusinessNode();
       [...document.querySelectorAll<HTMLButtonElement>('[data-testid="workbench"] button')]
-        .find((item) => item.textContent?.trim().startsWith('深入：测试业务路线'))!.click();
+        .find((item) => item.textContent?.trim().startsWith(`深入：${rootRouteLabel}`))!.click();
       await until(() => content().includes('递归业务子图 · 第 1 层'));
       check('相同钻取路径从独立缓存立即进入且不再请求模型', requests.length === 5 && savedReports === 5);
       button('顶层业务总线')!.click();

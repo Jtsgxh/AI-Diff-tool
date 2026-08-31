@@ -69,6 +69,36 @@ const LABEL_WIDTH = 152;
 const TOP = 76;
 const PADDING = 44;
 
+function estimatedGlyphWidth(char: string, fontSize: number): number {
+  if (/\p{Mark}/u.test(char)) return 0;
+  if (/\s/.test(char)) return fontSize * 0.34;
+  if (/^[\u0000-\u007f]$/.test(char)) {
+    if (/[ilI1.,:;'`|!]/.test(char)) return fontSize * 0.32;
+    if (/[MW@#%&]/.test(char)) return fontSize * 0.82;
+    return fontSize * 0.58;
+  }
+  return fontSize;
+}
+
+/** Width-aware SVG label truncation; the SVG clip remains the hard boundary. */
+export function truncateBusinessBusText(value: string, maxWidth: number, fontSize: number): string {
+  const glyphs = Array.from(value);
+  const totalWidth = glyphs.reduce((sum, char) => sum + estimatedGlyphWidth(char, fontSize), 0);
+  if (totalWidth <= maxWidth) return value;
+
+  const ellipsis = '…';
+  const available = Math.max(0, maxWidth - estimatedGlyphWidth(ellipsis, fontSize));
+  const fitted: string[] = [];
+  let width = 0;
+  for (const char of glyphs) {
+    const next = estimatedGlyphWidth(char, fontSize);
+    if (width + next > available) break;
+    fitted.push(char);
+    width += next;
+  }
+  return `${fitted.join('')}${ellipsis}`;
+}
+
 function normalizedAnchor(step: LearnBusinessRouteStep): string {
   return [
     step.file.replace(/\\/g, '/').toLowerCase(),

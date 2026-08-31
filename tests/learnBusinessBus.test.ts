@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
 import type { LearnBusinessRoute, LearnBusinessRouteStep, LearnGraph, LearnNode } from '../src/types';
-import { buildLearnBusinessBus, layoutLearnBusinessBus } from '../src/utils/learnBusinessBus';
+import {
+  buildLearnBusinessBus,
+  layoutLearnBusinessBus,
+  truncateBusinessBusText,
+} from '../src/utils/learnBusinessBus';
 import { buildLearnSystemPrompt, buildLearnUserMessage, buildSynthesisPrompt } from '../server/prompts';
 import {
   applyLearnAnalysis,
@@ -141,6 +145,12 @@ test('hidden middle step creates a gap instead of an invented shortcut', () => {
   assert.equal(bus.routes[0].visibleStepCount, 2);
   assert.deepEqual(bus.routes[0].nodeIds.map(Boolean), [true, false, true]);
   assert.deepEqual(bus.edges, []);
+});
+
+test('business bus labels truncate by rendered-width estimate instead of character count', () => {
+  assert.equal(truncateBusinessBusText('短标题', 60, 12), '短标题');
+  assert.equal(truncateBusinessBusText('进入门面内部激活链', 36, 12), '进入…');
+  assert.equal(truncateBusinessBusText('ABCDEFGHIJ', 30, 10), 'ABC…');
 });
 
 test('manual graph expansion appends only new bound routes and serializes the combined graph', () => {

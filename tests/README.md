@@ -105,11 +105,12 @@ This StrictMode fixture runs the production workbench, hook, report validator an
 All fetches are intercepted; AI responses and cache entries are in memory, with no real model
 requests or user-cache writes. Unexpected request paths fail instead of reaching the backend.
 
-All 26 checks must pass: entering/reentering without a cache, restoring a valid cache, invalid
+All 27 checks must pass: entering/reentering without a cache, restoring a valid cache, invalid
 or unmapped reports, source/HEAD/repository/model/prompt changes, failed or cancelled analyses
 must not automatically call AI. Explicit analysis, reanalysis, manual graph expansion, recursive
 node drill-down and file questions still work. Drill-down checks cover two levels, leaf empty-state,
-breadcrumb return and path-specific cache reuse.
+breadcrumb return and path-specific cache reuse. Long mixed Chinese/Latin labels must remain inside
+their business nodes and route-label lane.
 Leaving the page cancels an unfinished stream, and changing the prompt during that stream must
 not silently replace it with a new request. The expected nine intercepted requests are all
 explicit test actions, including two nested drill-down analyses.
