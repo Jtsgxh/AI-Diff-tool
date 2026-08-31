@@ -1,9 +1,9 @@
 import type {
-  LearnBusinessRoute,
-  LearnCommunity,
+  LearnAnalysisEnvelope,
   LearnGraph,
   LearnNode,
 } from '../types';
+import { parseLearnAnalysisEnvelope } from '../../shared/learnGraphSchema';
 
 export const COMMUNITY_COLORS = [
   '#4e79a7',
@@ -37,152 +37,19 @@ const FENCES = [
   /```json\s*([\s\S]*?)```/i,
 ];
 
-function asString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function extractBalancedObject(text: string, from: number): string | null {
-  let depth = 0;
-  let start = -1;
-  for (let i = from; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (ch === '}') {
-      depth--;
-      if (depth === 0 && start !== -1) return text.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-
-function extractObjectContainingCommunities(text: string): string | null {
-  const idx = text.search(/"communities"\s*:/);
-  if (idx === -1) return null;
-  let start = -1;
-  let depth = 0;
-  for (let i = idx; i >= 0; i--) {
-    const ch = text[i];
-    if (ch === '}') depth++;
-    else if (ch === '{') {
-      if (depth === 0) start = i;
-      else depth--;
-    }
-  }
-  if (start === -1) return null;
-  return extractBalancedObject(text, start);
-}
-
-function extractJsonCandidate(text: string): string | null {
-  let candidate: string | null = null;
-  const matches = text.matchAll(/```(?:learn-graph|json)\s*([\s\S]*?)```/gi);
-  for (const match of matches) {
-    const inner = match[1].trim();
-    if (/"communities"\s*:/.test(inner)) candidate = inner;
-  }
-  return candidate || extractObjectContainingCommunities(text);
-}
-
-function parseJsonLoose(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    const cleaned = raw.replace(/,\s*([}\]])/g, '$1');
-    try {
-      return JSON.parse(cleaned);
-    } catch {
-      return null;
-    }
-  }
-}
-
-export interface LearnLabelOverlay {
-  communities: Pick<LearnCommunity, 'id' | 'label' | 'summary' | 'entry' | 'files'>[];
-  businessRoutes: LearnBusinessRoute[];
-  runtimePath: string[];
-}
-
-function coerceOverlay(raw: unknown): LearnLabelOverlay | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const src = raw as {
-    communities?: unknown;
-    businessRoutes?: unknown;
-    runtimePath?: unknown;
-  };
-  if (!Array.isArray(src.communities)) return null;
-  const communities: LearnLabelOverlay['communities'] = [];
-  const ids = new Set<string>();
-  for (const item of src.communities) {
-    if (!item || typeof item !== 'object') continue;
-    const row = item as Record<string, unknown>;
-    const id = asString(row.id);
-    const label = asString(row.label) || asString(row.name);
-    if (!id || !label || ids.has(id)) continue;
-    const files = Array.isArray(row.files)
-      ? row.files.map((f) => asString(f).replace(/\\/g, '/')).filter(Boolean)
-      : [];
-    let entry: LearnCommunity['entry'];
-    if (row.entry && typeof row.entry === 'object') {
-      const e = row.entry as Record<string, unknown>;
-      const file = asString(e.file).replace(/\\/g, '/');
-      if (file) entry = { file, symbol: asString(e.symbol) || undefined };
-    }
-    ids.add(id);
-    communities.push({ id, label, summary: asString(row.summary), entry, files });
-  }
-  if (communities.length === 0) return null;
-  if (!Array.isArray(src.businessRoutes)) return null;
-  const businessRoutes: LearnBusinessRoute[] = [];
-  const routeIds = new Set<string>();
-  for (const item of src.businessRoutes) {
-    if (!item || typeof item !== 'object') continue;
-    const row = item as Record<string, unknown>;
-    const id = asString(row.id);
-    const label = asString(row.label);
-    if (!id || !label || routeIds.has(id) || !Array.isArray(row.steps)) continue;
-    const steps: LearnBusinessRoute['steps'] = [];
-    for (const value of row.steps) {
-      if (!value || typeof value !== 'object') continue;
-      const step = value as Record<string, unknown>;
-      const file = asString(step.file).replace(/\\/g, '/');
-      const stepLabel = asString(step.label);
-      const description = asString(step.description);
-      const relation = asString(step.relation);
-      const evidence = asString(step.evidence);
-      const classSymbol = asString(step.classSymbol);
-      if (!file || !classSymbol || !stepLabel || !description || !relation || !evidence) continue;
-      steps.push({
-        label: stepLabel,
-        description,
-        relation,
-        evidence,
-        file,
-        classSymbol,
-        methodSymbol: asString(step.methodSymbol) || undefined,
-        communityId: asString(step.communityId) || undefined,
-      });
-    }
-    if (steps.length < 2) continue;
-    routeIds.add(id);
-    businessRoutes.push({
-      id,
-      label,
-      summary: asString(row.summary),
-      steps,
-    });
-  }
-  const idSet = new Set(communities.map((c) => c.id));
-  const runtimePath = Array.isArray(src.runtimePath)
-    ? src.runtimePath.map((x) => asString(x)).filter((id) => idSet.has(id))
-    : communities.map((c) => c.id);
-  return { communities, businessRoutes, runtimePath };
-}
+export type LearnLabelOverlay = LearnAnalysisEnvelope;
 
 export function parseLearnOverlay(text: string): LearnLabelOverlay | null {
-  const candidate = extractJsonCandidate(text);
-  if (!candidate) return null;
-  return coerceOverlay(parseJsonLoose(candidate));
+  let result: LearnLabelOverlay | null = null;
+  for (const match of text.matchAll(/```learn-graph\s*([\s\S]*?)```/gi)) {
+    try {
+      const parsed = parseLearnAnalysisEnvelope(JSON.parse(match[1].trim()));
+      if (parsed) result = parsed;
+    } catch {
+      // Keep scanning in case a later fence contains a corrected payload.
+    }
+  }
+  return result;
 }
 
 export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
@@ -220,15 +87,11 @@ export function applyLearnAnalysis(base: LearnGraph, text: string): LearnGraph {
       steps: route.steps.map((step) => {
         const file = step.file.replace(/\\/g, '/');
         const node = findNode(file, step.classSymbol);
-        const declaredCommunity = step.communityId && idSet.has(step.communityId)
-          ? step.communityId
-          : undefined;
-        const fileCommunity = communities.find((community) => community.files.includes(file));
+        const nodeMatchesCommunity = node?.communityId === step.communityId;
         return {
           ...step,
           file,
-          nodeId: node?.id,
-          communityId: node?.communityId || declaredCommunity || fileCommunity?.id,
+          nodeId: nodeMatchesCommunity ? node.id : undefined,
         };
       }),
     }))

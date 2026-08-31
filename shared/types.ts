@@ -114,15 +114,33 @@ export interface LearnCommunity {
   nodeCount: number;
 }
 
+export const LEARN_ANALYSIS_SCHEMA_VERSION = 2;
+
+export const LEARN_BUSINESS_STEP_KINDS = [
+  'entry',
+  'process',
+  'decision',
+  'state',
+  'external',
+  'result',
+] as const;
+
+export type LearnBusinessStepKind = typeof LEARN_BUSINESS_STEP_KINDS[number];
+
 export interface LearnBusinessRouteStep {
   label: string;
+  kind: LearnBusinessStepKind;
   description: string;
   relation: string;
   evidence: string;
   file: string;
   classSymbol: string;
-  methodSymbol?: string;
-  communityId?: string;
+  methodSymbol: string;
+  communityId: string;
+  inputs: string[];
+  outputs: string[];
+  stateChanges: string[];
+  failurePaths: string[];
   nodeId?: string;
 }
 
@@ -131,6 +149,20 @@ export interface LearnBusinessRoute {
   label: string;
   summary: string;
   steps: LearnBusinessRouteStep[];
+}
+
+export interface LearnAnalysisCommunity {
+  id: string;
+  label: string;
+  summary: string;
+  entry?: { file: string; symbol?: string };
+  files: string[];
+}
+
+export interface LearnAnalysisEnvelope {
+  communities: LearnAnalysisCommunity[];
+  businessRoutes: LearnBusinessRoute[];
+  runtimePath: string[];
 }
 
 export interface LearnGraph {

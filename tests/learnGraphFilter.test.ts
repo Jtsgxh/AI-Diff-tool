@@ -40,8 +40,10 @@ function sourceGraph(): LearnGraph {
       godNodes: nodes.filter((node) => node.communityId === id).map((node) => node.label), cohesion: 1,
       entry: id === '0' ? { file: 'src/CombatTest.cs', symbol: 'CombatTest' } : undefined,
     })),
-    businessRoutes: [{ id: 'route', label: '含测试的路线', summary: '', steps: nodes.slice(0, 3).map((node) => ({
-      nodeId: node.id, label: node.label, file: node.file!, classSymbol: node.label, relation: '调用', description: '步骤', evidence: 'fixture',
+    businessRoutes: [{ id: 'route', label: '含测试的路线', summary: '', steps: nodes.slice(0, 3).map((node, index, steps) => ({
+      nodeId: node.id, label: node.label, file: node.file!, classSymbol: node.label, methodSymbol: 'run', communityId: node.communityId,
+      kind: index === 0 ? 'entry' as const : index === steps.length - 1 ? 'result' as const : 'process' as const,
+      relation: '调用', description: '步骤', evidence: 'fixture', inputs: [], outputs: [], stateChanges: [], failurePaths: [],
     })) }],
     runtimePath: ['0', '1', '2'], godNodes: nodes,
     bridges: [{ source: 't', target: 'h', sourceLabel: 'CombatTest', targetLabel: 'Helper',

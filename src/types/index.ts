@@ -17,9 +17,12 @@ export type {
   DiffResult,
   DiffSummary,
   ExplainTask,
+  LearnAnalysisCommunity,
+  LearnAnalysisEnvelope,
   LearnBridge,
   LearnBusinessRoute,
   LearnBusinessRouteStep,
+  LearnBusinessStepKind,
   LearnCommunity,
   LearnEdge,
   LearnGodNode,
@@ -35,6 +38,8 @@ export type {
 
 export {
   CONTEXT_WINDOW_TOKENS,
+  LEARN_ANALYSIS_SCHEMA_VERSION,
+  LEARN_BUSINESS_STEP_KINDS,
   REQUEST_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   inferContextWindowTokens,

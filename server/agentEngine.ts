@@ -31,6 +31,7 @@ import {
   totalContextChars,
 } from '../shared/types';
 import type { AgentExplainRequest, PartialAIProviderConfig } from '../shared/types';
+import { parseLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
 
 export type AgentExecutionConfig = PartialAIProviderConfig;
 export type AgentExplainOptions = AgentExplainRequest;
@@ -667,34 +668,7 @@ export function hasValidLearnGraphOutput(text: string): boolean {
   const matches = text.matchAll(/```learn-graph\s*([\s\S]*?)```/gi);
   for (const match of matches) {
     try {
-      const parsed = JSON.parse(match[1].trim());
-      if (!Array.isArray(parsed?.communities) || parsed.communities.length === 0) continue;
-      if (!parsed.communities.every(
-        (community: unknown) =>
-          Boolean(
-            community &&
-            typeof community === 'object' &&
-            typeof (community as Record<string, unknown>).id === 'string' &&
-            typeof (community as Record<string, unknown>).label === 'string'
-          )
-      )) continue;
-      if (!Array.isArray(parsed?.businessRoutes)) continue;
-      const routesValid = parsed.businessRoutes.every((route: unknown) => {
-        if (!route || typeof route !== 'object') return false;
-        const row = route as Record<string, unknown>;
-        if (typeof row.id !== 'string' || typeof row.label !== 'string') return false;
-        if (!Array.isArray(row.steps) || row.steps.length < 2) return false;
-        return row.steps.every((step: unknown) => {
-          if (!step || typeof step !== 'object') return false;
-          const item = step as Record<string, unknown>;
-          return ['label', 'file', 'classSymbol', 'relation', 'description', 'evidence', 'communityId']
-            .every((field) => {
-              const value = item[field];
-              return typeof value === 'string' && Boolean(value.trim());
-            });
-        });
-      });
-      if (routesValid) return true;
+      if (parseLearnAnalysisEnvelope(JSON.parse(match[1].trim()))) return true;
     } catch {
       // Keep scanning in case a later fence contains the corrected payload.
     }

@@ -10,12 +10,15 @@ import {
   PanelTopOpen,
   RefreshCw,
   Send,
+  Workflow,
 } from 'lucide-react';
 import type { AIProviderConfig, LearnNode } from '../../types';
 import { STORAGE_KEYS, storage } from '../../constants/storage';
 import { communityColor, looksLikeJsonBlob } from '../../utils/learnGraph';
 import { filterLearnTestNodes, learnGraphWithFilteredNodes } from '../../utils/learnGraphFilter';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
+import { buildLearnBusinessBus, type LearnBusinessBusNode } from '../../utils/learnBusinessBus';
+import { LearnBusinessBusGraph } from './LearnBusinessBusGraph';
 import { LearnGraphCanvas } from './LearnGraphCanvas';
 import { useLearnSession } from './useLearnSession';
 
@@ -33,6 +36,14 @@ const DEFAULT_GRAPH_PANE_PCT = 58;
 const MIN_GRAPH_PANE_PCT = 20;
 const MAX_GRAPH_PANE_PCT = 85;
 
+const BUSINESS_KIND_LABEL = {
+  entry: '入口', process: '处理', decision: '判断', state: '状态', external: '外部边界', result: '结果',
+} as const;
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
 function clampGraphPanePct(value: number): number {
   return Math.min(MAX_GRAPH_PANE_PCT, Math.max(MIN_GRAPH_PANE_PCT, value));
 }
@@ -48,7 +59,9 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
 }) => {
   const session = useLearnSession(repoPath, aiConfig, headHash, repositoryRevision);
   const [draft, setDraft] = useState('');
+  const [graphMode, setGraphMode] = useState<'business' | 'structure'>('business');
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedBusinessNodeId, setSelectedBusinessNodeId] = useState<string | null>(null);
   const [hideTestNodes, setHideTestNodes] = useState(() => storage.get(STORAGE_KEYS.learnHideTestNodes) !== 'false');
   const testFreeTopology = useMemo(
     () => session.graph ? filterLearnTestNodes(session.graph) : null,
@@ -59,11 +72,20 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
     [session.graph, testFreeTopology]
   );
   const displayGraph = hideTestNodes ? testFreeGraph : session.graph;
+  const businessBus = useMemo(
+    () => displayGraph ? buildLearnBusinessBus(displayGraph) : null,
+    [displayGraph]
+  );
+  useEffect(() => {
+    setSelectedBusinessNodeId((id) => id && businessBus?.nodes.some((node) => node.id === id) ? id : null);
+  }, [businessBus]);
   const onHideTestNodesChange = useCallback((hide: boolean) => {
     setHideTestNodes(hide);
     storage.set(STORAGE_KEYS.learnHideTestNodes, String(hide));
     if (hide) {
       setSelectedNodeId((id) => testFreeGraph?.nodes.some((node) => node.id === id) ? id : null);
+      const visibleBusinessNodeIds = new Set(testFreeGraph ? buildLearnBusinessBus(testFreeGraph).nodes.map((node) => node.id) : []);
+      setSelectedBusinessNodeId((id) => id && visibleBusinessNodeIds.has(id) ? id : null);
       session.setSelectedCommunityId((id) => testFreeGraph?.communities.some((community) => community.id === id) ? id : null);
     }
   }, [testFreeGraph, session.setSelectedCommunityId]);
@@ -136,6 +158,18 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
 
   const selectedNode: LearnNode | null =
     displayGraph?.nodes.find((n) => n.id === selectedNodeId) || null;
+  const selectedBusinessNode: LearnBusinessBusNode | null =
+    businessBus?.nodes.find((node) => node.id === selectedBusinessNodeId) || null;
+  const selectedBusinessFacts = useMemo(() => selectedBusinessNode ? {
+    routes: unique(selectedBusinessNode.occurrences.map((item) => item.routeLabel)),
+    community: displayGraph?.communities.find((item) => item.id === selectedBusinessNode.communityId)?.label || selectedBusinessNode.communityId,
+    descriptions: unique(selectedBusinessNode.occurrences.map((item) => `${item.routeLabel}：${item.description}`)),
+    inputs: unique(selectedBusinessNode.occurrences.flatMap((item) => item.inputs)),
+    outputs: unique(selectedBusinessNode.occurrences.flatMap((item) => item.outputs)),
+    stateChanges: unique(selectedBusinessNode.occurrences.flatMap((item) => item.stateChanges)),
+    failurePaths: unique(selectedBusinessNode.occurrences.flatMap((item) => item.failurePaths)),
+    evidence: unique(selectedBusinessNode.occurrences.map((item) => item.evidence)),
+  } : null, [displayGraph?.communities, selectedBusinessNode]);
   const selectedCommunity =
     displayGraph?.communities.find((c) => c.id === session.selectedCommunityId) ||
     (selectedNode
@@ -230,21 +264,55 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
 
       <div ref={splitContainerRef} className="flex-1 min-h-0 flex flex-col">
       <div
-        className={isGraphPaneOpen ? `min-h-0 relative ${isDetailsPaneOpen ? 'shrink-0' : 'flex-1'}` : 'hidden'}
+        className={isGraphPaneOpen ? `min-h-0 relative flex flex-col ${isDetailsPaneOpen ? 'shrink-0' : 'flex-1'}` : 'hidden'}
         style={isDetailsPaneOpen ? { height: `${graphPanePct}%` } : undefined}
       >
+        <div className="h-9 shrink-0 border-b border-white/10 bg-[#14161d] px-2 flex items-center justify-between gap-2">
+          <div className="flex items-center rounded-md border border-white/10 bg-black/20 p-0.5">
+            <button type="button" aria-pressed={graphMode === 'business'} onClick={() => {
+              setGraphMode('business');
+              setSelectedNodeId(null);
+              session.setSelectedCommunityId(null);
+            }} className={`h-6 px-2 rounded text-[10px] flex items-center gap-1 ${graphMode === 'business'
+              ? 'bg-emerald-500/15 text-emerald-200' : 'text-slate-500 hover:text-slate-200'}`}>
+              <Workflow className="h-3 w-3" />业务总线
+            </button>
+            <button type="button" aria-pressed={graphMode === 'structure'} onClick={() => {
+              setGraphMode('structure');
+              setSelectedBusinessNodeId(null);
+            }} className={`h-6 px-2 rounded text-[10px] flex items-center gap-1 ${graphMode === 'structure'
+              ? 'bg-amber-500/15 text-amber-200' : 'text-slate-500 hover:text-slate-200'}`}>
+              <Network className="h-3 w-3" />代码结构
+            </button>
+          </div>
+          <span className="text-[10px] text-slate-600 truncate">
+            {graphMode === 'business' ? 'AI 核实的源码业务闭环' : '本地解析的类级依赖骨架'}
+          </span>
+        </div>
+        <div className="flex-1 min-h-0 relative">
         {session.graph?.communities.length && displayGraph ? (
-          <LearnGraphCanvas
-            graph={displayGraph}
-            selectedNodeId={selectedNode?.id || null}
-            selectedCommunityId={displayGraph.communities.some((community) => community.id === session.selectedCommunityId)
-              ? session.selectedCommunityId : null}
-            onSelectNode={setSelectedNodeId}
-            onSelectCommunity={session.setSelectedCommunityId}
-            hideTestNodes={hideTestNodes}
-            testNodeCount={session.graph.nodes.length - (testFreeGraph?.nodes.length || 0)}
-            onHideTestNodesChange={onHideTestNodesChange}
-          />
+          graphMode === 'business' && businessBus ? (
+            <LearnBusinessBusGraph
+              bus={businessBus}
+              selectedNodeId={selectedBusinessNode?.id || null}
+              onSelectNode={setSelectedBusinessNodeId}
+              hideTestNodes={hideTestNodes}
+              testNodeCount={session.graph.nodes.length - (testFreeGraph?.nodes.length || 0)}
+              onHideTestNodesChange={onHideTestNodesChange}
+            />
+          ) : (
+            <LearnGraphCanvas
+              graph={displayGraph}
+              selectedNodeId={selectedNode?.id || null}
+              selectedCommunityId={displayGraph.communities.some((community) => community.id === session.selectedCommunityId)
+                ? session.selectedCommunityId : null}
+              onSelectNode={setSelectedNodeId}
+              onSelectCommunity={session.setSelectedCommunityId}
+              hideTestNodes={hideTestNodes}
+              testNodeCount={session.graph.nodes.length - (testFreeGraph?.nodes.length || 0)}
+              onHideTestNodesChange={onHideTestNodesChange}
+            />
+          )
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs gap-2">
             {session.isStreaming ? (
@@ -265,6 +333,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             </span>
           </div>
         )}
+        </div>
       </div>
 
       {isGraphPaneOpen && isDetailsPaneOpen && (
@@ -320,11 +389,56 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         {session.graph && !session.graphLoading && !session.isStreaming && !session.settled && !session.error && (
           <p className="text-xs text-slate-400">
-            当前显示本地代码结构，没有匹配的已有 AI 分析。进入本页不会消耗模型 token；需要业务路线讲解时，点击「开始 AI 分析」或主动提问。
+            业务总线尚未生成；「代码结构」页签仍可浏览本地候选骨架。进入本页不会消耗模型 token；需要业务路线讲解时，点击「开始 AI 分析」或主动提问。
           </p>
         )}
-        {(selectedNode || selectedCommunity) && (
+        {(selectedBusinessNode || selectedNode || selectedCommunity) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {selectedBusinessNode && selectedBusinessFacts && (
+              <div className="md:col-span-2 rounded-xl border border-emerald-400/20 bg-[#171822] p-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wide text-emerald-300/70">业务总线节点 · 源码分析</div>
+                    <div className="text-sm font-bold text-slate-100 mt-0.5">{selectedBusinessNode.label}</div>
+                  </div>
+                  <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">
+                    {BUSINESS_KIND_LABEL[selectedBusinessNode.kind]} · {selectedBusinessFacts.routes.length} 条路线
+                  </span>
+                </div>
+                <p className="font-mono text-[11px] text-amber-200/90 mt-2 break-all">
+                  {selectedBusinessNode.file} :: {selectedBusinessNode.classSymbol}.{selectedBusinessNode.methodSymbol}
+                </p>
+                <p className="mt-1 text-slate-500">
+                  所属社区：{selectedBusinessFacts.community} · 所属路线：{selectedBusinessFacts.routes.join('、')}
+                </p>
+                <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-slate-500 mb-1">业务动作</div>
+                    <ul className="space-y-1 text-slate-300">
+                      {selectedBusinessFacts.descriptions.map((item) => <li key={item}>• {item}</li>)}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-slate-500 mb-1">源码证据</div>
+                    <ul className="space-y-1 font-mono text-[11px] text-emerald-100/80">
+                      {selectedBusinessFacts.evidence.map((item) => <li key={item}>• {item}</li>)}
+                    </ul>
+                  </div>
+                  {selectedBusinessFacts.inputs.length > 0 && (
+                    <div><div className="text-slate-500 mb-1">输入 / 读取</div><p className="text-slate-300">{selectedBusinessFacts.inputs.join('；')}</p></div>
+                  )}
+                  {selectedBusinessFacts.outputs.length > 0 && (
+                    <div><div className="text-slate-500 mb-1">输出 / 副作用</div><p className="text-slate-300">{selectedBusinessFacts.outputs.join('；')}</p></div>
+                  )}
+                  {selectedBusinessFacts.stateChanges.length > 0 && (
+                    <div><div className="text-slate-500 mb-1">状态变化</div><p className="text-emerald-100/80">{selectedBusinessFacts.stateChanges.join('；')}</p></div>
+                  )}
+                  {selectedBusinessFacts.failurePaths.length > 0 && (
+                    <div><div className="text-slate-500 mb-1">分支 / 失败路径</div><p className="text-rose-200/80">{selectedBusinessFacts.failurePaths.join('；')}</p></div>
+                  )}
+                </div>
+              </div>
+            )}
             {selectedNode && (
               <div className="rounded-xl border border-white/10 bg-[#171822] p-3 text-xs">
                 <div className="text-[10px] uppercase tracking-wide text-slate-500">节点</div>

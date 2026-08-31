@@ -31,8 +31,10 @@ const graph: LearnGraph = {
 const report = '```learn-graph\n' + JSON.stringify({
   communities: [{ id: '0', label: '测试业务社区', summary: '测试缓存恢复', files: ['src/Entry.ts', 'src/Service.ts'] }],
   businessRoutes: [{ id: 'route', label: '测试业务路线', summary: '完整调用链',
-    steps: graph.nodes.map((node) => ({ label: node.label, file: node.file, classSymbol: node.label,
-      description: '测试步骤', relation: '调用', evidence: `${node.file}:1` })) }],
+    steps: graph.nodes.map((node, index, nodes) => ({ label: node.label, file: node.file, classSymbol: node.label,
+      methodSymbol: 'run', communityId: node.communityId, kind: index === 0 ? 'entry' : index === nodes.length - 1 ? 'result' : 'process',
+      description: '测试步骤', relation: '调用', evidence: `${node.file}:1`,
+      inputs: [], outputs: [], stateChanges: [], failurePaths: [] })) }],
   runtimePath: ['0'],
 }) + '\n```\n\n这是测试业务路线讲解。';
 const filterNodes: LearnGraph['nodes'] = [
@@ -60,10 +62,13 @@ const filterReport = '```learn-graph\n' + JSON.stringify({
   businessRoutes: [
     { id: 'mixed', label: '跨测试节点路线', ids: ['Entry', 'CombatTestPipelineAbilitySpec', 'Service'] },
     { id: 'test-only', label: '纯测试路线', ids: ['Helper', 'Probe'] },
-  ].map((route) => ({ id: route.id, label: route.label, summary: '过滤回归', steps: route.ids.map((id) => {
+  ].map((route) => ({ id: route.id, label: route.label, summary: '过滤回归', steps: route.ids.map((id, index) => {
     const node = filterNodes.find((item) => item.id === id)!;
-    return { label: node.label, file: node.file, classSymbol: node.label, description: '步骤', relation: '调用', evidence: `${node.file}:1` };
+    return { label: node.label, file: node.file, classSymbol: node.label, methodSymbol: 'run', communityId: node.communityId,
+      kind: index === 0 ? 'entry' : index === route.ids.length - 1 ? 'result' : 'process',
+      description: '步骤', relation: '调用', evidence: `${node.file}:1`, inputs: [], outputs: [], stateChanges: [], failurePaths: [] };
   }) })),
+  runtimePath: ['0', '1'],
 }) + '\n```\n\n过滤回归讲解。';
 let useFilterGraph = false;
 let allTestNodes = false;
@@ -167,12 +172,14 @@ function Fixture() {
       setMounted(true);
       await until(ready);
       await delay();
-      check('首次进入无缓存不调用 AI', requests.length === 0 && content().includes('进入本页不会消耗模型 token'));
+      check('首次进入默认业务总线且不调用 AI', requests.length === 0 &&
+        button('业务总线')?.getAttribute('aria-pressed') === 'true' && content().includes('尚无 AI 业务总线'));
       await reopen();
       check('无缓存反复进入仍不调用 AI', requests.length === 0 && ready());
       button('开始 AI 分析')!.click();
       await until(() => savedReports === 1 && Boolean(button('重新分析')));
-      check('手动开始仅调用一次并保存完整结果', requests.length === 1 && cache.size === 1 && content().includes('这是测试业务路线讲解'));
+      check('手动开始仅调用一次并保存完整结果', requests.length === 1 && cache.size === 1 &&
+        content().includes('这是测试业务路线讲解') && content().includes('源码分析 · 非运行时证明'));
       await reopen();
       check('重新进入恢复缓存且不调用 AI', requests.length === 1 && content().includes('测试业务路线') && content().includes('这是测试业务路线讲解'));
       button('重新分析')!.click();
@@ -243,6 +250,8 @@ function Fixture() {
       .find((item) => item.getAttribute('aria-label') === name || item.textContent?.trim() === name);
     const routeSelect = () => workbench().querySelector<HTMLSelectElement>('select[aria-label="聚焦业务路线"]')!;
     const option = (value: string) => [...routeSelect().options].find((item) => item.value === value)!;
+    const busRouteSelect = () => workbench().querySelector<HTMLSelectElement>('select[aria-label="聚焦业务总线路线"]')!;
+    const busOption = (value: string) => [...busRouteSelect().options].find((item) => item.value === value)!;
     const delay = (ms = 100) => new Promise((resolve) => setTimeout(resolve, ms));
     const until = async (condition: () => boolean) => {
       const deadline = performance.now() + 5000;
@@ -266,6 +275,8 @@ function Fixture() {
       setRepoPath('fixture/filter'); setHead('head-a'); setRevision(0); setConfig(config); setAskFile(null);
       setMounted(true); await until(ready);
       check('默认隐藏测试节点且不调用 AI', button('隐藏测试节点')?.getAttribute('aria-pressed') === 'true' && requests.length === 0);
+      check('默认页签是业务总线空状态', button('业务总线')?.getAttribute('aria-pressed') === 'true' && content().includes('尚无 AI 业务总线'));
+      button('代码结构')!.click(); await delay();
       button('丰富')!.click(); await delay();
       check('丰富视图只剩 5 个业务类和 4 条边', content().includes('丰富 · 5 类级节点 · 4 边'));
       check('纯测试社区被隐藏', ![...workbench().querySelectorAll('button')].some((item) => item.textContent?.includes('仅测试社区')));
@@ -275,18 +286,26 @@ function Fixture() {
       check('关闭过滤恢复全部节点和连线', content().includes('丰富 · 8 类级节点 · 8 边') && content().includes('仅测试社区'));
       setMounted(false); await delay(); setMounted(true); await until(ready);
       check('重新进入记住关闭状态且不调用 AI', button('隐藏测试节点')?.getAttribute('aria-pressed') === 'false' && requests.length === 0);
+      button('代码结构')!.click(); await delay();
       await toggle();
       button('简化')!.click(); await delay();
       check('简化模式同样过滤测试节点', content().includes('/5 类级节点') && content().includes('已隐藏 3 个测试节点'));
       button('开始 AI 分析')!.click(); await until(() => savedReports === 1 && Boolean(button('重新分析')));
       check('过滤不会影响完整报告解析与缓存', requests.length === 1 && cache.size === 1 && content().includes('过滤回归讲解'));
       check('路线正确标注隐藏步骤而非映射失败', option('mixed').text.includes('2/3') && option('test-only').disabled && option('test-only').text.includes('测试步骤已隐藏'));
+      button('业务总线')!.click(); await delay();
+      check('业务总线同样保留隐藏步骤缺口', busOption('mixed').text.includes('2/3') && busOption('test-only').disabled &&
+        content().includes('2 个业务节点 · 0 条有向边'));
+      button('代码结构')!.click(); await delay();
       button('丰富')!.click();
       routeSelect().value = 'mixed'; routeSelect().dispatchEvent(new Event('change', { bubbles: true }));
       await until(() => !content().includes('正在后台整理社区布局'));
       check('隐藏中间步骤不画虚假直连', content().includes('2/3 步可见') && lastRouteCurves === 0);
       await toggle(); await until(() => lastRouteCurves === 2);
       check('恢复测试节点后原路线两段连线恢复', option('mixed').text.includes('3/3') && !option('test-only').disabled && lastRouteCurves === 2);
+      button('业务总线')!.click(); await delay();
+      check('恢复后业务总线原始相邻边也恢复', busOption('mixed').text.includes('3/3') && content().includes('5 个业务节点 · 3 条有向边'));
+      button('代码结构')!.click(); await delay();
       await toggle();
       check('反复切换不请求 AI 或改写 AI 缓存', requests.length === 1 && savedReports === 1);
       allTestNodes = true; sourceRevision++; setRevision((previous) => previous + 1);

@@ -3,8 +3,11 @@
 Run the scheduler and layout tests:
 
 ```sh
-node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts tests/learnGraphFilter.test.ts
+node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts tests/learnGraphFilter.test.ts tests/learnBusinessBus.test.ts
 ```
+
+`learnBusinessBus.test.ts` covers the strict v2 AI envelope, structural binding,
+shared cross-route nodes, repeated methods, deterministic layout and hidden-step gaps.
 
 For real canvas/React checks, run `npm run client` and open
 `http://localhost:5173/tests/learn-graph-performance.html` (use the configured client port if different).
@@ -110,12 +113,13 @@ explicit test actions (analysis, reanalysis, a failed analysis, a file question,
 
 ## Test-node display filter regression
 
-In the same session fixture, click **验证测试节点过滤**. All 14 checks must pass. The mixed graph
+In the same session fixture, click **验证测试节点过滤**. All 17 checks must pass. The mixed graph
 contains five production classes and three test classes (including test-directory-only matches).
 The filter defaults on, works in both densities, removes incident edges and test-only communities,
 updates community details, and remembers its setting when reentering the workbench. `AbilitySpec`,
 `LatestSnapshot` and `ContestReward` remain visible. Turning it off restores all eight nodes/edges,
-including when the filtered graph is completely empty.
+including when the filtered graph is completely empty. The same fixture checks the default
+business-bus tab, source-only evidence label, route step counts and hidden-step gaps.
 
 Only one intercepted AI request is expected, from the fixture's explicit analysis click to create
 routes. Filter toggles do not call AI or rewrite cached reports. A route with a hidden middle step

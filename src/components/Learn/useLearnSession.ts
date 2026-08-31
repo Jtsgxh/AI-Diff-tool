@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AgentStatusEvent, AgentToolEvent, AIProviderConfig, LearnGraph, RepoOverview } from '../../types';
+import {
+  LEARN_ANALYSIS_SCHEMA_VERSION,
+  type AgentStatusEvent,
+  type AgentToolEvent,
+  type AIProviderConfig,
+  type LearnGraph,
+  type RepoOverview,
+} from '../../types';
 import { fetchLearnGraph, fetchRepoOverview, streamAgentExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
 import {
@@ -61,7 +68,7 @@ export function useLearnSession(
   const effectiveLearnPrompt = aiConfig.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
   const cacheKeyForGraph = useCallback(
     (source: LearnGraph) => aiCache.generateKey({
-      type: 'learn-v8-class-routes',
+      type: `learn-v${LEARN_ANALYSIS_SCHEMA_VERSION}-business-bus`,
       filePath: repoPath,
       diff: `${headHash || ''}:${source.stats.sourceFingerprint}`,
       userPrompt: effectiveLearnPrompt,

@@ -134,9 +134,12 @@ function makeGraph(): LearnGraph {
     })),
     businessRoutes: [{
       id: 'fixture-route', label: '测试业务路线', summary: '跨社区类级路线',
-      steps: [0, 7, 100, 200].map((index) => ({
+      steps: [0, 7, 100, 200].map((index, step, routeNodes) => ({
         label: nodes[index].label, file: nodes[index].file!, classSymbol: nodes[index].label,
+        methodSymbol: 'run', communityId: nodes[index].communityId,
+        kind: step === 0 ? 'entry' as const : step === routeNodes.length - 1 ? 'result' as const : 'process' as const,
         nodeId: nodes[index].id, description: '测试步骤', relation: '调用', evidence: 'fixture',
+        inputs: [], outputs: [], stateChanges: [], failurePaths: [],
       })),
     }],
     runtimePath: [], godNodes: [], bridges: [],
