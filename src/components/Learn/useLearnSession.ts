@@ -4,6 +4,7 @@ import {
   type AgentStatusEvent,
   type AgentToolEvent,
   type AIProviderConfig,
+  type LearnDrillTargetContext,
   type LearnGraph,
   type LearnRequestMode,
   type RepoOverview,
@@ -36,6 +37,13 @@ function rejectedRouteLabels(report: string, graph: LearnGraph | null): string[]
     .map((route) => route.label);
 }
 
+export interface LearnDrillLevel {
+  key: string;
+  target: LearnDrillTargetContext;
+  graph: LearnGraph;
+  briefing: string;
+}
+
 export function useLearnSession(
   repoPath: string,
   aiConfig: AIProviderConfig,
@@ -54,6 +62,8 @@ export function useLearnSession(
   const [error, setError] = useState<string | null>(null);
   const [chat, setChat] = useState<LearnChatTurn[]>([]);
   const [followUpStream, setFollowUpStream] = useState('');
+  const [drillStream, setDrillStream] = useState('');
+  const [drillLevels, setDrillLevels] = useState<LearnDrillLevel[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
   const [settled, setSettled] = useState(false);
@@ -76,6 +86,16 @@ export function useLearnSession(
       type: `learn-v${LEARN_ANALYSIS_SCHEMA_VERSION}-business-bus`,
       filePath: repoPath,
       diff: `${headHash || ''}:${source.stats.sourceFingerprint}`,
+      userPrompt: effectiveLearnPrompt,
+      model: aiConfig.model,
+    }),
+    [aiConfig.model, effectiveLearnPrompt, headHash, repoPath]
+  );
+  const cacheKeyForDrill = useCallback(
+    (source: LearnGraph, path: LearnDrillTargetContext[]) => aiCache.generateKey({
+      type: `learn-v${LEARN_ANALYSIS_SCHEMA_VERSION}-business-drilldown`,
+      filePath: repoPath,
+      diff: `${headHash || ''}:${source.stats.sourceFingerprint}:${JSON.stringify(path)}`,
       userPrompt: effectiveLearnPrompt,
       model: aiConfig.model,
     }),
@@ -123,6 +143,7 @@ export function useLearnSession(
     setIsStreaming(false);
     setStatus(null);
     setFollowUpStream('');
+    setDrillStream('');
     setError('已取消本次 AI 分析，现有业务总线未改变。');
   }, [cancelInFlight, restoreInFlightGraph]);
 
@@ -160,6 +181,8 @@ export function useLearnSession(
     setIsStreaming(false);
     setGraph(null);
     setBriefing('');
+    setDrillStream('');
+    setDrillLevels([]);
     setError(null);
     setChat([]);
     setSelectedCommunityId(null);
@@ -187,11 +210,19 @@ export function useLearnSession(
   }, [repoPath, headHash, repositoryRevision, cancelInFlight]);
 
   const runAgent = useCallback(
-    async (opts: { userPrompt?: string; filePath?: string; learnRequestMode?: LearnRequestMode }) => {
+    async (opts: {
+      userPrompt?: string;
+      filePath?: string;
+      learnRequestMode?: LearnRequestMode;
+      drillPath?: LearnDrillTargetContext[];
+    }) => {
       const config = configRef.current;
       const isFollowUp = Boolean(opts.userPrompt?.trim());
       const isExpansion = opts.learnRequestMode === 'expand_graph';
-      const base = isFollowUp
+      const isDrilldown = opts.learnRequestMode === 'drilldown_graph';
+      const base = isDrilldown
+        ? structuralRef.current
+        : isFollowUp
         ? graphRef.current || structuralRef.current
         : structuralRef.current;
 
@@ -205,14 +236,19 @@ export function useLearnSession(
         return;
       }
 
-      const cacheKey = cacheKeyForGraph(base);
+      const cacheKey = isDrilldown
+        ? cacheKeyForDrill(base, opts.drillPath || [])
+        : cacheKeyForGraph(base);
 
       cancelInFlight();
-      rollbackGraphRef.current = graphRef.current || base;
+      rollbackGraphRef.current = isDrilldown ? null : graphRef.current || base;
       setIsStreaming(true);
       setError(null);
       setStatus(null);
-      if (isFollowUp) {
+      if (isDrilldown) {
+        setDrillStream('');
+        setToolEvents([]);
+      } else if (isFollowUp) {
         setFollowUpStream('');
         setChat((prev) => [...prev, {
           role: 'user',
@@ -236,6 +272,10 @@ export function useLearnSession(
 
       const paint = () => {
         const raw = textRef.current;
+        if (isDrilldown) {
+          setDrillStream(visibleLearnProse(raw));
+          return;
+        }
         if (isFollowUp) {
           setFollowUpStream(visibleLearnProse(raw));
           return;
@@ -258,6 +298,7 @@ export function useLearnSession(
           filePath: opts.filePath,
           userPrompt: opts.userPrompt,
           learnRequestMode: opts.learnRequestMode || (isFollowUp ? 'question' : undefined),
+          drillPath: isDrilldown ? opts.drillPath : undefined,
           existingBusinessRoutes: isExpansion ? base.businessRoutes.map((route) => ({
             id: route.id,
             label: route.label,
@@ -291,7 +332,33 @@ export function useLearnSession(
           onComplete: () => {
             const raw = textRef.current;
             const { graph: next, prose } = humanizeLearnReport(raw, base);
-            if (isExpansion) {
+            if (isDrilldown) {
+              const overlay = parseLearnOverlay(raw);
+              const explicitProse = visibleLearnProse(raw);
+              const rejectedRoutes = rejectedRouteLabels(raw, next);
+              const target = opts.drillPath?.[opts.drillPath.length - 1];
+              if (!overlay || !next || !target) {
+                setError('节点深入分析已结束，但 AI 没有返回合法的 learn-graph 子图。当前层级未改变。');
+              } else if (rejectedRoutes.length > 0) {
+                setError(`子路线无法绑定到当前类图：${rejectedRoutes.join('、')}。已拒绝整份子图数据。`);
+              } else {
+                const drillBriefing = explicitProse || (next.businessRoutes.length > 0
+                  ? `已拆出 ${next.businessRoutes.length} 条更细的源码执行路线。`
+                  : '该节点已到源码证据粒度，未生成猜测节点。');
+                setDrillLevels((prev) => [...prev, {
+                  key: cacheKey,
+                  target,
+                  graph: next,
+                  briefing: drillBriefing,
+                }]);
+                aiCache.set(cacheKey, {
+                  report: raw,
+                  model: config.model,
+                  provider: config.provider,
+                });
+              }
+              setDrillStream('');
+            } else if (isExpansion) {
               const expansion = mergeLearnGraphExpansion(base, raw);
               if (!expansion.hasOverlay) {
                 setError('补图请求已结束，但 AI 没有返回合法的 learn-graph 数据。现有业务总线未改变。');
@@ -355,8 +422,9 @@ export function useLearnSession(
             if (!isFollowUp) setSettled(true);
           },
           onError: (err) => {
-            restoreInFlightGraph();
+            if (!isDrilldown) restoreInFlightGraph();
             setError(err.message);
+            setDrillStream('');
             setIsStreaming(false);
             abortRef.current = null;
             stopTimer();
@@ -365,18 +433,23 @@ export function useLearnSession(
         });
         abortRef.current = cancel;
       } catch (err: any) {
-        restoreInFlightGraph();
+        if (!isDrilldown) restoreInFlightGraph();
         setError(err.message || '学习请求失败');
+        setDrillStream('');
         setIsStreaming(false);
         stopTimer();
         if (!isFollowUp) setSettled(true);
       }
     },
-    [cacheKeyForGraph, cancelInFlight, repoPath, restoreInFlightGraph, startTimer, stopTimer]
+    [cacheKeyForDrill, cacheKeyForGraph, cancelInFlight, repoPath, restoreInFlightGraph, startTimer, stopTimer]
   );
 
   const startBriefing = useCallback(
-    () => runAgent({}),
+    () => {
+      setDrillLevels([]);
+      setDrillStream('');
+      return runAgent({});
+    },
     [runAgent]
   );
 
@@ -390,6 +463,49 @@ export function useLearnSession(
     [runAgent]
   );
 
+  const drillDown = useCallback((target: LearnDrillTargetContext) => {
+    if (isStreaming) return;
+    const base = structuralRef.current;
+    if (!base || structuralPathRef.current !== repoPath) {
+      setError('候选代码结构尚未准备完成，无法深入分析业务节点。');
+      return;
+    }
+    const path = [...drillLevels.map((level) => level.target), target];
+    const cacheKey = cacheKeyForDrill(base, path);
+    const cached = aiCache.get(cacheKey);
+    if (cached?.report?.trim()) {
+      const { graph: next } = humanizeLearnReport(cached.report, base);
+      const explicitProse = visibleLearnProse(cached.report);
+      const rejectedRoutes = rejectedRouteLabels(cached.report, next);
+      if (parseLearnOverlay(cached.report) && next && rejectedRoutes.length === 0) {
+        setError(null);
+        setDrillLevels((prev) => [...prev, {
+          key: cacheKey,
+          target,
+          graph: next,
+          briefing: explicitProse || (next.businessRoutes.length > 0
+            ? `已拆出 ${next.businessRoutes.length} 条更细的源码执行路线。`
+            : '该节点已到源码证据粒度，未生成猜测节点。'),
+        }]);
+        return;
+      }
+      aiCache.remove(cacheKey);
+    }
+    void runAgent({
+      userPrompt: `深入拆解业务节点「${target.label}」的内部执行链`,
+      filePath: target.file,
+      learnRequestMode: 'drilldown_graph',
+      drillPath: path,
+    });
+  }, [cacheKeyForDrill, drillLevels, isStreaming, repoPath, runAgent]);
+
+  const leaveDrill = useCallback((depth: number) => {
+    if (isStreaming) return;
+    setDrillLevels((prev) => prev.slice(0, Math.max(0, Math.min(depth, prev.length))));
+    setDrillStream('');
+    setError(null);
+  }, [isStreaming]);
+
   useEffect(() => {
     const base = structuralRef.current;
     if (!repoPath || !structureReady || !base || structuralPathRef.current !== repoPath) return;
@@ -400,6 +516,8 @@ export function useLearnSession(
     graphRef.current = base;
     setGraph(base);
     setBriefing('');
+    setDrillStream('');
+    setDrillLevels([]);
     setError(null);
     setSettled(false);
     acceptedReportRef.current = '';
@@ -434,6 +552,8 @@ export function useLearnSession(
     error,
     chat,
     followUpStream,
+    drillStream,
+    drillLevels,
     elapsedSeconds,
     selectedCommunityId,
     setSelectedCommunityId,
@@ -441,6 +561,8 @@ export function useLearnSession(
     startBriefing,
     ask,
     expandGraph,
+    drillDown,
+    leaveDrill,
     cancel,
   };
 }

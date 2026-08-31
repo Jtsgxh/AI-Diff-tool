@@ -6,6 +6,7 @@ import {
   BUSINESS_BUS_NODE_WIDTH,
   layoutLearnBusinessBus,
   type LearnBusinessBus,
+  type LearnBusinessBusOccurrence,
   type PositionedLearnBusinessBusNode,
 } from '../../utils/learnBusinessBus';
 
@@ -13,9 +14,11 @@ interface LearnBusinessBusGraphProps {
   bus: LearnBusinessBus;
   selectedNodeId: string | null;
   onSelectNode: (id: string | null) => void;
+  onDrillNode?: (occurrence: LearnBusinessBusOccurrence) => void;
   hideTestNodes: boolean;
   testNodeCount: number;
   onHideTestNodesChange: (hide: boolean) => void;
+  emptyLabel?: string;
 }
 
 interface ViewTransform {
@@ -96,9 +99,11 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
   bus,
   selectedNodeId,
   onSelectNode,
+  onDrillNode,
   hideTestNodes,
   testNodeCount,
   onHideTestNodesChange,
+  emptyLabel,
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -159,6 +164,14 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
       const route = bus.routes.find((item) => item.id === routeId);
       if (!route?.nodeIds.includes(selectedNodeId)) onSelectNode(null);
     }
+  };
+
+  const drillOccurrence = (node: PositionedLearnBusinessBusNode) => {
+    if (!onDrillNode) return;
+    const occurrence = activeRouteId
+      ? node.occurrences.find((item) => item.routeId === activeRouteId)
+      : node.occurrences.length === 1 ? node.occurrences[0] : undefined;
+    if (occurrence) onDrillNode(occurrence);
   };
 
   return (
@@ -269,16 +282,24 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
                 data-bus-node="true"
                 role="button"
                 tabIndex={0}
-                aria-label={`${meta.label}节点 ${node.label}，${node.classSymbol}.${node.methodSymbol}`}
+                aria-label={`${meta.label}节点 ${node.label}，${node.classSymbol}.${node.methodSymbol}。单击查看证据，双击深入子图`}
                 opacity={active ? 1 : 0.16}
                 className="cursor-pointer outline-none"
                 onClick={(event) => {
                   event.stopPropagation();
                   onSelectNode(selected ? null : node.id);
                 }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  drillOccurrence(node);
+                }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' && event.key !== ' ') return;
                   event.preventDefault();
+                  if (event.key === 'Enter' && event.shiftKey) {
+                    drillOccurrence(node);
+                    return;
+                  }
                   onSelectNode(selected ? null : node.id);
                 }}
               >
@@ -339,7 +360,7 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
 
       {bus.routes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-xs leading-relaxed text-slate-400">
-          尚无 AI 业务总线。点击右上角“开始 AI 分析”，AI 会从源码入口追到状态变化、外部边界和结果落点。
+          {emptyLabel || '尚无 AI 业务总线。点击右上角“开始 AI 分析”，AI 会从源码入口追到状态变化、外部边界和结果落点。'}
         </div>
       )}
       {bus.routes.length > 0 && bus.nodes.length === 0 && (
@@ -349,7 +370,7 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
       )}
       {bus.nodes.length > 0 && (
         <div className="pointer-events-none absolute bottom-2 left-2 text-[10px] text-slate-500">
-          {bus.nodes.length} 个业务节点 · {bus.edges.length} 条有向边 · 滚轮缩放 · 左键/中键拖动画布 · 单击节点查看源码证据
+          {bus.nodes.length} 个业务节点 · {bus.edges.length} 条有向边 · 滚轮缩放 · 左键/中键拖动画布 · 单击看证据 · 双击单路线节点深入子图
         </div>
       )}
     </div>

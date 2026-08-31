@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { parseLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
 import type { LearnBusinessRoute, LearnBusinessRouteStep, LearnGraph, LearnNode } from '../src/types';
 import { buildLearnBusinessBus, layoutLearnBusinessBus } from '../src/utils/learnBusinessBus';
-import { buildLearnSystemPrompt, buildLearnUserMessage } from '../server/prompts';
+import { buildLearnSystemPrompt, buildLearnUserMessage, buildSynthesisPrompt } from '../server/prompts';
 import {
   applyLearnAnalysis,
   mergeLearnGraphExpansion,
@@ -175,7 +175,7 @@ test('manual graph expansion rejects duplicate and unmappable routes without cha
   assert.equal(invalid.graph, base);
 });
 
-test('manual graph expansion prompt requires supplemental graph data while normal questions stay prose-only', () => {
+test('graph-changing prompts distinguish supplemental routes, recursive drilldown, and prose-only questions', () => {
   const existingBusinessRoutes = [{
     id: 'a',
     label: '路线 A',
@@ -195,6 +195,41 @@ test('manual graph expansion prompt requires supplemental graph data while norma
   assert.match(buildLearnSystemPrompt(expansion), /只能包含本轮新增路线/);
   assert.match(buildLearnUserMessage(expansion), /路线 A/);
   assert.match(buildLearnUserMessage(expansion), /补充管理流程/);
+
+  const drilldown = {
+    scopeType: 'repo' as const,
+    task: 'learn' as const,
+    userPrompt: '深入拆解鉴权',
+    learnRequestMode: 'drilldown_graph' as const,
+    drillPath: [{
+      routeId: 'a',
+      routeLabel: '路线 A',
+      stepIndex: 1,
+      label: '鉴权',
+      kind: 'decision' as const,
+      file: 'src/Auth.ts',
+      classSymbol: 'Auth',
+      methodSymbol: 'authorize',
+      relation: '调用',
+      description: '核实凭证',
+      evidence: 'Auth.authorize(...)',
+      communityId: '0',
+      inputs: ['token'],
+      outputs: [],
+      stateChanges: [],
+      failurePaths: ['拒绝请求'],
+    }],
+    graphDigest: 'EXTRACTED',
+  };
+  assert.match(buildLearnSystemPrompt(drilldown), /业务节点递归钻取/);
+  assert.match(buildLearnSystemPrompt(drilldown), /内部更细的执行子路线/);
+  assert.match(buildLearnUserMessage(drilldown), /路线 A \/ 第 2 步「鉴权」/);
+  assert.match(buildLearnUserMessage(drilldown), /Auth\.authorize/);
+  assert.match(buildLearnUserMessage(drilldown), /businessRoutes 输出空数组/);
+  assert.match(buildSynthesisPrompt([], drilldown.userPrompt, {
+    learnTask: true,
+    learnDrilldown: true,
+  }), /节点内部更细的 learn-graph/);
 
   const questionSystem = buildLearnSystemPrompt({ ...expansion, learnRequestMode: 'question' });
   assert.match(questionSystem, /禁止输出 JSON/);

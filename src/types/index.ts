@@ -25,6 +25,7 @@ export type {
   LearnBusinessStepKind,
   LearnCommunity,
   LearnEdge,
+  LearnDrillTargetContext,
   LearnGodNode,
   LearnGraph,
   LearnExistingRouteContext,

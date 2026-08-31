@@ -326,7 +326,27 @@ export type ScopeType = 'line' | 'chunk' | 'file' | 'commit' | 'repo';
  * free-form review so the server does not have to sniff the prompt text.
  */
 export type ExplainTask = 'review' | 'pseudocode' | 'natural_language' | 'learn';
-export type LearnRequestMode = 'question' | 'expand_graph';
+export type LearnRequestMode = 'question' | 'expand_graph' | 'drilldown_graph';
+
+/** Identifies one concrete route occurrence selected for recursive drill-down. */
+export interface LearnDrillTargetContext {
+  routeId: string;
+  routeLabel: string;
+  stepIndex: number;
+  label: string;
+  kind: LearnBusinessStepKind;
+  file: string;
+  classSymbol: string;
+  methodSymbol: string;
+  relation: string;
+  description: string;
+  evidence: string;
+  communityId: string;
+  inputs: string[];
+  outputs: string[];
+  stateChanges: string[];
+  failurePaths: string[];
+}
 
 export interface LearnExistingRouteContext {
   id: string;
@@ -350,6 +370,7 @@ export interface ExplainRequest {
   task?: ExplainTask;
   learnRequestMode?: LearnRequestMode;
   existingBusinessRoutes?: LearnExistingRouteContext[];
+  drillPath?: LearnDrillTargetContext[];
   config?: PartialAIProviderConfig;
 }
 

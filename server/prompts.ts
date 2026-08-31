@@ -2,6 +2,7 @@ import {
   diffCharBudgetFromWindow,
   inferContextWindowTokens,
   type ExplainTask,
+  type LearnDrillTargetContext,
   type LearnExistingRouteContext,
   type LearnRequestMode,
   type PartialAIProviderConfig,
@@ -20,6 +21,7 @@ export interface PromptContext {
   task?: ExplainTask;
   learnRequestMode?: LearnRequestMode;
   existingBusinessRoutes?: LearnExistingRouteContext[];
+  drillPath?: LearnDrillTargetContext[];
   config?: PartialAIProviderConfig;
   /** Deterministic code-graph digest, injected for learn tasks. */
   graphDigest?: string;
@@ -252,8 +254,9 @@ export function isLearnTask(ctx: PromptContext): boolean {
 export function buildLearnSystemPrompt(ctx: PromptContext): string {
   const isFollowUp = Boolean(ctx.userPrompt && ctx.userPrompt.trim());
   const isExpansion = ctx.learnRequestMode === 'expand_graph';
+  const isDrilldown = ctx.learnRequestMode === 'drilldown_graph';
   const learnPrompt = ctx.config?.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
-  if (isFollowUp && !isExpansion) {
+  if (isFollowUp && !isExpansion && !isDrilldown) {
     return `你是代码库导师。结构图谱已经由本地解析得到（节点=类/React组件/职责模块，普通函数归入所属节点；边=调用/引用/导入/继承）。结合社区与枢纽节点回答。
 优先调用 search_code / read_file / repo_graph 核实后再回答。
 需要查代码时只能使用 API 提供的原生函数调用；禁止在正文中用 XML、JSON、<@read_file> 或其他标签模拟工具调用。
@@ -306,10 +309,13 @@ businessRoutes 可以为空：只有不存在任何证据完整的路线时才�
 9. 建议阅读顺序 — 按业务路线给出文件和符号顺序，并说明每一站要看懂什么
 
 禁止空话（「负责业务逻辑」）、禁止把社区命名成 Scripts / Manager / Common / Utils，也禁止把所有静态边塞进业务路线。`;
-  if (!isExpansion) return system;
-  return `${system}
+  if (isExpansion) return `${system}
 
 【本轮是用户手动补充业务总线】只分析用户点名但现有路线没有覆盖的部分。输出的 businessRoutes 只能包含本轮新增路线，禁止重复、改写或删除已有路线；路线 id 必须与已有 id 不同。仍须从入口追到结果，完全遵守上述 v2 机器数据和源码证据门槛。若问题无法形成新的证据闭环，输出空 businessRoutes，并在正文说明缺少哪段证据。`;
+  if (isDrilldown) return `${system}
+
+【本轮是业务节点递归钻取】只拆解用户选中的那个具体路线步骤，不重新分析整条顶层业务，也不输出同粒度的改写。businessRoutes 表示该步骤内部更细的执行子路线：从进入该步骤开始，到该步骤对上层可观察的产出结束。允许多个子步骤绑定同一个类或方法，但每一步仍必须有不同的真实动作、顺序和源码证据；不得为了“更细”而拆分语句或编造抽象层。若源码已经没有可证明的更细执行层，输出空 businessRoutes，并在正文明确说明已到源码证据粒度。`;
+  return system;
 }
 
 function formatExistingRoutes(ctx: PromptContext): string {
@@ -326,6 +332,17 @@ export function buildLearnUserMessage(ctx: PromptContext): string {
   const digest = ctx.graphDigest?.trim()
     ? `\n\n${ctx.graphDigest.trim()}\n`
     : '\n（结构图谱摘要缺失，请先调用 repo_graph）\n';
+  if (ctx.userPrompt && ctx.userPrompt.trim() && ctx.learnRequestMode === 'drilldown_graph') {
+    const path = ctx.drillPath || [];
+    const formattedPath = path.map((target, index) =>
+      `${index + 1}. ${target.routeLabel} / 第 ${target.stepIndex + 1} 步「${target.label}」\n` +
+      `   ${target.file} :: ${target.classSymbol}.${target.methodSymbol} [${target.kind}]\n` +
+      `   关系=${target.relation}；说明=${target.description}；证据=${target.evidence}\n` +
+      `   输入=${target.inputs.join('；') || '空'}；输出=${target.outputs.join('；') || '空'}；` +
+      `状态变化=${target.stateChanges.join('；') || '空'}；失败路径=${target.failurePaths.join('；') || '空'}`
+    ).join('\n');
+    return `${digest}【递归钻取路径】\n${formattedPath}\n\n【当前要展开的节点】\n${path[path.length - 1]?.label || ctx.userPrompt.trim()}\n\n请调用工具从这个具体步骤的源码实现向内追踪，只输出它内部更细且证据闭环的子路线。按规定先输出 learn-graph，再输出本层讲解；如果已经无法再细分，businessRoutes 输出空数组。`;
+  }
   if (ctx.userPrompt && ctx.userPrompt.trim() && ctx.learnRequestMode === 'expand_graph') {
     const focus = ctx.filePath ? `当前聚焦文件: ${ctx.filePath}\n\n` : '';
     return `${focus}${digest}【已接受路线，禁止重复】\n${formatExistingRoutes(ctx)}\n\n【用户要求补充的业务】:\n${ctx.userPrompt.trim()}\n\n请调用工具核实这部分业务是否能形成新的完整闭环；按规定先输出只含新增路线的 learn-graph，再输出补充讲解。`;
@@ -429,15 +446,18 @@ export interface ExplorationEntry {
 export function buildSynthesisPrompt(
   explorationLog: ExplorationEntry[],
   userPrompt?: string,
-  extra?: { truncatedDraft?: string; learnTask?: boolean; learnExpansion?: boolean }
+  extra?: { truncatedDraft?: string; learnTask?: boolean; learnExpansion?: boolean; learnDrilldown?: boolean }
 ): string {
   const isFollowUp = Boolean(userPrompt && userPrompt.trim());
   const isLearn = Boolean(extra?.learnTask);
   const isExpansion = Boolean(extra?.learnExpansion);
+  const isDrilldown = Boolean(extra?.learnDrilldown);
 
   let body: string;
   if (explorationLog.length === 0) {
-    body = isExpansion
+    body = isDrilldown
+      ? `【节点钻取探查已结束】用户要向内展开：${userPrompt?.trim()}\n\n严格按照系统规定输出该节点内部更细的 learn-graph；已经没有更细源码证据时 businessRoutes 输出空数组。`
+      : isExpansion
       ? `【手动补图探查已结束】用户要补充：${userPrompt?.trim()}\n\n严格按照系统规定输出只含新增路线的 learn-graph，再输出补充讲解；没有新的证据闭环时 businessRoutes 输出空数组。`
       : isFollowUp
       ? `【用户追问】:\n${userPrompt?.trim()}\n\n请直接针对用户的追问给出精准、专业、详尽的 Markdown 解答。`
@@ -454,7 +474,9 @@ export function buildSynthesisPrompt(
     const evidenceRule =
       '以下探查结果是内部证据。禁止在 reasoning_content 或正文中逐段复述参数、源码和工具返回；只提炼与结论有关的文件、符号、调用关系和风险。';
 
-    body = isExpansion
+    body = isDrilldown
+      ? `【节点钻取探查已结束】已核实以下源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n【当前钻取目标】:\n${userPrompt?.trim()}\n\n只提炼这个步骤内部更细的执行子路线。严格按照系统规定先输出 learn-graph，再输出本层讲解；已到源码证据粒度时 businessRoutes 输出空数组。`
+      : isExpansion
       ? `【手动补图探查已结束】已在代码库中核实以下源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n【用户要求补充的业务】:\n${userPrompt?.trim()}\n\n只提炼现有路线未覆盖且证据闭环的新路线。严格按照系统规定先输出只含新增路线的 learn-graph，再输出补充讲解；没有新路线时 businessRoutes 输出空数组。`
       : isFollowUp
       ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`

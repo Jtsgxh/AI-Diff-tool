@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   BookOpen,
+  ChevronRight,
   Network,
   PanelBottomClose,
   PanelBottomOpen,
@@ -10,15 +11,20 @@ import {
   PanelTopOpen,
   RefreshCw,
   Send,
+  ScanSearch,
   Square,
   Workflow,
 } from 'lucide-react';
-import type { AIProviderConfig, LearnNode } from '../../types';
+import type { AIProviderConfig, LearnDrillTargetContext, LearnNode } from '../../types';
 import { STORAGE_KEYS, storage } from '../../constants/storage';
 import { communityColor, looksLikeJsonBlob } from '../../utils/learnGraph';
 import { filterLearnTestNodes, learnGraphWithFilteredNodes } from '../../utils/learnGraphFilter';
 import { MarkdownRenderer } from '../common/MarkdownRenderer';
-import { buildLearnBusinessBus, type LearnBusinessBusNode } from '../../utils/learnBusinessBus';
+import {
+  buildLearnBusinessBus,
+  type LearnBusinessBusNode,
+  type LearnBusinessBusOccurrence,
+} from '../../utils/learnBusinessBus';
 import { LearnBusinessBusGraph } from './LearnBusinessBusGraph';
 import { LearnGraphCanvas } from './LearnGraphCanvas';
 import { useLearnSession } from './useLearnSession';
@@ -45,6 +51,45 @@ function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
 }
 
+function toDrillTarget(occurrence: LearnBusinessBusOccurrence): LearnDrillTargetContext {
+  const {
+    routeId,
+    routeLabel,
+    stepIndex,
+    label,
+    kind,
+    file,
+    classSymbol,
+    methodSymbol,
+    relation,
+    description,
+    evidence,
+    communityId,
+    inputs,
+    outputs,
+    stateChanges,
+    failurePaths,
+  } = occurrence;
+  return {
+    routeId,
+    routeLabel,
+    stepIndex,
+    label,
+    kind,
+    file,
+    classSymbol,
+    methodSymbol,
+    relation,
+    description,
+    evidence,
+    communityId,
+    inputs,
+    outputs,
+    stateChanges,
+    failurePaths,
+  };
+}
+
 function clampGraphPanePct(value: number): number {
   return Math.min(MAX_GRAPH_PANE_PCT, Math.max(MIN_GRAPH_PANE_PCT, value));
 }
@@ -64,15 +109,17 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedBusinessNodeId, setSelectedBusinessNodeId] = useState<string | null>(null);
   const [hideTestNodes, setHideTestNodes] = useState(() => storage.get(STORAGE_KEYS.learnHideTestNodes) !== 'false');
+  const activeDrill = session.drillLevels[session.drillLevels.length - 1] || null;
+  const sourceGraph = activeDrill?.graph || session.graph;
   const testFreeTopology = useMemo(
-    () => session.graph ? filterLearnTestNodes(session.graph) : null,
-    [session.graph?.nodes, session.graph?.edges]
+    () => sourceGraph ? filterLearnTestNodes(sourceGraph) : null,
+    [sourceGraph?.nodes, sourceGraph?.edges]
   );
   const testFreeGraph = useMemo(
-    () => session.graph && testFreeTopology ? learnGraphWithFilteredNodes(session.graph, testFreeTopology) : null,
-    [session.graph, testFreeTopology]
+    () => sourceGraph && testFreeTopology ? learnGraphWithFilteredNodes(sourceGraph, testFreeTopology) : null,
+    [sourceGraph, testFreeTopology]
   );
-  const displayGraph = hideTestNodes ? testFreeGraph : session.graph;
+  const displayGraph = hideTestNodes ? testFreeGraph : sourceGraph;
   const businessBus = useMemo(
     () => displayGraph ? buildLearnBusinessBus(displayGraph) : null,
     [displayGraph]
@@ -80,6 +127,11 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   useEffect(() => {
     setSelectedBusinessNodeId((id) => id && businessBus?.nodes.some((node) => node.id === id) ? id : null);
   }, [businessBus]);
+  useEffect(() => {
+    setSelectedBusinessNodeId(null);
+    setSelectedNodeId(null);
+    session.setSelectedCommunityId(null);
+  }, [activeDrill?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const onHideTestNodesChange = useCallback((hide: boolean) => {
     setHideTestNodes(hide);
     storage.set(STORAGE_KEYS.learnHideTestNodes, String(hide));
@@ -185,6 +237,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
       ? displayGraph?.communities.find((c) => c.id === selectedNode.communityId)
       : null) ||
     null;
+  const currentBriefing = activeDrill?.briefing || session.briefing;
 
   const neighbors = useMemo(() => {
     if (!displayGraph || !selectedNode) return [];
@@ -280,8 +333,9 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         className={isGraphPaneOpen ? `min-h-0 relative flex flex-col ${isDetailsPaneOpen ? 'shrink-0' : 'flex-1'}` : 'hidden'}
         style={isDetailsPaneOpen ? { height: `${graphPanePct}%` } : undefined}
       >
-        <div className="h-9 shrink-0 border-b border-white/10 bg-[#14161d] px-2 flex items-center justify-between gap-2">
-          <div className="flex items-center rounded-md border border-white/10 bg-black/20 p-0.5">
+        <div className="min-h-9 shrink-0 border-b border-white/10 bg-[#14161d] px-2 py-1 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex shrink-0 items-center rounded-md border border-white/10 bg-black/20 p-0.5">
             <button type="button" aria-pressed={graphMode === 'business'} onClick={() => {
               setGraphMode('business');
               setSelectedNodeId(null);
@@ -298,20 +352,58 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
               <Network className="h-3 w-3" />代码结构
             </button>
           </div>
-          <span className="text-[10px] text-slate-600 truncate">
-            {graphMode === 'business' ? 'AI 核实的源码业务闭环' : '本地解析的类级依赖骨架'}
+          {graphMode === 'business' && (
+            <nav aria-label="业务节点钻取路径" className="flex min-w-0 items-center gap-1 overflow-hidden text-[10px]">
+              <button
+                type="button"
+                disabled={session.isStreaming || !activeDrill}
+                onClick={() => session.leaveDrill(0)}
+                className={`shrink-0 rounded px-1.5 py-1 ${activeDrill ? 'text-emerald-200 hover:bg-emerald-500/10' : 'text-slate-500'} disabled:cursor-default`}
+              >
+                顶层业务总线
+              </button>
+              {session.drillLevels.map((level, index) => (
+                <React.Fragment key={level.key}>
+                  <ChevronRight className="h-3 w-3 shrink-0 text-slate-700" />
+                  <button
+                    type="button"
+                    disabled={session.isStreaming || index === session.drillLevels.length - 1}
+                    onClick={() => session.leaveDrill(index + 1)}
+                    title={`${level.target.routeLabel} · 第 ${level.target.stepIndex + 1} 步`}
+                    className={`max-w-44 truncate rounded px-1.5 py-1 ${
+                      index === session.drillLevels.length - 1
+                        ? 'bg-purple-500/10 text-purple-200'
+                        : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                    } disabled:cursor-default`}
+                  >
+                    {level.target.label}
+                  </button>
+                </React.Fragment>
+              ))}
+            </nav>
+          )}
+          </div>
+          <span className="shrink-0 text-[10px] text-slate-600">
+            {graphMode === 'business'
+              ? activeDrill ? `源码子图 · 第 ${session.drillLevels.length} 层` : 'AI 核实的源码业务闭环'
+              : '本地解析的类级依赖骨架'}
           </span>
         </div>
         <div className="flex-1 min-h-0 relative">
         {session.graph?.communities.length && displayGraph ? (
           graphMode === 'business' && businessBus ? (
             <LearnBusinessBusGraph
+              key={activeDrill?.key || 'root-business-bus'}
               bus={businessBus}
               selectedNodeId={selectedBusinessNode?.id || null}
               onSelectNode={setSelectedBusinessNodeId}
+              onDrillNode={(occurrence) => session.drillDown(toDrillTarget(occurrence))}
               hideTestNodes={hideTestNodes}
-              testNodeCount={session.graph.nodes.length - (testFreeGraph?.nodes.length || 0)}
+              testNodeCount={sourceGraph.nodes.length - (testFreeGraph?.nodes.length || 0)}
               onHideTestNodesChange={onHideTestNodesChange}
+              emptyLabel={activeDrill
+                ? '该节点已到源码证据粒度，没有生成猜测节点。可从上方面包屑返回上一层。'
+                : undefined}
             />
           ) : (
             <LearnGraphCanvas
@@ -322,7 +414,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
               onSelectNode={setSelectedNodeId}
               onSelectCommunity={session.setSelectedCommunityId}
               hideTestNodes={hideTestNodes}
-              testNodeCount={session.graph.nodes.length - (testFreeGraph?.nodes.length || 0)}
+              testNodeCount={sourceGraph.nodes.length - (testFreeGraph?.nodes.length || 0)}
               onHideTestNodesChange={onHideTestNodesChange}
             />
           )
@@ -400,10 +492,31 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
 
       <div className={isDetailsPaneOpen ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
-        {session.graph && !session.graphLoading && !session.isStreaming && !session.settled && !session.error && (
+        {!activeDrill && session.graph && !session.graphLoading && !session.isStreaming && !session.settled && !session.error && (
           <p className="text-xs text-slate-400">
             业务总线尚未生成；「代码结构」页签仍可浏览本地候选骨架。进入本页不会消耗模型 token；需要业务路线讲解时，点击「开始 AI 分析」或主动提问。
           </p>
+        )}
+        {activeDrill && (
+          <div className="rounded-xl border border-purple-400/20 bg-purple-500/[0.06] p-3 text-xs text-slate-300">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-purple-300/70">递归业务子图 · 第 {session.drillLevels.length} 层</div>
+                <div className="mt-0.5 text-sm font-semibold text-slate-100">{activeDrill.target.label}</div>
+              </div>
+              <button
+                type="button"
+                disabled={session.isStreaming}
+                onClick={() => session.leaveDrill(Math.max(0, session.drillLevels.length - 1))}
+                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:border-purple-400/30 hover:text-purple-100 disabled:opacity-40"
+              >
+                返回上一层
+              </button>
+            </div>
+            <p className="mt-1 break-all font-mono text-[11px] text-amber-200/80">
+              {activeDrill.target.file} :: {activeDrill.target.classSymbol}.{activeDrill.target.methodSymbol}
+            </p>
+          </div>
         )}
         {(selectedBusinessNode || selectedNode || selectedCommunity) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -424,6 +537,21 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                 <p className="mt-1 text-slate-500">
                   所属社区：{selectedBusinessFacts.community} · 所属路线：{selectedBusinessFacts.routes.join('、')}
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-white/5 pt-3">
+                  {selectedBusinessNode.occurrences.map((occurrence) => (
+                    <button
+                      key={`${occurrence.routeId}:${occurrence.stepIndex}`}
+                      type="button"
+                      disabled={session.isStreaming}
+                      onClick={() => session.drillDown(toDrillTarget(occurrence))}
+                      title={`只深入这一次路线出现位置：${occurrence.routeLabel} 第 ${occurrence.stepIndex + 1} 步`}
+                      className="flex items-center gap-1.5 rounded-md border border-purple-400/30 bg-purple-500/10 px-2.5 py-1.5 text-[11px] text-purple-100 transition hover:bg-purple-500/20 disabled:opacity-40"
+                    >
+                      <ScanSearch className="h-3.5 w-3.5" />
+                      深入：{occurrence.routeLabel} · 第 {occurrence.stepIndex + 1} 步
+                    </button>
+                  ))}
+                </div>
                 <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div>
                     <div className="text-slate-500 mb-1">业务动作</div>
@@ -525,7 +653,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           </div>
         ) : null}
 
-        {session.settled &&
+        {!activeDrill && session.settled &&
           !session.isStreaming &&
           !session.briefing &&
           !session.error &&
@@ -533,16 +661,22 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             <p className="text-xs text-slate-500">没有识别到证据完整的业务路线，社区结构仍可正常浏览。</p>
           )}
 
-        {session.briefing && !looksLikeJsonBlob(session.briefing) && (
+        {currentBriefing && !looksLikeJsonBlob(currentBriefing) && (
           <div className="rounded-xl border border-white/10 bg-[#171822] p-4">
             <MarkdownRenderer
-              content={session.briefing}
+              content={currentBriefing}
               className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed"
             />
           </div>
         )}
 
-        {session.chat.length > 0 && (
+        {session.drillStream && !looksLikeJsonBlob(session.drillStream) && (
+          <div className="rounded-xl border border-purple-500/30 bg-[#171822] p-4 text-xs text-slate-300">
+            <MarkdownRenderer content={session.drillStream} />
+          </div>
+        )}
+
+        {!activeDrill && session.chat.length > 0 && (
           <div className="space-y-2 pt-2 border-t border-white/10">
             {session.chat.map((turn, i) => {
               if (turn.role === 'assistant' && looksLikeJsonBlob(turn.content)) return null;
@@ -580,10 +714,12 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          disabled={session.isStreaming}
+          disabled={session.isStreaming || Boolean(activeDrill)}
           placeholder={
             session.isStreaming
               ? '正在探查仓库…'
+              : activeDrill
+                ? '当前位于递归子图；点击子节点继续深入，或从面包屑返回顶层提问/补图'
               : '输入问题；回车只问答，点“补图”会把核实出的新路线加入业务总线'
           }
           className="flex-1 min-w-0 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-amber-500/50 placeholder:text-slate-500 disabled:opacity-50"
@@ -592,7 +728,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           type="submit"
           aria-label="发送文字提问"
           title="只回答问题，不修改节点图"
-          disabled={!draft.trim() || session.isStreaming || session.graphLoading || !session.graph}
+          disabled={!draft.trim() || session.isStreaming || session.graphLoading || !session.graph || Boolean(activeDrill)}
           className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white p-2 rounded-lg transition"
         >
           <Send className="w-3.5 h-3.5" />
@@ -601,8 +737,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           type="button"
           onClick={handleExpandGraph}
           aria-label="提问并补充节点图"
-          title="沿源码核实这个问题，并把新业务路线追加到业务总线"
-          disabled={!draft.trim() || session.isStreaming || session.graphLoading || !session.graph}
+          title={activeDrill ? '手动补图作用于顶层业务总线，请先通过面包屑返回顶层' : '沿源码核实这个问题，并把新业务路线追加到业务总线'}
+          disabled={!draft.trim() || session.isStreaming || session.graphLoading || !session.graph || Boolean(activeDrill)}
           className="h-8 px-2.5 rounded-lg border border-emerald-400/30 bg-emerald-500/15 text-emerald-100 text-xs flex items-center gap-1.5 hover:bg-emerald-500/25 disabled:opacity-40 transition"
         >
           <Workflow className="w-3.5 h-3.5" />

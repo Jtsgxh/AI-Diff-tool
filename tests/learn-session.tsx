@@ -47,6 +47,21 @@ const expansionReport = '```learn-graph\n' + JSON.stringify({
       inputs: [], outputs: [], stateChanges: [], failurePaths: [] })) }],
   runtimePath: ['0'],
 }) + '\n```\n\n已根据手动问题补充业务路线。';
+const drilldownReport = '```learn-graph\n' + JSON.stringify({
+  communities: [{ id: '0', label: '测试业务社区', summary: '节点内部执行', files: ['src/Entry.ts', 'src/Service.ts'] }],
+  businessRoutes: [{ id: 'drill-route', label: '节点内部执行', summary: '所选步骤内部的更细执行链',
+    steps: graph.nodes.map((node, index, routeNodes) => ({ label: index === 0 ? '内部入口' : '内部结果',
+      file: node.file, classSymbol: node.label, methodSymbol: index === 0 ? 'prepare' : 'complete',
+      communityId: node.communityId, kind: index === 0 ? 'entry' : index === routeNodes.length - 1 ? 'result' : 'process',
+      description: '节点内部源码步骤', relation: index === 0 ? '进入' : '返回', evidence: `${node.label}.${index === 0 ? 'prepare' : 'complete'}(...)`,
+      inputs: [], outputs: [], stateChanges: [], failurePaths: [] })) }],
+  runtimePath: ['0'],
+}) + '\n```\n\n这是所选节点内部的细化执行路线。';
+const drilldownLeafReport = '```learn-graph\n' + JSON.stringify({
+  communities: [{ id: '0', label: '测试业务社区', summary: '源码粒度终点', files: ['src/Entry.ts', 'src/Service.ts'] }],
+  businessRoutes: [],
+  runtimePath: ['0'],
+}) + '\n```\n\n该节点已到源码证据粒度，未生成猜测节点。';
 const filterNodes: LearnGraph['nodes'] = [
   ...['Entry', 'Service', 'AbilitySpec', 'LatestSnapshot', 'ContestReward', 'CombatTestPipelineAbilitySpec']
     .map((label) => ({ id: label, label, kind: 'class' as const, file: `src/${label}.cs`, communityId: '0', degree: 0 })),
@@ -94,7 +109,7 @@ CanvasRenderingContext2D.prototype.quadraticCurveTo = function (...args) {
   if (this.canvas.isConnected && Math.abs(this.lineWidth - 3.5) < 0.01) lastRouteCurves++;
   return originalCurve.apply(this, args);
 };
-const requests: { repoPath: string; model: string; question?: string; mode?: string }[] = [];
+const requests: { repoPath: string; model: string; question?: string; mode?: string; drillDepth?: number }[] = [];
 let aborted = 0;
 let responseMode: 'ok' | 'error' | 'hold' = 'ok';
 let sourceRevision = 0;
@@ -114,7 +129,8 @@ window.fetch = async (input, init) => {
   }
   if (url.pathname === '/api/ai/agent/explain/stream') {
     const body = JSON.parse(String(init?.body));
-    requests.push({ repoPath: body.repoPath, model: body.config.model, question: body.userPrompt, mode: body.learnRequestMode });
+    requests.push({ repoPath: body.repoPath, model: body.config.model, question: body.userPrompt,
+      mode: body.learnRequestMode, drillDepth: body.drillPath?.length });
     if (responseMode === 'hold') {
       return new Promise<Response>((_resolve, reject) => {
         init!.signal!.addEventListener('abort', () => {
@@ -126,7 +142,9 @@ window.fetch = async (input, init) => {
     if (responseMode === 'error') return Response.json({ error: 'fixture AI failure' }, { status: 500 });
     return new Response([
       `data: ${JSON.stringify({ type: 'chunk', text: body.learnRequestMode === 'expand_graph'
-        ? expansionReport : body.userPrompt ? '这是测试追问回答。' : useFilterGraph ? filterReport : report })}\n\n`,
+        ? expansionReport : body.learnRequestMode === 'drilldown_graph'
+          ? body.drillPath.length > 1 ? drilldownLeafReport : drilldownReport
+          : body.userPrompt ? '这是测试追问回答。' : useFilterGraph ? filterReport : report })}\n\n`,
       'data: {"type":"done"}\n\n',
     ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
   }
@@ -152,6 +170,12 @@ function Fixture() {
       const input = document.querySelector<HTMLInputElement>('[data-testid="workbench"] input[type="text"]')!;
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      await delay();
+    };
+    const selectFirstBusinessNode = async () => {
+      const node = document.querySelector<SVGGElement>('[data-testid="workbench"] [data-bus-node="true"]');
+      if (!node) throw new Error('找不到业务总线节点');
+      node.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await delay();
     };
     const until = async (condition: () => boolean) => {
@@ -221,51 +245,79 @@ function Fixture() {
       await reopen();
       check('手动补充路线可从合并缓存恢复且不重复请求', requests.length === 3 &&
         busRouteOptions().some((option) => option.value === 'manual-route'));
+      await selectFirstBusinessNode();
+      const firstDrillButton = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="workbench"] button')]
+        .find((item) => item.textContent?.trim().startsWith('深入：测试业务路线'));
+      if (!firstDrillButton) throw new Error('找不到顶层节点深入按钮');
+      firstDrillButton.click();
+      await until(() => requests.length === 4 && content().includes('递归业务子图 · 第 1 层'));
+      check('按具体路线步骤请求第一层业务子图', requests[3].mode === 'drilldown_graph' &&
+        requests[3].drillDepth === 1 && content().includes('这是所选节点内部的细化执行路线'));
+      await selectFirstBusinessNode();
+      const secondDrillButton = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="workbench"] button')]
+        .find((item) => item.textContent?.trim().startsWith('深入：节点内部执行'));
+      if (!secondDrillButton) throw new Error('找不到子节点深入按钮');
+      secondDrillButton.click();
+      await until(() => requests.length === 5 && content().includes('递归业务子图 · 第 2 层'));
+      check('子节点可继续递归且证据到底时显示空子图', requests[4].mode === 'drilldown_graph' &&
+        requests[4].drillDepth === 2 && content().includes('该节点已到源码证据粒度'));
+      button('Entry')!.click();
+      await until(() => content().includes('递归业务子图 · 第 1 层'));
+      button('顶层业务总线')!.click();
+      await until(() => !content().includes('递归业务子图 · 第 1 层') && content().includes('测试业务路线'));
+      check('面包屑可逐层返回且恢复顶层总线', requests.length === 5);
+      await selectFirstBusinessNode();
+      [...document.querySelectorAll<HTMLButtonElement>('[data-testid="workbench"] button')]
+        .find((item) => item.textContent?.trim().startsWith('深入：测试业务路线'))!.click();
+      await until(() => content().includes('递归业务子图 · 第 1 层'));
+      check('相同钻取路径从独立缓存立即进入且不再请求模型', requests.length === 5 && savedReports === 5);
+      button('顶层业务总线')!.click();
+      await until(() => !content().includes('递归业务子图 · 第 1 层'));
       setConfig((previous) => ({ ...previous, learnPrompt: 'fixture new prompt' }));
       await until(ready); await delay();
-      check('换提示词不自动分析也不复用旧报告', requests.length === 3 && !content().includes('这是测试业务路线讲解'));
+      check('换提示词不自动分析也不复用旧报告', requests.length === 5 && !content().includes('这是测试业务路线讲解'));
       setConfig((previous) => ({ ...previous, model: 'fixture-model-2' }));
       await delay();
-      check('换模型不自动分析', requests.length === 3 && ready());
+      check('换模型不自动分析', requests.length === 5 && ready());
       sourceRevision++;
       setRevision((previous) => previous + 1);
       await delay(); await until(ready);
-      check('源码变化刷新不自动分析', requests.length === 3 && ready());
+      check('源码变化刷新不自动分析', requests.length === 5 && ready());
       setHead('head-b');
       await delay(); await until(ready);
-      check('切换提交不自动分析', requests.length === 3 && ready());
+      check('切换提交不自动分析', requests.length === 5 && ready());
       setRepoPath('fixture/repo-b');
       await delay(); await until(ready);
-      check('切换仓库不自动分析', requests.length === 3 && ready());
+      check('切换仓库不自动分析', requests.length === 5 && ready());
       responseMode = 'error';
       button('开始 AI 分析')!.click();
       await until(() => content().includes('fixture AI failure'));
       await delay();
-      check('手动分析失败后不自动重试', requests.length === 4);
+      check('手动分析失败后不自动重试', requests.length === 6);
       await reopen();
-      check('失败后重新进入不自动重试', requests.length === 4 && ready());
+      check('失败后重新进入不自动重试', requests.length === 6 && ready());
       responseMode = 'ok';
       setAskFile('src/Entry.ts');
       await until(() => content().includes('这是测试追问回答'));
-      check('主动询问文件仅发出文字追问请求', requests.length === 5 && Boolean(requests[4].question) && requests[4].mode === 'question');
+      check('主动询问文件仅发出文字追问请求', requests.length === 7 && Boolean(requests[6].question) && requests[6].mode === 'question');
       responseMode = 'hold';
       button('开始 AI 分析')!.click();
-      await until(() => requests.length === 6 && Boolean(button('取消分析')));
+      await until(() => requests.length === 8 && Boolean(button('取消分析')));
       setConfig((previous) => ({ ...previous, learnPrompt: 'fixture prompt during stream' }));
       await delay();
-      check('进行中修改提示词不另开 AI 请求', requests.length === 6 && Boolean(button('取消分析')));
+      check('进行中修改提示词不另开 AI 请求', requests.length === 8 && Boolean(button('取消分析')));
       button('取消分析')!.click();
       await until(() => aborted === 1 && content().includes('已取消本次 AI 分析'));
       check('用户可取消卡住的分析并恢复操作', aborted === 1 && !button('取消分析'));
       (button('重新分析') || button('开始 AI 分析'))!.click();
-      await until(() => requests.length === 7 && Boolean(button('取消分析')));
+      await until(() => requests.length === 9 && Boolean(button('取消分析')));
       setMounted(false);
       await until(() => aborted === 2);
       check('离开页面取消未完成请求', aborted === 2);
       responseMode = 'ok';
       setMounted(true);
       await until(ready); await delay();
-      check('中断后重新进入不自动续跑', requests.length === 7 && ready());
+      check('中断后重新进入不自动续跑', requests.length === 9 && ready());
       setResult(JSON.stringify({ passed: checks.length, requests: requests.length, aborted, checks }, null, 2));
     } catch (error) {
       setResult(JSON.stringify({ passed: checks.length, failed: String(error), requests, checks }, null, 2));

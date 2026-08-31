@@ -7,6 +7,7 @@ import type {
   ExplainTask,
   RepoInfo,
   LearnGraph,
+  LearnDrillTargetContext,
   LearnExistingRouteContext,
   LearnRequestMode,
   RepoOverview,
@@ -159,6 +160,7 @@ interface BaseStreamPayload {
   task?: ExplainTask;
   learnRequestMode?: LearnRequestMode;
   existingBusinessRoutes?: LearnExistingRouteContext[];
+  drillPath?: LearnDrillTargetContext[];
   config?: AIProviderConfig;
   onReasoning?: (chunk: string) => void;
   onChunk: (chunk: string) => void;
@@ -388,6 +390,7 @@ export async function streamAgentExplainDiff(
       task: payload.task,
       learnRequestMode: payload.learnRequestMode,
       existingBusinessRoutes: payload.existingBusinessRoutes,
+      drillPath: payload.drillPath,
       config: payload.config,
     },
     logSession: { title: `🧠 Codex 智能体深度审查 (${fileName})`, type: 'agent' },

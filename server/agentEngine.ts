@@ -205,7 +205,8 @@ export class CodexAgentEngine {
     const isFollowUp = Boolean(options.userPrompt && options.userPrompt.trim());
     const learnTask = isLearnTask(options);
     const isLearnExpansion = learnTask && options.learnRequestMode === 'expand_graph';
-    const needsLearnGraph = learnTask && (!isFollowUp || isLearnExpansion);
+    const isLearnDrilldown = learnTask && options.learnRequestMode === 'drilldown_graph';
+    const needsLearnGraph = learnTask && (!isFollowUp || isLearnExpansion || isLearnDrilldown);
     let promptCtx: PromptContext = options;
     if (learnTask) {
       try {
@@ -459,6 +460,7 @@ export class CodexAgentEngine {
           isFollowUp,
           isLearn: learnTask,
           isLearnExpansion,
+          isLearnDrilldown,
           requiresLearnGraph,
           hasPartialContent: accumulatedContent.length > 0 && !requiresLearnGraph,
           contextChars,
@@ -473,7 +475,9 @@ export class CodexAgentEngine {
       stream.send({
         type: 'status',
         phase: 'completed',
-        message: isLearnExpansion
+        message: isLearnDrilldown
+          ? '业务节点深入分析已完成'
+          : isLearnExpansion
           ? '手动业务总线补图已完成'
           : learnTask ? '仓库主要业务路线分析已完成' : 'Codex 智能体审查已完成',
       });
@@ -506,6 +510,7 @@ export class CodexAgentEngine {
     isFollowUp: boolean;
     isLearn: boolean;
     isLearnExpansion: boolean;
+    isLearnDrilldown: boolean;
     requiresLearnGraph: boolean;
     hasPartialContent: boolean;
     contextChars: number;
@@ -521,7 +526,7 @@ export class CodexAgentEngine {
       message: params.truncatedDraft
         ? `${params.isLearn ? '业务路线报告' : '终审报告'}不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
         : `Codex 探查阶段结束（已获取 ${explorationLog.length} 处上下文），正在实时流式输出${
-            params.isLearnExpansion ? '业务总线补图' : params.isFollowUp ? '追问解答' : params.isLearn ? '业务路线报告' : '深度审查报告'
+            params.isLearnDrilldown ? '业务节点子图' : params.isLearnExpansion ? '业务总线补图' : params.isFollowUp ? '追问解答' : params.isLearn ? '业务路线报告' : '深度审查报告'
           }...`,
     });
 
@@ -533,6 +538,7 @@ export class CodexAgentEngine {
       truncatedDraft: params.truncatedDraft,
       learnTask: params.isLearn,
       learnExpansion: params.isLearnExpansion,
+      learnDrilldown: params.isLearnDrilldown,
     });
     const synthesisSystemPrompt = `${params.systemPrompt}
 
