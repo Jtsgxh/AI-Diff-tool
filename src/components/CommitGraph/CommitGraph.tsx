@@ -1,6 +1,7 @@
 ﻿import React, { useState, useMemo, useRef } from 'react';
 import { CommitNode, SelectionState } from '../../types';
 import { computeGraphLayout } from '../../utils/graphLayout';
+import { fillContiguousCommitSelection } from '../../utils/commitSelection';
 import {
   GitCommit,
   GitBranch,
@@ -12,7 +13,6 @@ import {
   CheckSquare,
   Square,
   Layers,
-  Eye,
   Brain,
   X,
 } from 'lucide-react';
@@ -49,7 +49,9 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHashA, setSelectedHashA] = useState<string | null>(null);
   const [selectedBatchSet, setSelectedBatchSet] = useState<Set<string>>(new Set());
-  const lastClickedIndexRef = useRef<number | null>(null);
+  const lastClickedHashRef = useRef<string | null>(null);
+
+  const commitOrder = useMemo(() => commits.map((commit) => commit.hash), [commits]);
 
   // Filter commits
   const filteredCommits = useMemo(() => {
@@ -78,78 +80,65 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
     return map;
   }, [nodes]);
 
-  const handleRowClick = (hash: string, index: number, e: React.MouseEvent) => {
-    if (e.shiftKey && lastClickedIndexRef.current !== null) {
-      // Shift range multi-selection
-      const start = Math.min(lastClickedIndexRef.current, index);
-      const end = Math.max(lastClickedIndexRef.current, index);
-      const rangeHashes = nodes.slice(start, end + 1).map((n) => n.hash);
+  const applyBatchSelection = (hashes: string[]) => {
+    setSelectedBatchSet(new Set(hashes));
+    if (hashes.length >= 2) {
+      onSelectBatchCommits(hashes);
+    } else if (hashes.length === 1) {
+      onSelectCommit(hashes[0]);
+    }
+  };
 
-      const nextSet = new Set(selectedBatchSet);
-      rangeHashes.forEach((h) => nextSet.add(h));
-      setSelectedBatchSet(nextSet);
-      lastClickedIndexRef.current = index;
+  const toggleBatchCommit = (hash: string) => {
+    const candidate = new Set(selectedBatchSet);
+    if (candidate.has(hash)) candidate.delete(hash);
+    else candidate.add(hash);
 
-      if (nextSet.size >= 2) {
-        onSelectBatchCommits(Array.from(nextSet));
-      }
+    const contiguous = fillContiguousCommitSelection(commitOrder, candidate);
+    // A commit must remain selected; the clear action handles leaving batch mode.
+    const nextHashes = contiguous.length > 0 ? contiguous : [hash];
+    const unchanged =
+      nextHashes.length === selectedBatchSet.size &&
+      nextHashes.every((selectedHash) => selectedBatchSet.has(selectedHash));
+    if (!unchanged) applyBatchSelection(nextHashes);
+    lastClickedHashRef.current = hash;
+  };
+
+  const handleRowClick = (hash: string, e: React.MouseEvent) => {
+    if (e.shiftKey && lastClickedHashRef.current) {
+      const candidate = new Set(selectedBatchSet);
+      candidate.add(lastClickedHashRef.current);
+      candidate.add(hash);
+      applyBatchSelection(fillContiguousCommitSelection(commitOrder, candidate));
+      lastClickedHashRef.current = hash;
       return;
     }
 
     if (e.ctrlKey || e.metaKey) {
-      // Toggle in batch
-      const nextSet = new Set(selectedBatchSet);
-      if (nextSet.has(hash)) {
-        nextSet.delete(hash);
-      } else {
-        nextSet.add(hash);
-      }
-      setSelectedBatchSet(nextSet);
-      lastClickedIndexRef.current = index;
-
-      if (nextSet.size >= 2) {
-        onSelectBatchCommits(Array.from(nextSet));
-      } else if (nextSet.size === 1) {
-        onSelectCommit(Array.from(nextSet)[0]);
-      }
+      toggleBatchCommit(hash);
       return;
     }
 
     // Normal Single Click
     setSelectedHashA(null);
     setSelectedBatchSet(new Set([hash]));
-    lastClickedIndexRef.current = index;
+    lastClickedHashRef.current = hash;
     onSelectCommit(hash);
   };
 
-  const handleToggleCheckbox = (hash: string, index: number, e: React.MouseEvent) => {
+  const handleToggleCheckbox = (hash: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const nextSet = new Set(selectedBatchSet);
-    if (nextSet.has(hash)) {
-      nextSet.delete(hash);
-    } else {
-      nextSet.add(hash);
-    }
-    setSelectedBatchSet(nextSet);
-    lastClickedIndexRef.current = index;
-
-    if (nextSet.size >= 2) {
-      onSelectBatchCommits(Array.from(nextSet));
-    } else if (nextSet.size === 1) {
-      onSelectCommit(Array.from(nextSet)[0]);
-    }
+    toggleBatchCommit(hash);
   };
 
   const handleClearBatch = () => {
-    setSelectedBatchSet(new Set());
     if (nodes.length > 0) {
+      setSelectedBatchSet(new Set([nodes[0].hash]));
+      lastClickedHashRef.current = nodes[0].hash;
       onSelectCommit(nodes[0].hash);
-    }
-  };
-
-  const handleApplyBatchView = () => {
-    if (selectedBatchSet.size >= 2) {
-      onSelectBatchCommits(Array.from(selectedBatchSet));
+    } else {
+      setSelectedBatchSet(new Set());
+      lastClickedHashRef.current = null;
     }
   };
 
@@ -187,7 +176,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
           </div>
 
           <div className="flex items-center space-x-2">
-            <span className="text-[11px] text-slate-500 hidden xl:inline">Shift连续多选 / Ctrl点选</span>
+            <span className="text-[11px] text-slate-500 hidden xl:inline">多选自动补齐连续区间</span>
             {onCollapse && (
               <button
                 onClick={onCollapse}
@@ -230,19 +219,10 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <button
-                onClick={handleApplyBatchView}
-                className="flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 hover:text-white text-xs font-medium transition border border-white/10 shadow-sm"
-                title="合并计算并浏览这一批提交的最终净生效代码差异"
-              >
-                <Eye className="w-3.5 h-3.5 text-sky-400" />
-                <span>浏览合并净代码</span>
-              </button>
-
+            <div className="pt-1">
               <button
                 onClick={handleApplyBatchExplain}
-                className="flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold transition shadow-md shadow-purple-600/30"
+                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold transition shadow-md shadow-purple-600/30"
                 title="使用 AI 对这一批提交的合并最终结果进行深度审查"
               >
                 <Brain className="w-3.5 h-3.5 text-purple-200" />
@@ -365,7 +345,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
             return (
               <div
                 key={node.hash}
-                onClick={(e) => handleRowClick(node.hash, i, e)}
+                onClick={(e) => handleRowClick(node.hash, e)}
                 style={{
                   top: i * ROW_HEIGHT,
                   height: ROW_HEIGHT,
@@ -379,10 +359,10 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
               >
                 {/* Left Checkbox for Direct Multi-Select */}
                 <div
-                  onClick={(e) => handleToggleCheckbox(node.hash, i, e)}
+                  onClick={(e) => handleToggleCheckbox(node.hash, e)}
                   style={{ left: 8 }}
                   className="absolute z-20 p-1 text-slate-500 hover:text-purple-300 transition"
-                  title="勾选加入批量多选"
+                  title="勾选批量多选；中间提交会自动补齐"
                 >
                   {isBatchChecked ? (
                     <CheckSquare className="w-3.5 h-3.5 text-purple-400" />
