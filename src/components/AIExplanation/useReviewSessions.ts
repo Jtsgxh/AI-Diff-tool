@@ -4,6 +4,10 @@ import { streamAgentExplainDiff, streamExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
 import { STORAGE_KEYS, storage } from '../../constants/storage';
 import {
+  appendReviewContinuation,
+  buildReviewContinuationPrompt,
+} from '../../utils/reviewContinuation';
+import {
   cancelStreamFlush,
   flushStreamsNow,
   scheduleStreamFlush,
@@ -27,6 +31,16 @@ interface StreamAccumulator {
   /** The registered flush, kept so it can be cancelled when the stream ends. */
   commit: (() => void) | null;
 }
+
+type SubsequentStreamRequest =
+  | { kind: 'follow-up'; prompt: string }
+  | {
+      kind: 'continuation';
+      prompt: string;
+      baseReport: string;
+      baseReasoning: string;
+      baseToolEvents: AgentToolEvent[];
+    };
 
 function shortTitleFor(scope: ExplanationScope): string {
   if (scope.batchInfo || scope.commitHashes || scope.title.includes('批量')) {
@@ -179,16 +193,34 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
     }
   }, []);
 
+  const startSessionTimer = useCallback(
+    (sessionId: string) => {
+      const existing = timersRef.current.get(sessionId);
+      if (existing) clearInterval(existing);
+      timersRef.current.set(
+        sessionId,
+        setInterval(() => {
+          updateSession(sessionId, (s) => ({
+            ...s,
+            elapsedSeconds: +(s.elapsedSeconds + ELAPSED_TICK_MS / 1000).toFixed(1),
+          }));
+        }, ELAPSED_TICK_MS)
+      );
+    },
+    [updateSession]
+  );
+
   const executeStreamSession = useCallback(
     async (
       sessionId: string,
       scope: ExplanationScope,
       mode: 'agent' | 'fast',
       cacheKey: string,
-      followUpPrompt?: string
+      request?: SubsequentStreamRequest
     ) => {
       const config = configRef.current;
-      const isFollowUp = Boolean(followUpPrompt);
+      const isFollowUp = request?.kind === 'follow-up';
+      const isContinuation = request?.kind === 'continuation';
 
       const acc: StreamAccumulator = {
         text: '',
@@ -197,6 +229,19 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         commit: null,
       };
       accumulatorsRef.current.set(sessionId, acc);
+
+      const continuedReport = () =>
+        isContinuation
+          ? appendReviewContinuation(request.baseReport, acc.text)
+          : acc.text;
+      const continuedReasoning = () =>
+        isContinuation
+          ? appendReviewContinuation(request.baseReasoning, acc.reasoning)
+          : acc.reasoning;
+      const continuedToolEvents = () =>
+        isContinuation
+          ? [...request.baseToolEvents, ...acc.toolEvents]
+          : acc.toolEvents;
 
       /** Writes whatever has accumulated so far into React state. */
       const commit = () => {
@@ -210,9 +255,9 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
               }
             : {
                 ...s,
-                initialReport: acc.text,
-                initialReasoning: acc.reasoning,
-                currentToolEvents: acc.toolEvents,
+                initialReport: continuedReport(),
+                initialReasoning: continuedReasoning(),
+                currentToolEvents: continuedToolEvents(),
               }
         );
       };
@@ -269,18 +314,24 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
             ]
           : latest?.chatHistory || [];
 
+        const report = isFollowUp ? latest?.initialReport || '' : continuedReport();
+        const reasoning = isFollowUp ? latest?.initialReasoning || '' : continuedReasoning();
+        const toolEvents = isFollowUp ? latest?.currentToolEvents || [] : continuedToolEvents();
+
         updateSession(sessionId, (s) => ({
           ...s,
           // The last partial flush may still be pending — apply it here.
-          initialReport: isFollowUp ? s.initialReport : acc.text,
-          initialReasoning: isFollowUp ? s.initialReasoning : acc.reasoning,
-          currentToolEvents: isFollowUp ? s.currentToolEvents : acc.toolEvents,
+          initialReport: report,
+          initialReasoning: reasoning,
+          currentToolEvents: toolEvents,
           isStreaming: false,
           agentStatus: {
             type: 'status',
             phase: 'completed',
             message: isFollowUp
               ? '追问解答完成'
+              : isContinuation
+              ? '已从中断点继续完成'
               : mode === 'agent'
               ? 'Codex 深度审查完成'
               : '直接 Diff 解析完成',
@@ -289,15 +340,16 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
           currentFollowUpStream: '',
           currentFollowUpReasoning: '',
           currentFollowUpToolEvents: [],
+          error: null,
+          isCached: false,
         }));
 
-        const reportForCache = isFollowUp ? latest?.initialReport || '' : acc.text;
-        if (reportForCache.trim()) {
+        if (report.trim()) {
           aiCache.set(cacheKey, {
-            report: reportForCache,
-            toolEvents: isFollowUp ? latest?.currentToolEvents || [] : acc.toolEvents,
+            report,
+            toolEvents,
             chatHistory,
-            reasoning: isFollowUp ? latest?.initialReasoning : acc.reasoning,
+            reasoning,
             model: config.model,
             provider: config.provider,
           });
@@ -327,7 +379,7 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         diff: scope.diff,
         filePath: scope.filePath,
         commitMessage: scope.commitMessage,
-        userPrompt: followUpPrompt,
+        userPrompt: request?.prompt,
         config,
         onReasoning: (chunk: string) => {
           const isFirst = !acc.reasoning;
@@ -452,19 +504,11 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
       setSessions((prev) => [newSession, ...prev.filter((s) => s.id !== sessionId)]);
       setActiveSessionId(sessionId);
 
-      timersRef.current.set(
-        sessionId,
-        setInterval(() => {
-          updateSession(sessionId, (s) => ({
-            ...s,
-            elapsedSeconds: +(s.elapsedSeconds + ELAPSED_TICK_MS / 1000).toFixed(1),
-          }));
-        }, ELAPSED_TICK_MS)
-      );
+      startSessionTimer(sessionId);
 
       executeStreamSession(sessionId, scope, mode, cacheKey);
     },
-    [cacheKeyFor, executeStreamSession, stopSessionTimers, updateSession]
+    [cacheKeyFor, executeStreamSession, startSessionTimer, stopSessionTimers]
   );
 
   const closeSession = useCallback((id: string) => {
@@ -526,10 +570,51 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         provider: configRef.current.provider,
       });
 
-      executeStreamSession(active.id, active.scope, active.engineMode, cacheKey, question);
+      executeStreamSession(active.id, active.scope, active.engineMode, cacheKey, {
+        kind: 'follow-up',
+        prompt: question,
+      });
     },
     [activeSessionId, cacheKeyFor, executeStreamSession, updateSession]
   );
+
+  const continueInterruptedSession = useCallback(() => {
+    const active = sessionsRef.current.find((s) => s.id === activeSessionId) || null;
+    if (!active || active.isStreaming || !active.error || !active.initialReport.trim()) return;
+
+    const cacheKey = cacheKeyFor(active.scope, active.engineMode);
+    const request: SubsequentStreamRequest = {
+      kind: 'continuation',
+      prompt: buildReviewContinuationPrompt(active.initialReport, configRef.current),
+      baseReport: active.initialReport,
+      baseReasoning: active.initialReasoning || '',
+      baseToolEvents: active.currentToolEvents,
+    };
+
+    stopSessionTimers(active.id);
+    abortsRef.current.get(active.id)?.();
+    abortsRef.current.delete(active.id);
+    updateSession(active.id, (s) => ({
+      ...s,
+      isStreaming: true,
+      error: null,
+      isCached: false,
+      agentStatus: {
+        type: 'status',
+        phase: 'initializing',
+        message: '正在从中断点继续生成...',
+      },
+    }));
+    startSessionTimer(active.id);
+    executeStreamSession(active.id, active.scope, active.engineMode, cacheKey, request);
+  }, [
+    activeSessionId,
+    cacheKeyFor,
+    executeStreamSession,
+    startSessionTimer,
+    stopSessionTimers,
+    updateSession,
+  ]);
 
   const activeSession =
     sessions.find((s) => s.id === activeSessionId) || sessions[0] || null;
@@ -543,5 +628,6 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
     closeSession,
     closeAllSessions,
     sendFollowUp,
+    continueInterruptedSession,
   };
 }

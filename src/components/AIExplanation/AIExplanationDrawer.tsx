@@ -9,6 +9,7 @@ import {
   Database,
   Layers,
   RefreshCw,
+  StepForward,
   Sparkles,
   Terminal,
   Trash2,
@@ -61,6 +62,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     closeSession,
     closeAllSessions,
     sendFollowUp,
+    continueInterruptedSession,
   } = useReviewSessions(repoPath, aiConfig);
 
   const [copied, setCopied] = useState(false);
@@ -359,12 +361,23 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             )}
 
             {activeSession.error && (
-              <div className="flex items-start space-x-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs">
+              <div className="flex items-start gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs">
                 <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <div className="font-semibold">审查异常中断</div>
                   <div className="text-[11px] opacity-80 mt-0.5">{activeSession.error}</div>
                 </div>
+                {activeSession.initialReport.trim() && (
+                  <button
+                    type="button"
+                    onClick={continueInterruptedSession}
+                    className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/30 text-rose-200 font-semibold transition"
+                    title="保留已输出报告，从中断位置继续生成"
+                  >
+                    <StepForward className="w-3.5 h-3.5" />
+                    <span>继续生成</span>
+                  </button>
+                )}
               </div>
             )}
 
