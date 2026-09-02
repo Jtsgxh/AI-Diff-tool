@@ -288,7 +288,7 @@ export const App: React.FC = () => {
   }, [diffResult, selectedFilePath]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[var(--surface-panel)] text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-screen bg-[var(--surface-panel)] text-zinc-950 overflow-hidden font-sans">
       <Header
         repoInfo={repoInfo}
         repoPath={repoPath}
@@ -317,9 +317,9 @@ export const App: React.FC = () => {
       />
 
       {repoError && (
-        <div className="bg-rose-500/15 border-b border-rose-500/30 px-4 py-2 text-xs text-rose-300 flex items-center justify-between">
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2 text-xs text-rose-700 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <AlertCircle className="w-4 h-4 text-rose-700 shrink-0" />
             <span>{repoError}</span>
           </div>
           <button
@@ -370,15 +370,15 @@ export const App: React.FC = () => {
         {isSidebarCollapsed && (
           <div
             onClick={handleToggleSidebar}
-            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
+            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
             title="点击展开 Git 提交历史图谱面板"
           >
-            <button className="p-1.5 rounded-lg bg-white/5 group-hover:bg-blue-500/20 group-hover:text-blue-300 transition mb-4">
+            <button className="p-1.5 rounded-lg bg-black/[0.03] group-hover:bg-zinc-100 group-hover:text-zinc-950 transition mb-4">
               <PanelLeftOpen className="w-4 h-4" />
             </button>
             <div className="flex-1 flex items-center justify-center">
               <span
-                className="text-[11px] font-medium text-slate-400 group-hover:text-blue-300 transition select-none"
+                className="text-[11px] font-medium text-zinc-600 group-hover:text-zinc-950 transition select-none"
                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
               >
                 提交历史 ({commits.length})
@@ -426,18 +426,18 @@ export const App: React.FC = () => {
         {isFilesPanelCollapsed && (
           <div
             onClick={handleToggleFilesPanel}
-            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
+            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
             title="点击展开变更文件列表"
           >
             <button
               type="button"
-              className="p-1.5 rounded-lg bg-white/5 group-hover:bg-sky-500/20 group-hover:text-sky-300 transition mb-4"
+              className="p-1.5 rounded-lg bg-black/[0.03] group-hover:bg-sky-100 group-hover:text-sky-700 transition mb-4"
             >
               <PanelLeftOpen className="w-4 h-4" />
             </button>
             <div className="flex-1 flex items-center justify-center">
               <span
-                className="text-[11px] font-medium text-slate-400 group-hover:text-sky-300 transition select-none"
+                className="text-[11px] font-medium text-zinc-600 group-hover:text-sky-700 transition select-none"
                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
               >
                 变更文件 ({diffResult?.files.length ?? 0})

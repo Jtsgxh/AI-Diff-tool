@@ -31,14 +31,14 @@ export const SessionTabs = React.memo<SessionTabsProps>(
               title={tooltip}
               className={`flex items-center space-x-2 px-2.5 py-1 rounded-lg text-xs cursor-pointer select-none transition shrink-0 group border ${
                 isActive
-                  ? 'bg-blue-600/25 border-blue-500/40 text-white font-medium shadow-sm'
-                  : 'bg-white/[0.03] border-transparent text-slate-400 hover:bg-white/[0.06] hover:text-slate-200'
+                  ? 'bg-zinc-900 border-zinc-300 text-white font-medium shadow-sm'
+                  : 'bg-black/[0.025] border-transparent text-zinc-600 hover:bg-black/[0.05] hover:text-zinc-900'
               }`}
             >
               {sess.engineMode === 'agent' ? (
-                <Brain className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                <Brain className="w-3.5 h-3.5 text-current shrink-0" />
               ) : (
-                <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <Zap className="w-3.5 h-3.5 text-current shrink-0" />
               )}
 
               <span className="truncate max-w-[130px] font-mono text-[11px]">{sess.shortTitle}</span>
@@ -47,10 +47,10 @@ export const SessionTabs = React.memo<SessionTabsProps>(
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
               ) : sess.isCached ? (
                 <span title="来自本地缓存">
-                  <Database className="w-3 h-3 text-sky-400 shrink-0" />
+                  <Database className="w-3 h-3 text-sky-700 shrink-0" />
                 </span>
               ) : (
-                <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                <CheckCircle2 className="w-3 h-3 text-emerald-700 shrink-0" />
               )}
 
               <button
@@ -58,7 +58,7 @@ export const SessionTabs = React.memo<SessionTabsProps>(
                   e.stopPropagation();
                   onClose(sess.id);
                 }}
-                className="opacity-40 group-hover:opacity-100 hover:text-rose-400 p-0.5 rounded transition"
+                className="opacity-40 group-hover:opacity-100 hover:text-rose-700 p-0.5 rounded transition"
               >
                 <X className="w-3 h-3" />
               </button>

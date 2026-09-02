@@ -257,18 +257,18 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   }, [displayGraph, selectedNode]);
 
   return (
-    <div className="flex-1 min-w-0 h-full flex flex-col bg-[#15171A] overflow-hidden">
-      <div className="h-11 shrink-0 border-b border-white/10 px-4 flex items-center justify-between bg-[var(--surface-panel)]">
+    <div className="flex-1 min-w-0 h-full flex flex-col bg-[#FAFAF9] overflow-hidden">
+      <div className="h-11 shrink-0 border-b border-black/10 px-4 flex items-center justify-between bg-[var(--surface-panel)]">
         <div className="flex items-center gap-2 min-w-0">
-          <BookOpen className="w-4 h-4 text-amber-400 shrink-0" />
-          <span className="text-sm font-semibold text-slate-100 truncate">
+          <BookOpen className="w-4 h-4 text-amber-700 shrink-0" />
+          <span className="text-sm font-semibold text-zinc-950 truncate">
             学习 {repoName || '此仓库'}
           </span>
           {session.graphLoading && (
-            <span className="text-[11px] font-mono text-sky-400">准备候选结构…</span>
+            <span className="text-[11px] font-mono text-sky-700">准备候选结构…</span>
           )}
           {session.isStreaming && (
-            <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
+            <span className="text-[11px] font-mono text-emerald-700 flex items-center gap-1">
               <Activity className="w-3.5 h-3.5 animate-spin" />
               AI 分析业务路线 {session.elapsedSeconds}s
             </span>
@@ -282,8 +282,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             onClick={toggleGraphPane}
             className={`h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] transition ${
               isGraphPaneOpen
-                ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-                : 'border-white/10 bg-white/[0.03] text-slate-500 hover:text-slate-200'
+                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                : 'border-black/10 bg-black/[0.025] text-zinc-500 hover:text-zinc-900'
             }`}
           >
             {isGraphPaneOpen ? (
@@ -300,8 +300,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             onClick={toggleDetailsPane}
             className={`h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] transition ${
               isDetailsPaneOpen
-                ? 'border-blue-500/30 bg-blue-500/10 text-blue-200'
-                : 'border-white/10 bg-white/[0.03] text-slate-500 hover:text-slate-200'
+                ? 'border-zinc-300 bg-zinc-100/80 text-zinc-800'
+                : 'border-black/10 bg-black/[0.025] text-zinc-500 hover:text-zinc-900'
             }`}
           >
             {isDetailsPaneOpen ? (
@@ -316,10 +316,10 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             onClick={() => session.isStreaming ? session.cancel() : session.startBriefing()}
             disabled={session.graphLoading || !session.graph}
             title={session.isStreaming ? '取消当前 AI 请求并保留现有业务总线' : '仅点击时调用 AI 分析仓库，会消耗模型 token'}
-            className="h-7 px-1.5 text-[11px] text-slate-400 hover:text-white flex items-center gap-1 disabled:opacity-40"
+            className="h-7 px-1.5 text-[11px] text-zinc-600 hover:text-zinc-950 flex items-center gap-1 disabled:opacity-40"
           >
             {session.isStreaming ? (
-              <Square className="w-3.5 h-3.5 text-rose-400" />
+              <Square className="w-3.5 h-3.5 text-rose-700" />
             ) : (
               <RefreshCw className="w-3.5 h-3.5" />
             )}
@@ -333,22 +333,22 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         className={isGraphPaneOpen ? `min-h-0 relative flex flex-col ${isDetailsPaneOpen ? 'shrink-0' : 'flex-1'}` : 'hidden'}
         style={isDetailsPaneOpen ? { height: `${graphPanePct}%` } : undefined}
       >
-        <div className="min-h-9 shrink-0 border-b border-white/10 bg-[#15181C] px-2 py-1 flex items-center justify-between gap-2">
+        <div className="min-h-9 shrink-0 border-b border-black/10 bg-[#F7F7F5] px-2 py-1 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-          <div className="flex shrink-0 items-center rounded-md border border-white/10 bg-black/20 p-0.5">
+          <div className="flex shrink-0 items-center rounded-md border border-black/10 bg-black/[0.03] p-0.5">
             <button type="button" aria-pressed={graphMode === 'business'} onClick={() => {
               setGraphMode('business');
               setSelectedNodeId(null);
               session.setSelectedCommunityId(null);
             }} className={`h-6 px-2 rounded text-[10px] flex items-center gap-1 ${graphMode === 'business'
-              ? 'bg-emerald-500/15 text-emerald-200' : 'text-slate-500 hover:text-slate-200'}`}>
+              ? 'bg-emerald-50 text-emerald-800' : 'text-zinc-500 hover:text-zinc-900'}`}>
               <Workflow className="h-3 w-3" />业务总线
             </button>
             <button type="button" aria-pressed={graphMode === 'structure'} onClick={() => {
               setGraphMode('structure');
               setSelectedBusinessNodeId(null);
             }} className={`h-6 px-2 rounded text-[10px] flex items-center gap-1 ${graphMode === 'structure'
-              ? 'bg-amber-500/15 text-amber-200' : 'text-slate-500 hover:text-slate-200'}`}>
+              ? 'bg-amber-50 text-amber-800' : 'text-zinc-500 hover:text-zinc-900'}`}>
               <Network className="h-3 w-3" />代码结构
             </button>
           </div>
@@ -358,13 +358,13 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                 type="button"
                 disabled={session.isStreaming || !activeDrill}
                 onClick={() => session.leaveDrill(0)}
-                className={`shrink-0 rounded px-1.5 py-1 ${activeDrill ? 'text-emerald-200 hover:bg-emerald-500/10' : 'text-slate-500'} disabled:cursor-default`}
+                className={`shrink-0 rounded px-1.5 py-1 ${activeDrill ? 'text-emerald-800 hover:bg-emerald-500/10' : 'text-zinc-500'} disabled:cursor-default`}
               >
                 顶层业务总线
               </button>
               {session.drillLevels.map((level, index) => (
                 <React.Fragment key={level.key}>
-                  <ChevronRight className="h-3 w-3 shrink-0 text-slate-700" />
+                  <ChevronRight className="h-3 w-3 shrink-0 text-zinc-300" />
                   <button
                     type="button"
                     disabled={session.isStreaming || index === session.drillLevels.length - 1}
@@ -372,8 +372,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                     title={`${level.target.routeLabel} · 第 ${level.target.stepIndex + 1} 步`}
                     className={`max-w-44 truncate rounded px-1.5 py-1 ${
                       index === session.drillLevels.length - 1
-                        ? 'bg-blue-500/10 text-blue-200'
-                        : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                        ? 'bg-zinc-100/80 text-zinc-800'
+                        : 'text-zinc-600 hover:bg-black/[0.03] hover:text-zinc-900'
                     } disabled:cursor-default`}
                   >
                     {level.target.label}
@@ -383,7 +383,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             </nav>
           )}
           </div>
-          <span className="shrink-0 text-[10px] text-slate-600">
+          <span className="shrink-0 text-[10px] text-zinc-400">
             {graphMode === 'business'
               ? activeDrill ? `源码子图 · 第 ${session.drillLevels.length} 层` : 'AI 核实的源码业务闭环'
               : '本地解析的类级依赖骨架'}
@@ -419,11 +419,11 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             />
           )
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs gap-2">
+          <div className="h-full flex flex-col items-center justify-center text-zinc-500 text-xs gap-2">
             {session.isStreaming ? (
               <Activity className="w-6 h-6 text-emerald-500 animate-spin" />
             ) : (
-              <Network className="w-6 h-6 text-slate-600" />
+              <Network className="w-6 h-6 text-zinc-400" />
             )}
             <span className="max-w-lg text-center leading-relaxed">
               {session.graphLoading
@@ -484,36 +484,36 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             storage.set(STORAGE_KEYS.learnGraphPanePct, String(DEFAULT_GRAPH_PANE_PCT));
           }}
           tabIndex={0}
-          className="h-2 shrink-0 cursor-row-resize relative z-20 group/split bg-white/[0.025] hover:bg-blue-500/20 active:bg-blue-500/30"
+          className="h-2 shrink-0 cursor-row-resize relative z-20 group/split bg-black/[0.025] hover:bg-zinc-100 active:bg-zinc-200"
         >
-          <div className="absolute inset-x-0 top-1/2 -mt-px h-px bg-white/10 group-hover/split:bg-blue-400" />
+          <div className="absolute inset-x-0 top-1/2 -mt-px h-px bg-black/[0.06] group-hover/split:bg-blue-400" />
         </div>
       )}
 
       <div className={isDetailsPaneOpen ? 'flex-1 min-h-0 flex flex-col' : 'hidden'}>
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
         {!activeDrill && session.graph && !session.graphLoading && !session.isStreaming && !session.settled && !session.error && (
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-zinc-600">
             业务总线尚未生成；「代码结构」页签仍可浏览本地候选骨架。进入本页不会消耗模型 token；需要业务路线讲解时，点击「开始 AI 分析」或主动提问。
           </p>
         )}
         {activeDrill && (
-          <div className="rounded-xl border border-blue-400/20 bg-blue-500/[0.06] p-3 text-xs text-slate-300">
+          <div className="rounded-xl border border-zinc-300 bg-zinc-100/80 p-3 text-xs text-zinc-700">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-[10px] uppercase tracking-wide text-blue-300/70">递归业务子图 · 第 {session.drillLevels.length} 层</div>
-                <div className="mt-0.5 text-sm font-semibold text-slate-100">{activeDrill.target.label}</div>
+                <div className="text-[10px] uppercase tracking-wide text-zinc-600">递归业务子图 · 第 {session.drillLevels.length} 层</div>
+                <div className="mt-0.5 text-sm font-semibold text-zinc-950">{activeDrill.target.label}</div>
               </div>
               <button
                 type="button"
                 disabled={session.isStreaming}
                 onClick={() => session.leaveDrill(Math.max(0, session.drillLevels.length - 1))}
-                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:border-blue-400/30 hover:text-blue-100 disabled:opacity-40"
+                className="rounded-md border border-black/10 px-2 py-1 text-[11px] text-zinc-700 hover:border-zinc-300 hover:text-zinc-900 disabled:opacity-40"
               >
                 返回上一层
               </button>
             </div>
-            <p className="mt-1 break-all font-mono text-[11px] text-amber-200/80">
+            <p className="mt-1 break-all font-mono text-[11px] text-amber-800">
               {activeDrill.target.file} :: {activeDrill.target.classSymbol}.{activeDrill.target.methodSymbol}
             </p>
           </div>
@@ -521,23 +521,23 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         {(selectedBusinessNode || selectedNode || selectedCommunity) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {selectedBusinessNode && selectedBusinessFacts && (
-              <div className="md:col-span-2 rounded-xl border border-emerald-400/20 bg-[#191C21] p-3 text-xs">
+              <div className="md:col-span-2 rounded-xl border border-emerald-200 bg-[#FFFFFF] p-3 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <div className="text-[10px] uppercase tracking-wide text-emerald-300/70">业务总线节点 · 源码分析</div>
-                    <div className="text-sm font-bold text-slate-100 mt-0.5">{selectedBusinessNode.label}</div>
+                    <div className="text-[10px] uppercase tracking-wide text-emerald-700">业务总线节点 · 源码分析</div>
+                    <div className="text-sm font-bold text-zinc-950 mt-0.5">{selectedBusinessNode.label}</div>
                   </div>
-                  <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">
+                  <span className="rounded border border-black/10 px-2 py-0.5 text-[10px] text-zinc-700">
                     {BUSINESS_KIND_LABEL[selectedBusinessNode.kind]} · {selectedBusinessFacts.routes.length} 条路线
                   </span>
                 </div>
-                <p className="font-mono text-[11px] text-amber-200/90 mt-2 break-all">
+                <p className="font-mono text-[11px] text-amber-800 mt-2 break-all">
                   {selectedBusinessNode.file} :: {selectedBusinessNode.classSymbol}.{selectedBusinessNode.methodSymbol}
                 </p>
-                <p className="mt-1 text-slate-500">
+                <p className="mt-1 text-zinc-500">
                   所属社区：{selectedBusinessFacts.community} · 所属路线：{selectedBusinessFacts.routes.join('、')}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2 border-t border-white/5 pt-3">
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-black/5 pt-3">
                   {selectedBusinessNode.occurrences.map((occurrence) => (
                     <button
                       key={`${occurrence.routeId}:${occurrence.stepIndex}`}
@@ -545,7 +545,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                       disabled={session.isStreaming}
                       onClick={() => session.drillDown(toDrillTarget(occurrence))}
                       title={`只深入这一次路线出现位置：${occurrence.routeLabel} 第 ${occurrence.stepIndex + 1} 步`}
-                      className="flex items-center gap-1.5 rounded-md border border-blue-400/30 bg-blue-500/10 px-2.5 py-1.5 text-[11px] text-blue-100 transition hover:bg-blue-500/20 disabled:opacity-40"
+                      className="flex items-center gap-1.5 rounded-md border border-zinc-300 bg-zinc-100/80 px-2.5 py-1.5 text-[11px] text-zinc-900 transition hover:bg-zinc-100 disabled:opacity-40"
                     >
                       <ScanSearch className="h-3.5 w-3.5" />
                       深入：{occurrence.routeLabel} · 第 {occurrence.stepIndex + 1} 步
@@ -554,57 +554,57 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                 </div>
                 <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <div>
-                    <div className="text-slate-500 mb-1">业务动作</div>
-                    <ul className="space-y-1 text-slate-300">
+                    <div className="text-zinc-500 mb-1">业务动作</div>
+                    <ul className="space-y-1 text-zinc-700">
                       {selectedBusinessFacts.descriptions.map((item) => <li key={item}>• {item}</li>)}
                     </ul>
                   </div>
                   <div>
-                    <div className="text-slate-500 mb-1">源码证据</div>
-                    <ul className="space-y-1 font-mono text-[11px] text-emerald-100/80">
+                    <div className="text-zinc-500 mb-1">源码证据</div>
+                    <ul className="space-y-1 font-mono text-[11px] text-emerald-800">
                       {selectedBusinessFacts.evidence.map((item) => <li key={item}>• {item}</li>)}
                     </ul>
                   </div>
                   {selectedBusinessFacts.inputs.length > 0 && (
-                    <div><div className="text-slate-500 mb-1">输入 / 读取</div><p className="text-slate-300">{selectedBusinessFacts.inputs.join('；')}</p></div>
+                    <div><div className="text-zinc-500 mb-1">输入 / 读取</div><p className="text-zinc-700">{selectedBusinessFacts.inputs.join('；')}</p></div>
                   )}
                   {selectedBusinessFacts.outputs.length > 0 && (
-                    <div><div className="text-slate-500 mb-1">输出 / 副作用</div><p className="text-slate-300">{selectedBusinessFacts.outputs.join('；')}</p></div>
+                    <div><div className="text-zinc-500 mb-1">输出 / 副作用</div><p className="text-zinc-700">{selectedBusinessFacts.outputs.join('；')}</p></div>
                   )}
                   {selectedBusinessFacts.stateChanges.length > 0 && (
-                    <div><div className="text-slate-500 mb-1">状态变化</div><p className="text-emerald-100/80">{selectedBusinessFacts.stateChanges.join('；')}</p></div>
+                    <div><div className="text-zinc-500 mb-1">状态变化</div><p className="text-emerald-800">{selectedBusinessFacts.stateChanges.join('；')}</p></div>
                   )}
                   {selectedBusinessFacts.failurePaths.length > 0 && (
-                    <div><div className="text-slate-500 mb-1">分支 / 失败路径</div><p className="text-rose-200/80">{selectedBusinessFacts.failurePaths.join('；')}</p></div>
+                    <div><div className="text-zinc-500 mb-1">分支 / 失败路径</div><p className="text-rose-800">{selectedBusinessFacts.failurePaths.join('；')}</p></div>
                   )}
                 </div>
               </div>
             )}
             {selectedNode && (
-              <div className="rounded-xl border border-white/10 bg-[#191C21] p-3 text-xs">
-                <div className="text-[10px] uppercase tracking-wide text-slate-500">节点</div>
-                <div className="text-sm font-bold text-slate-100 mt-0.5">{selectedNode.label}</div>
-                <p className="text-slate-400 mt-1">
+              <div className="rounded-xl border border-black/10 bg-[#FFFFFF] p-3 text-xs">
+                <div className="text-[10px] uppercase tracking-wide text-zinc-500">节点</div>
+                <div className="text-sm font-bold text-zinc-950 mt-0.5">{selectedNode.label}</div>
+                <p className="text-zinc-600 mt-1">
                   {selectedNode.kind} · 度 {selectedNode.degree}
                 </p>
                 {selectedNode.file && (
-                  <p className="font-mono text-[11px] text-amber-200/80 mt-1 break-all">
+                  <p className="font-mono text-[11px] text-amber-800 mt-1 break-all">
                     {selectedNode.file}
                   </p>
                 )}
                 {neighbors.length > 0 && (
-                  <ul className="mt-2 space-y-0.5 text-slate-400">
+                  <ul className="mt-2 space-y-0.5 text-zinc-600">
                     {neighbors.map(({ node, relation }) => (
                       <li key={node.id}>
                         <button
                           type="button"
-                          className="hover:text-amber-200"
+                          className="hover:text-amber-800"
                           onClick={() => {
                             setSelectedNodeId(node.id);
                             session.setSelectedCommunityId(node.communityId);
                           }}
                         >
-                          <span className="text-slate-600">{relation}</span> {node.label}
+                          <span className="text-zinc-400">{relation}</span> {node.label}
                         </button>
                       </li>
                     ))}
@@ -614,25 +614,25 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             )}
             {selectedCommunity && (
               <div
-                className="rounded-xl border bg-[#191C21] p-3 text-xs"
+                className="rounded-xl border bg-[#FFFFFF] p-3 text-xs"
                 style={{ borderColor: `${communityColor(selectedCommunity.id)}66` }}
               >
-                <div className="text-[10px] uppercase tracking-wide text-slate-500">社区</div>
-                <div className="text-sm font-bold text-slate-100 mt-0.5">{selectedCommunity.label}</div>
-                <p className="text-slate-300 mt-1 leading-relaxed">
+                <div className="text-[10px] uppercase tracking-wide text-zinc-500">社区</div>
+                <div className="text-sm font-bold text-zinc-950 mt-0.5">{selectedCommunity.label}</div>
+                <p className="text-zinc-700 mt-1 leading-relaxed">
                   {selectedCommunity.summary ||
                     `凝聚力 ${selectedCommunity.cohesion.toFixed(2)} · ${selectedCommunity.nodeCount} 个节点`}
                 </p>
                 {selectedCommunity.godNodes.length > 0 && (
-                  <p className="text-amber-200/80 mt-2">枢纽 {selectedCommunity.godNodes.join('、')}</p>
+                  <p className="text-amber-800 mt-2">枢纽 {selectedCommunity.godNodes.join('、')}</p>
                 )}
                 {selectedCommunity.entry && (
-                  <p className="font-mono text-amber-200/90 mt-1">
+                  <p className="font-mono text-amber-800 mt-1">
                     入口 {selectedCommunity.entry.file}
                     {selectedCommunity.entry.symbol ? ` :: ${selectedCommunity.entry.symbol}` : ''}
                   </p>
                 )}
-                <ul className="mt-2 space-y-0.5 text-slate-500 font-mono">
+                <ul className="mt-2 space-y-0.5 text-zinc-500 font-mono">
                   {selectedCommunity.files.slice(0, 8).map((f) => (
                     <li key={f}>{f}</li>
                   ))}
@@ -643,11 +643,11 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         )}
 
         {session.status?.message && session.isStreaming && (
-          <p className="text-[11px] font-mono text-blue-300 truncate">{session.status.message}</p>
+          <p className="text-[11px] font-mono text-zinc-700 truncate">{session.status.message}</p>
         )}
 
         {session.error && session.graph?.communities.length ? (
-          <div className="flex items-start gap-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg p-3">
+          <div className="flex items-start gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-3">
             <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{plainError}</span>
           </div>
@@ -658,26 +658,26 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           !session.briefing &&
           !session.error &&
           !session.graph?.businessRoutes.length && (
-            <p className="text-xs text-slate-500">没有识别到证据完整的业务路线，社区结构仍可正常浏览。</p>
+            <p className="text-xs text-zinc-500">没有识别到证据完整的业务路线，社区结构仍可正常浏览。</p>
           )}
 
         {currentBriefing && !looksLikeJsonBlob(currentBriefing) && (
-          <div className="rounded-xl border border-white/10 bg-[#191C21] p-4">
+          <div className="rounded-xl border border-black/10 bg-[#FFFFFF] p-4">
             <MarkdownRenderer
               content={currentBriefing}
-              className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed"
+              className="prose  prose-sm max-w-none text-zinc-900 leading-relaxed"
             />
           </div>
         )}
 
         {session.drillStream && !looksLikeJsonBlob(session.drillStream) && (
-          <div className="rounded-xl border border-blue-500/30 bg-[#191C21] p-4 text-xs text-slate-300">
+          <div className="rounded-xl border border-zinc-300 bg-[#FFFFFF] p-4 text-xs text-zinc-700">
             <MarkdownRenderer content={session.drillStream} />
           </div>
         )}
 
         {!activeDrill && session.chat.length > 0 && (
-          <div className="space-y-2 pt-2 border-t border-white/10">
+          <div className="space-y-2 pt-2 border-t border-black/10">
             {session.chat.map((turn, i) => {
               if (turn.role === 'assistant' && looksLikeJsonBlob(turn.content)) return null;
               return (
@@ -685,8 +685,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                   key={i}
                   className={`text-xs rounded-lg p-3 ${
                     turn.role === 'user'
-                      ? 'bg-blue-600/15 border border-blue-500/20 text-slate-200'
-                      : 'bg-[#191C21] border border-white/10 text-slate-300'
+                      ? 'bg-zinc-100 border border-zinc-200 text-zinc-900'
+                      : 'bg-[#FFFFFF] border border-black/10 text-zinc-700'
                   }`}
                 >
                   {turn.role === 'assistant' ? (
@@ -698,7 +698,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
               );
             })}
             {session.followUpStream && !looksLikeJsonBlob(session.followUpStream) && (
-              <div className="bg-[#191C21] border border-blue-500/30 rounded-lg p-3 text-xs text-slate-300">
+              <div className="bg-[#FFFFFF] border border-zinc-300 rounded-lg p-3 text-xs text-zinc-700">
                 <MarkdownRenderer content={session.followUpStream} />
               </div>
             )}
@@ -708,7 +708,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
 
       <form
         onSubmit={handleSend}
-        className="shrink-0 p-3 border-t border-white/10 bg-[#171A1F] flex items-center gap-2"
+        className="shrink-0 p-3 border-t border-black/10 bg-[#FAFAF9] flex items-center gap-2"
       >
         <input
           type="text"
@@ -722,7 +722,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                 ? '当前位于递归子图；点击子节点继续深入，或从面包屑返回顶层提问/补图'
               : '输入问题；回车只问答，点“补图”会把核实出的新路线加入业务总线'
           }
-          className="flex-1 min-w-0 bg-[var(--surface-raised)] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-amber-500/50 placeholder:text-slate-500 disabled:opacity-50"
+          className="flex-1 min-w-0 bg-[var(--surface-raised)] text-xs text-zinc-900 px-3 py-2 rounded-lg border border-black/5 focus:outline-none focus:border-amber-300 placeholder:text-zinc-500 disabled:opacity-50"
         />
         <button
           type="submit"
@@ -739,7 +739,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           aria-label="提问并补充节点图"
           title={activeDrill ? '手动补图作用于顶层业务总线，请先通过面包屑返回顶层' : '沿源码核实这个问题，并把新业务路线追加到业务总线'}
           disabled={!draft.trim() || session.isStreaming || session.graphLoading || !session.graph || Boolean(activeDrill)}
-          className="h-8 px-2.5 rounded-lg border border-emerald-400/30 bg-emerald-500/15 text-emerald-100 text-xs flex items-center gap-1.5 hover:bg-emerald-500/25 disabled:opacity-40 transition"
+          className="h-8 px-2.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-900 text-xs flex items-center gap-1.5 hover:bg-emerald-500/25 disabled:opacity-40 transition"
         >
           <Workflow className="w-3.5 h-3.5" />
           补图
@@ -748,7 +748,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
       </div>
 
       {!isGraphPaneOpen && !isDetailsPaneOpen && (
-        <div className="flex-1 min-h-0 flex items-center justify-center text-xs text-slate-500">
+        <div className="flex-1 min-h-0 flex items-center justify-center text-xs text-zinc-500">
           图谱和讲解均已关闭，可从右上角重新打开。
         </div>
       )}

@@ -71,17 +71,17 @@ export const Header = React.memo<HeaderProps>(({
 
   const isAIRunning = sessions.some((s) => s.status === 'running');
   return (
-    <header className="h-14 bg-[#121417] border-b border-white/10 px-4 flex items-center justify-between select-none z-20">
+    <header className="h-14 bg-[#FFFFFF] border-b border-black/10 px-4 flex items-center justify-between select-none z-20">
       {/* Left: Brand Logo & Repo Selector */}
       <div className="flex items-center space-x-3 min-w-0">
         <div className="flex items-center space-x-2 mr-2">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg">
+          <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center shadow-sm">
             <GitBranch className="w-5 h-5 text-white" />
           </div>
           <div className="flex flex-col">
             <div className="flex items-center space-x-1.5">
-              <span className="font-bold text-sm text-slate-100 tracking-wide">GitSemantic</span>
-              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-0.5">
+              <span className="font-bold text-sm text-zinc-950 tracking-wide">GitSemantic</span>
+              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-300 flex items-center gap-0.5">
                 <Sparkles className="w-2.5 h-2.5" /> AI Diff
               </span>
             </div>
@@ -92,21 +92,21 @@ export const Header = React.memo<HeaderProps>(({
         <div className="flex items-center space-x-2">
           <button
             onClick={onOpenRepoModal}
-            className="flex items-center space-x-2 bg-[var(--surface-raised)] hover:bg-[#272B31] border border-white/10 hover:border-blue-500/40 rounded-lg px-3 py-1.5 text-xs text-slate-200 hover:text-white transition group shadow-sm"
+            className="flex items-center space-x-2 bg-[var(--surface-raised)] hover:bg-[#E9E9E6] border border-black/10 hover:border-zinc-400 rounded-lg px-3 py-1.5 text-xs text-zinc-900 hover:text-zinc-950 transition group shadow-sm"
             title="打开本地 Git 仓库 / 切换仓库"
           >
-            <FolderGit2 className="w-4 h-4 text-blue-400 transition" />
+            <FolderGit2 className="w-4 h-4 text-zinc-600 transition" />
             <div className="flex items-center space-x-1.5 max-w-xs md:max-w-md truncate">
-              <span className="font-bold text-white truncate">
+              <span className="font-bold text-zinc-950 truncate">
                 {repoInfo?.name || repoPath}
               </span>
               {repoInfo?.path && (
-                <span className="text-[10px] text-slate-500 truncate hidden xl:inline">
+                <span className="text-[10px] text-zinc-500 truncate hidden xl:inline">
                   ({repoInfo.path})
                 </span>
               )}
             </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-200 shrink-0" />
+            <ChevronDown className="w-3.5 h-3.5 text-zinc-600 group-hover:text-zinc-900 shrink-0" />
           </button>
 
           {/* Collapsible Toggle for Left Git Commit Graph */}
@@ -115,8 +115,8 @@ export const Header = React.memo<HeaderProps>(({
               onClick={onToggleSidebar}
               className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition shadow-sm ${
                 isSidebarCollapsed
-                  ? 'bg-blue-600/20 border-blue-500/50 text-blue-300 hover:bg-blue-600/30'
-                  : 'bg-[var(--surface-raised)] hover:bg-[#272B31] border-white/10 text-slate-300 hover:text-white'
+                  ? 'bg-zinc-900 border-zinc-900 text-white hover:bg-zinc-800'
+                  : 'bg-[var(--surface-raised)] hover:bg-[#E9E9E6] border-black/10 text-zinc-700 hover:text-zinc-950'
               }`}
               title={
                 isSidebarCollapsed
@@ -125,9 +125,9 @@ export const Header = React.memo<HeaderProps>(({
               }
             >
               {isSidebarCollapsed ? (
-                <PanelLeftOpen className="w-4 h-4 text-blue-400" />
+                <PanelLeftOpen className="w-4 h-4 text-white" />
               ) : (
-                <PanelLeftClose className="w-4 h-4 text-slate-400" />
+                <PanelLeftClose className="w-4 h-4 text-zinc-600" />
               )}
               <span className="hidden sm:inline font-medium text-[11px]">
                 {isSidebarCollapsed ? '展开历史' : '收起历史'}
@@ -140,8 +140,8 @@ export const Header = React.memo<HeaderProps>(({
               onClick={onToggleFilesPanel}
               className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition shadow-sm ${
                 isFilesPanelCollapsed
-                  ? 'bg-sky-600/20 border-sky-500/50 text-sky-300 hover:bg-sky-600/30'
-                  : 'bg-[var(--surface-raised)] hover:bg-[#272B31] border-white/10 text-slate-300 hover:text-white'
+                  ? 'bg-sky-600/20 border-sky-500/50 text-sky-700 hover:bg-sky-600/30'
+                  : 'bg-[var(--surface-raised)] hover:bg-[#E9E9E6] border-black/10 text-zinc-700 hover:text-zinc-950'
               }`}
               title={
                 isFilesPanelCollapsed
@@ -150,9 +150,9 @@ export const Header = React.memo<HeaderProps>(({
               }
             >
               {isFilesPanelCollapsed ? (
-                <PanelLeftOpen className="w-4 h-4 text-sky-400" />
+                <PanelLeftOpen className="w-4 h-4 text-sky-700" />
               ) : (
-                <FileDiff className="w-4 h-4 text-slate-400" />
+                <FileDiff className="w-4 h-4 text-zinc-600" />
               )}
               <span className="hidden sm:inline font-medium text-[11px]">
                 {isFilesPanelCollapsed ? '展开文件' : '收起文件'}
@@ -166,14 +166,14 @@ export const Header = React.memo<HeaderProps>(({
       <div className="flex items-center space-x-2">
         {repoInfo && (
           <div className="flex items-center space-x-2">
-            <div className="flex items-center space-x-1.5 bg-[var(--surface-raised)] border border-white/5 px-2.5 py-1 rounded-md text-xs text-slate-300">
-              <GitBranch className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="font-semibold text-slate-200">{repoInfo.currentBranch || 'HEAD'}</span>
+            <div className="flex items-center space-x-1.5 bg-[var(--surface-raised)] border border-black/5 px-2.5 py-1 rounded-md text-xs text-zinc-700">
+              <GitBranch className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="font-semibold text-zinc-900">{repoInfo.currentBranch || 'HEAD'}</span>
               {repoInfo.ahead > 0 && (
-                <span className="text-[10px] text-sky-400 bg-sky-500/10 px-1 rounded">↑{repoInfo.ahead}</span>
+                <span className="text-[10px] text-sky-700 bg-sky-50 px-1 rounded">↑{repoInfo.ahead}</span>
               )}
               {repoInfo.behind > 0 && (
-                <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1 rounded">↓{repoInfo.behind}</span>
+                <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded">↓{repoInfo.behind}</span>
               )}
             </div>
 
@@ -182,25 +182,25 @@ export const Header = React.memo<HeaderProps>(({
               onClick={onSelectWorkingTree}
               className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs transition font-medium ${
                 selection.type === 'working-tree'
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10'
-                  : 'bg-[var(--surface-raised)] text-slate-400 hover:text-slate-200 border border-white/5 hover:border-white/10'
+                  ? 'bg-amber-100 text-amber-700 border border-amber-300 shadow-sm shadow-amber-500/10'
+                  : 'bg-[var(--surface-raised)] text-zinc-600 hover:text-zinc-900 border border-black/5 hover:border-black/10'
               }`}
             >
-              <Layers className="w-3.5 h-3.5 text-amber-400" />
+              <Layers className="w-3.5 h-3.5 text-amber-700" />
               <span>未提交变更</span>
               {repoInfo.modifiedFilesCount > 0 ? (
-                <span className="bg-amber-500/30 text-amber-300 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+                <span className="bg-amber-500/30 text-amber-700 text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                   {repoInfo.modifiedFilesCount}
                 </span>
               ) : (
-                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                <CheckCircle2 className="w-3 h-3 text-emerald-700" />
               )}
             </button>
 
             {/* Batch Selection Active Pill */}
             {selection.type === 'batch' && (
-              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm">
-                <Layers className="w-3.5 h-3.5 text-blue-400" />
+              <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-zinc-100 text-zinc-700 border border-zinc-300 shadow-sm">
+                <Layers className="w-3.5 h-3.5 text-zinc-600" />
                 <span>批量合并 ({selection.commitHashes?.length || 0} 个提交)</span>
               </div>
             )}
@@ -216,12 +216,12 @@ export const Header = React.memo<HeaderProps>(({
             onClick={() => onWorkspaceMode(workspaceMode === 'learn' ? 'diff' : 'learn')}
             className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${
               workspaceMode === 'learn'
-                ? 'bg-amber-600/30 text-white border-amber-500/50 shadow-amber-500/20'
-                : 'bg-[var(--surface-raised)] hover:bg-[#272B31] text-slate-300 hover:text-white border-white/10 hover:border-amber-500/30'
+                ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-sm'
+                : 'bg-[var(--surface-raised)] hover:bg-[#E9E9E6] text-zinc-700 hover:text-zinc-950 border-black/10 hover:border-amber-200'
             }`}
             title={workspaceMode === 'learn' ? '返回代码 Diff 审查' : '打开学习此仓库页面'}
           >
-            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            <BookOpen className="w-3.5 h-3.5 text-amber-700" />
             <span className="font-semibold">
               {workspaceMode === 'learn' ? '返回审查' : '学习此仓库'}
             </span>
@@ -233,12 +233,12 @@ export const Header = React.memo<HeaderProps>(({
             onClick={onToggleExplanation}
             className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${
               isExplanationOpen
-                ? 'bg-blue-600/30 text-white border-blue-500/50'
-                : 'bg-[var(--surface-raised)] hover:bg-[#272B31] text-slate-300 hover:text-white border-white/10 hover:border-blue-500/30'
+                ? 'bg-zinc-900 text-white border-zinc-400'
+                : 'bg-[var(--surface-raised)] hover:bg-[#E9E9E6] text-zinc-700 hover:text-zinc-950 border-black/10 hover:border-zinc-300'
             }`}
             title="打开/收起 AI 深度审查工作台 (查看所有审查标签页与多轮追问对话)"
           >
-            <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+            <Sparkles className="w-3.5 h-3.5 text-current" />
             <span className="font-semibold">AI 审查工作台</span>
           </button>
         )}
@@ -248,18 +248,18 @@ export const Header = React.memo<HeaderProps>(({
           onClick={onOpenAIInspector}
           className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${
             isAIRunning
-              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse shadow-emerald-500/20'
-              : 'bg-[var(--surface-raised)] hover:bg-[#272B31] text-slate-300 hover:text-white border-white/10 hover:border-blue-500/30'
+              ? 'bg-emerald-100 text-emerald-700 border-emerald-300 animate-pulse shadow-emerald-500/20'
+              : 'bg-[var(--surface-raised)] hover:bg-[#E9E9E6] text-zinc-700 hover:text-zinc-950 border-black/10 hover:border-zinc-300'
           }`}
           title="打开 AI 实时调用控制台 (实时观察大模型完整输出流、思考过程与 Prompt)"
         >
-          <Terminal className={`w-3.5 h-3.5 ${isAIRunning ? 'text-emerald-400' : 'text-blue-400'}`} />
+          <Terminal className={`w-3.5 h-3.5 ${isAIRunning ? 'text-emerald-700' : 'text-zinc-600'}`} />
           <span className="font-semibold">AI 控制台</span>
           {isAIRunning ? (
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
           ) : (
             sessions.length > 0 && (
-              <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+              <span className="bg-zinc-100 text-zinc-700 border border-zinc-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
                 {sessions.length}
               </span>
             )
@@ -269,15 +269,15 @@ export const Header = React.memo<HeaderProps>(({
         <button
           onClick={onRefresh}
           disabled={isLoading}
-          className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded-md transition"
+          className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-black/[0.03] rounded-md transition"
           title="刷新仓库与提交历史"
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-blue-400' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-zinc-600' : ''}`} />
         </button>
 
         <button
           onClick={onOpenSettings}
-          className="flex items-center space-x-1.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs px-2.5 py-1.5 rounded-md transition font-medium"
+          className="flex items-center space-x-1.5 bg-zinc-100/80 hover:bg-zinc-100 border border-zinc-300 text-zinc-700 text-xs px-2.5 py-1.5 rounded-md transition font-medium"
         >
           <Settings className="w-3.5 h-3.5" />
           <span>AI 引擎配置</span>

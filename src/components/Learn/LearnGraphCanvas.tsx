@@ -708,7 +708,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = '#111316';
+      ctx.fillStyle = '#F7F7F5';
       ctx.fillRect(0, 0, w, h);
 
       const cam = camRef.current;
@@ -911,7 +911,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           (pb.x - pa.x) * (pb.x - pa.x) + (pb.y - pa.y) * (pb.y - pa.y)
         );
         if (screenDistance > labelWidth + 42) {
-          labels.push({ text: edgeLabel, font: ctx.font, color: outgoing ? '#a7f3d0' : '#bae6fd',
+          labels.push({ text: edgeLabel, font: ctx.font, color: outgoing ? '#047857' : '#0369a1',
             alpha: 1, priority: 10, width: labelWidth + 8, height: 18,
             positions: [0.5, 0.3, 0.7].map((t) => ({
               x: (1 - t) ** 2 * geometry.start.x + 2 * (1 - t) * t * geometry.control.x + t ** 2 * geometry.end.x - (labelWidth + 8) / 2,
@@ -999,7 +999,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         ctx.fillStyle = communityColors.get(n.communityId) || communityColor(n.communityId);
         ctx.fill();
         if (n.degree >= maxDegree * 0.55) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+          ctx.strokeStyle = 'rgba(24,24,27,0.72)';
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
@@ -1010,7 +1010,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         }
         if (label) {
           const width = labelWidth + 8, height = labelSize + 8;
-          labels.push({ text: n.label, font: ctx.font, color: isActiveRoute && routeFocusActive ? '#ecfdf5' : '#e2e8f0',
+          labels.push({ text: n.label, font: ctx.font, color: isActiveRoute && routeFocusActive ? '#065f46' : '#27272a',
             alpha: dim && !hitSearch ? (routeFocusActive ? 0.48 : 0.35) : 1,
             priority: isSel || isHover ? 110 : isActiveRoute ? 105 : hitSearch ? 104 : isNb ? 80 : isBusinessCore ? 70 : 30,
             width, height, positions: [
@@ -1051,8 +1051,11 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         width: Math.max(0, w - 8), height: Math.max(0, h - controlsHeight - 24),
       }, labelObstacles)) {
         ctx.globalAlpha = label.alpha;
-        ctx.fillStyle = 'rgba(3,7,18,0.92)';
+        ctx.fillStyle = 'rgba(255,255,255,0.94)';
         ctx.fillRect(label.x, label.y, label.width, label.height);
+        ctx.strokeStyle = 'rgba(24,24,27,0.12)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(label.x, label.y, label.width, label.height);
         ctx.font = label.font;
         ctx.fillStyle = label.color;
         ctx.fillText(label.text, label.x + 4, label.y + label.height - 5);
@@ -1278,26 +1281,26 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索节点"
-          className="pointer-events-auto w-36 bg-black/50 border border-white/10 rounded-md px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-500"
+          className="pointer-events-auto w-36 bg-white/90 border border-black/10 rounded-md px-2 py-1 text-[11px] text-zinc-900 placeholder:text-zinc-500 shadow-sm"
         />
         <button
           type="button"
           onClick={fitToView}
-          className="pointer-events-auto text-[10px] px-2 py-0.5 rounded-md border border-white/10 bg-black/50 text-slate-300 hover:text-white hover:border-white/30"
+          className="pointer-events-auto text-[10px] px-2 py-0.5 rounded-md border border-black/10 bg-white/90 text-zinc-700 hover:text-zinc-950 hover:border-black/20 shadow-sm"
         >
           适应视图
         </button>
         {selectedNodeId && (
-          <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-amber-400/40 bg-black/70 px-2 py-0.5 text-[10px] text-amber-100">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-900 shadow-sm">
             <span className="max-w-52 truncate" title={focusedDetailsNode?.label || selectedNodeId}>
               已固定：{focusedDetailsNode?.label || selectedNodeId}
             </span>
-            <button type="button" onClick={clearSelection} className="shrink-0 text-slate-300 hover:text-white">
+            <button type="button" onClick={clearSelection} className="shrink-0 text-zinc-700 hover:text-zinc-950">
               取消固定
             </button>
           </div>
         )}
-        <div className="pointer-events-auto flex items-center rounded-md border border-white/10 bg-black/50 p-0.5">
+        <div className="pointer-events-auto flex items-center rounded-md border border-black/10 bg-white/90 p-0.5 shadow-sm">
           <button
             type="button"
             title="只显示主要跨类调用活动"
@@ -1305,8 +1308,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             onClick={() => setDensity('simple')}
             className={`rounded px-2 py-0.5 text-[10px] ${
               density === 'simple'
-                ? 'bg-amber-500/20 text-amber-100'
-                : 'text-slate-500 hover:text-slate-200'
+                ? 'bg-amber-100 text-amber-900'
+                : 'text-zinc-500 hover:text-zinc-900'
             }`}
           >
             简化
@@ -1318,8 +1321,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             onClick={() => setDensity('rich')}
             className={`rounded px-2 py-0.5 text-[10px] ${
               density === 'rich'
-                ? 'bg-amber-500/20 text-amber-100'
-                : 'text-slate-500 hover:text-slate-200'
+                ? 'bg-amber-100 text-amber-900'
+                : 'text-zinc-500 hover:text-zinc-900'
             }`}
           >
             丰富
@@ -1334,8 +1337,8 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             clearHover();
             onHideTestNodesChange(!hideTestNodes);
           }}
-          className={`pointer-events-auto rounded-md border bg-black/50 px-2 py-1 text-[10px] ${
-            hideTestNodes ? 'border-sky-400/40 text-sky-200' : 'border-white/10 text-slate-400'
+          className={`pointer-events-auto rounded-md border bg-white/90 px-2 py-1 text-[10px] shadow-sm ${
+            hideTestNodes ? 'border-sky-300 text-sky-800' : 'border-black/10 text-zinc-600'
           }`}
         >
           隐藏测试节点{hideTestNodes ? ' ✓' : ''} · {testNodeCount}
@@ -1366,10 +1369,10 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
               clearSelection();
             }}
             title={activeRoute?.summary || '选择一条 AI 核实的业务路线并聚焦其类级节点'}
-            className={`pointer-events-auto max-w-52 rounded-md border bg-black/50 px-2 py-1 text-[10px] ${
+            className={`pointer-events-auto max-w-52 rounded-md border bg-white/90 px-2 py-1 text-[10px] shadow-sm ${
               routeFocusActive
-                ? 'border-emerald-400/50 text-emerald-200'
-                : 'border-white/10 text-slate-300'
+                ? 'border-emerald-300 text-emerald-800'
+                : 'border-black/10 text-zinc-700'
             }`}
           >
             <option value="">社区总览（不聚焦路线）</option>
@@ -1405,15 +1408,15 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
                 onSelectCommunity(selectedCommunityId === c.id ? null : c.id);
               }}
               className={`pointer-events-auto text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 ${
-                active ? 'text-white border-white/40' : 'text-slate-300 border-white/10'
-              } ${on ? 'bg-black/50' : 'bg-black/20 opacity-40'}`}
+                active ? 'text-zinc-950 border-black/30' : 'text-zinc-700 border-black/10'
+              } ${on ? 'bg-white/90' : 'bg-zinc-100 opacity-40'}`}
             >
               <span
                 className="w-2 h-2 rounded-full shrink-0"
                 style={{ background: communityColor(c.id) }}
               />
               {c.label}
-              <span className="text-slate-500">
+              <span className="text-zinc-500">
                 {density === 'simple'
                   ? `${visibleCommunityCounts.get(c.id) || 0}/${c.nodeCount}`
                   : c.nodeCount}
@@ -1423,16 +1426,16 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         })}
       </div>
       {hideTestNodes && testNodeCount > 0 && graph.nodes.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs text-slate-400">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs text-zinc-600">
           所有节点都已按测试规则隐藏，关闭「隐藏测试节点」即可恢复。
         </div>
       )}
-      <div className="absolute bottom-2 left-2 text-[10px] text-slate-500 pointer-events-none">
+      <div className="absolute bottom-2 left-2 text-[10px] text-zinc-500 pointer-events-none">
         {(layoutCache.get(density)?.key !== layoutKey || layoutCache.get(density)?.worker) && (
-          <span className="mr-2 text-amber-300">正在后台整理社区布局…</span>
+          <span className="mr-2 text-amber-700">正在后台整理社区布局…</span>
         )}
         {layoutCache.get(density)?.key === layoutKey && layoutCache.get(density)?.error && (
-          <span className="mr-2 text-rose-300">布局失败：{layoutCache.get(density)?.error}</span>
+          <span className="mr-2 text-rose-700">布局失败：{layoutCache.get(density)?.error}</span>
         )}
         {density === 'simple'
           ? `简化（${businessCoreNodeIds.size ? 'AI 业务核心' : '候选调用骨架'}）· ${visibleNodes.length}/${graph.nodes.length} 类级节点 · ${visibleEdges.length}/${graph.edges.length} 边`
@@ -1442,31 +1445,31 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步可见`
           : ' · 社区总览'}
         {hideTestNodes && testNodeCount > 0 ? ` · 已隐藏 ${testNodeCount} 个测试节点及相关连线` : ''}
-        <span className="ml-2 text-slate-600">滚轮缩放 · 左键/中键拖动画布 · 单击节点固定路线 · 固定后缩放、拖动、悬停不切换</span>
+        <span className="ml-2 text-zinc-400">滚轮缩放 · 左键/中键拖动画布 · 单击节点固定路线 · 固定后缩放、拖动、悬停不切换</span>
       </div>
       {focusedDetailsNode && (
-        <div role="region" aria-label="节点连接详情" className="absolute bottom-2 right-2 max-w-[320px] bg-black/80 border border-white/10 rounded-lg px-2.5 py-2 text-[11px] text-slate-200 pointer-events-none">
-          <div className="font-semibold text-slate-100">{focusedDetailsNode.label}</div>
-          <div className="text-slate-400">
+        <div role="region" aria-label="节点连接详情" className="absolute bottom-2 right-2 max-w-[320px] bg-white/95 border border-black/10 rounded-lg px-2.5 py-2 text-[11px] text-zinc-900 shadow-sm pointer-events-none">
+          <div className="font-semibold text-zinc-950">{focusedDetailsNode.label}</div>
+          <div className="text-zinc-600">
             {focusedDetailsNode.kind} · 度 {focusedDetailsNode.degree}
             {focusedDetailsNode.file ? ` · ${focusedDetailsNode.file}` : ''}
           </div>
           <div className="mt-1 flex gap-3 text-[10px]">
-            <span className="text-emerald-300">绿色出边 {outgoingConnections.length}</span>
-            <span className="text-sky-300">蓝色入边 {incomingConnections.length}</span>
+            <span className="text-emerald-700">绿色出边 {outgoingConnections.length}</span>
+            <span className="text-sky-700">蓝色入边 {incomingConnections.length}</span>
           </div>
           {outgoingConnections.slice(0, 5).map(({ edge, node }) => (
-            <div key={`out:${edge.source}:${edge.target}:${edge.relation}`} className="truncate text-[10px] text-emerald-100/80">
+            <div key={`out:${edge.source}:${edge.target}:${edge.relation}`} className="truncate text-[10px] text-emerald-800">
               → {EDGE_LABEL[edge.relation] || edge.relation} · {node?.label || edge.target}
             </div>
           ))}
           {incomingConnections.slice(0, 5).map(({ edge, node }) => (
-            <div key={`in:${edge.source}:${edge.target}:${edge.relation}`} className="truncate text-[10px] text-sky-100/80">
+            <div key={`in:${edge.source}:${edge.target}:${edge.relation}`} className="truncate text-[10px] text-sky-800">
               ← {EDGE_LABEL[edge.relation] || edge.relation} · {node?.label || edge.source}
             </div>
           ))}
           {outgoingConnections.length + incomingConnections.length > 10 && (
-            <div className="text-[10px] text-slate-500">其余连接继续沿高亮曲线查看</div>
+            <div className="text-[10px] text-zinc-500">其余连接继续沿高亮曲线查看</div>
           )}
         </div>
       )}

@@ -29,12 +29,12 @@ interface ViewTransform {
 }
 
 const KIND_META: Record<LearnBusinessStepKind, { label: string; fill: string; stroke: string }> = {
-  entry: { label: '入口', fill: '#123047', stroke: '#38bdf8' },
-  process: { label: '处理', fill: '#172a46', stroke: '#60a5fa' },
-  decision: { label: '判断', fill: '#4a3213', stroke: '#fbbf24' },
-  state: { label: '状态', fill: '#14392f', stroke: '#34d399' },
-  external: { label: '外部边界', fill: '#3d2a20', stroke: '#fb923c' },
-  result: { label: '结果', fill: '#183b28', stroke: '#4ade80' },
+  entry: { label: '入口', fill: '#eff6ff', stroke: '#2563eb' },
+  process: { label: '处理', fill: '#f4f4f5', stroke: '#52525b' },
+  decision: { label: '判断', fill: '#fffbeb', stroke: '#d97706' },
+  state: { label: '状态', fill: '#ecfdf5', stroke: '#059669' },
+  external: { label: '外部边界', fill: '#fff7ed', stroke: '#ea580c' },
+  result: { label: '结果', fill: '#f0fdf4', stroke: '#16a34a' },
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -73,7 +73,7 @@ function NodeShape({ node, selected }: { node: PositionedLearnBusinessBusNode; s
   const meta = KIND_META[node.kind];
   const common = {
     fill: meta.fill,
-    stroke: selected ? '#f8fafc' : meta.stroke,
+    stroke: selected ? '#18181b' : meta.stroke,
     strokeWidth: selected ? 3 : 1.6,
   };
   if (node.kind === 'decision') {
@@ -258,8 +258,8 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
             const y = layout.laneY[index] || 0;
             return (
               <g key={route.id} opacity={active ? 1 : 0.2}>
-                <line x1={132} y1={y} x2={layout.width - 16} y2={y} stroke="#293241" strokeWidth={1} strokeDasharray="4 8" />
-                <text data-bus-route-label="true" x={16} y={y - 7} fill="#cbd5e1" fontSize={12} fontWeight={500}
+                <line x1={132} y1={y} x2={layout.width - 16} y2={y} stroke="#d4d4d8" strokeWidth={1} strokeDasharray="4 8" />
+                <text data-bus-route-label="true" x={16} y={y - 7} fill="#3f3f46" fontSize={12} fontWeight={500}
                   clipPath={`url(#${markerId}-route-labels)`}>
                   <title>{route.label}</title>
                   {truncateBusinessBusText(route.label, ROUTE_LABEL_WIDTH, 12)}
@@ -281,7 +281,7 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
                   strokeWidth={activeRouteId && active ? 2.8 : 1.6}
                   markerEnd={`url(#${markerId}-${activeRouteId && active ? 'active' : 'edge'})`} />
                 <text x={geometry.labelX} y={geometry.labelY} textAnchor="middle" fill={geometry.back ? '#fbbf24' : '#94a3b8'}
-                  fontSize={10} paintOrder="stroke" stroke="#111316" strokeWidth={4}>
+                  fontSize={10} paintOrder="stroke" stroke="#F7F7F5" strokeWidth={4}>
                   {truncateBusinessBusText(`${edge.relation}${geometry.back ? ' · 回边' : ''}`, EDGE_LABEL_WIDTH, 10)}
                 </text>
               </g>
@@ -329,13 +329,13 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
                       10
                     )}
                   </text>
-                  <text x={node.x + 14} y={node.y + 45} fill="#f1f5f9" fontSize={13} fontWeight={500}>
+                  <text x={node.x + 14} y={node.y + 45} fill="#18181b" fontSize={13} fontWeight={500}>
                     {truncateBusinessBusText(node.label, NODE_TEXT_WIDTH, 13)}
                   </text>
-                  <text x={node.x + 14} y={node.y + 65} fill="#94a3b8" fontSize={10}>
+                  <text x={node.x + 14} y={node.y + 65} fill="#52525b" fontSize={10}>
                     {truncateBusinessBusText(`${node.classSymbol}.${node.methodSymbol}`, NODE_TEXT_WIDTH, 10)}
                   </text>
-                  <text x={node.x + 14} y={node.y + 82} fill="#64748b" fontSize={9}>
+                  <text x={node.x + 14} y={node.y + 82} fill="#71717a" fontSize={9}>
                     {truncateBusinessBusText(node.file, NODE_TEXT_WIDTH, 9)}
                   </text>
                 </g>
@@ -346,7 +346,7 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
       </svg>
 
       <div className="absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] flex-wrap items-center gap-1.5 pointer-events-none">
-        <span className="pointer-events-auto rounded-md border border-emerald-400/30 bg-black/65 px-2 py-1 text-[10px] text-emerald-200">
+        <span className="pointer-events-auto rounded-md border border-emerald-300 bg-white/90 px-2 py-1 text-[10px] text-emerald-800 shadow-sm">
           源码分析 · 非运行时证明
         </span>
         <select
@@ -354,7 +354,7 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
           value={activeRouteId}
           onChange={(event) => setRoute(event.target.value)}
           title={activeRoute?.summary || '默认合并展示所有证据闭环路线'}
-          className="pointer-events-auto max-w-60 rounded-md border border-white/10 bg-black/65 px-2 py-1 text-[10px] text-slate-200"
+          className="pointer-events-auto max-w-60 rounded-md border border-black/10 bg-white/90 px-2 py-1 text-[10px] text-zinc-900 shadow-sm"
         >
           <option value="">全部业务路线</option>
           {bus.routes.map((route) => (
@@ -369,30 +369,30 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
           aria-label="隐藏测试节点"
           aria-pressed={hideTestNodes}
           onClick={() => onHideTestNodesChange(!hideTestNodes)}
-          className={`pointer-events-auto rounded-md border bg-black/65 px-2 py-1 text-[10px] ${
-            hideTestNodes ? 'border-sky-400/40 text-sky-200' : 'border-white/10 text-slate-400'
+          className={`pointer-events-auto rounded-md border bg-white/90 px-2 py-1 text-[10px] shadow-sm ${
+            hideTestNodes ? 'border-sky-300 text-sky-800' : 'border-black/10 text-zinc-600'
           }`}
         >
           隐藏测试节点{hideTestNodes ? ' ✓' : ''} · {testNodeCount}
         </button>
         <button type="button" onClick={fitView} title="适应视图"
-          className="pointer-events-auto rounded-md border border-white/10 bg-black/65 p-1 text-slate-300 hover:text-white">
+          className="pointer-events-auto rounded-md border border-black/10 bg-white/90 p-1 text-zinc-700 hover:text-zinc-950 shadow-sm">
           <Maximize2 className="h-3.5 w-3.5" />
         </button>
       </div>
 
       {bus.routes.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-xs leading-relaxed text-slate-400">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-xs leading-relaxed text-zinc-600">
           {emptyLabel || '尚无 AI 业务总线。点击右上角“开始 AI 分析”，AI 会从源码入口追到状态变化、外部边界和结果落点。'}
         </div>
       )}
       {bus.routes.length > 0 && bus.nodes.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-xs text-slate-400">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-xs text-zinc-600">
           当前业务路线的节点都已按测试规则隐藏，关闭“隐藏测试节点”即可恢复。
         </div>
       )}
       {bus.nodes.length > 0 && (
-        <div className="pointer-events-none absolute bottom-2 left-2 text-[10px] text-slate-500">
+        <div className="pointer-events-none absolute bottom-2 left-2 text-[10px] text-zinc-500">
           {bus.nodes.length} 个业务节点 · {bus.edges.length} 条有向边 · 滚轮缩放 · 左键/中键拖动画布 · 单击看证据 · 双击单路线节点深入子图
         </div>
       )}

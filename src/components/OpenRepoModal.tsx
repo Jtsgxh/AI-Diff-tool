@@ -105,24 +105,24 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-[#191C21] border border-white/10 rounded-xl w-full max-w-3xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col text-slate-200 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
+      <div className="bg-[#FFFFFF] border border-black/10 rounded-xl w-full max-w-3xl max-h-[90vh] shadow-xl overflow-hidden flex flex-col text-zinc-900 animate-in fade-in zoom-in-95 duration-200">
         {/* Modal Header */}
-        <div className="px-6 py-3.5 bg-[#121417] border-b border-white/10 flex items-center justify-between shrink-0">
+        <div className="px-6 py-3.5 bg-[#FFFFFF] border-b border-black/10 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-xl bg-blue-600 text-white shadow-md">
+            <div className="p-2 rounded-xl bg-zinc-900 text-white shadow-sm">
               <FolderGit2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">打开本地 Git 仓库</h2>
-              <p className="text-[11px] text-slate-400">
+              <h2 className="text-sm font-bold text-zinc-950">打开本地 Git 仓库</h2>
+              <p className="text-[11px] text-zinc-600">
                 支持系统目录可视化导航、输入路径或选择历史仓库
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded-lg transition"
+            className="p-1.5 text-zinc-600 hover:text-zinc-900 hover:bg-black/[0.03] rounded-lg transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -131,10 +131,10 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
         {/* Modal Body: 2 Columns (Shortcuts & Visual Browser) */}
         <div className="flex-1 flex overflow-hidden min-h-[420px]">
           {/* Left Sidebar: Quick Shortcuts & Drives */}
-          <div className="w-48 bg-[#121417]/80 border-r border-white/5 p-3 flex flex-col space-y-4 shrink-0 overflow-y-auto">
+          <div className="w-48 bg-[#FFFFFF]/80 border-r border-black/5 p-3 flex flex-col space-y-4 shrink-0 overflow-y-auto">
             {/* Quick Shortcuts */}
             <div>
-              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-1.5">
+              <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider block mb-1.5">
                 常用位置
               </span>
               <div className="space-y-1">
@@ -142,10 +142,10 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                   <button
                     key={sc.path}
                     onClick={() => loadBrowse(sc.path)}
-                    className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/5 text-[11px] text-slate-300 hover:text-white transition truncate flex items-center space-x-2 group"
+                    className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-black/[0.03] text-[11px] text-zinc-700 hover:text-zinc-950 transition truncate flex items-center space-x-2 group"
                     title={sc.path}
                   >
-                    <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0 transition" />
+                    <Folder className="w-3.5 h-3.5 text-zinc-600 shrink-0 transition" />
                     <span className="truncate">{sc.name.split(' (')[0]}</span>
                   </button>
                 ))}
@@ -155,7 +155,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
             {/* Drives (C:, D:, etc.) */}
             {quickPaths?.drives && quickPaths.drives.length > 0 && (
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-1.5">
+                <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider block mb-1.5">
                   本地磁盘
                 </span>
                 <div className="space-y-1">
@@ -163,9 +163,9 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                     <button
                       key={d.path}
                       onClick={() => loadBrowse(d.path)}
-                      className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/5 text-[11px] text-slate-300 hover:text-white transition truncate flex items-center space-x-2 group"
+                      className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-black/[0.03] text-[11px] text-zinc-700 hover:text-zinc-950 transition truncate flex items-center space-x-2 group"
                     >
-                      <HardDrive className="w-3.5 h-3.5 text-sky-400 shrink-0 transition" />
+                      <HardDrive className="w-3.5 h-3.5 text-sky-700 shrink-0 transition" />
                       <span>{d.name}</span>
                     </button>
                   ))}
@@ -175,13 +175,13 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
           </div>
 
           {/* Right Main Area: Visual Folder Navigator */}
-          <div className="flex-1 flex flex-col bg-[#191C21] p-4 overflow-hidden space-y-3">
+          <div className="flex-1 flex flex-col bg-[#FFFFFF] p-4 overflow-hidden space-y-3">
             {/* Current Path Bar & Up Button */}
-            <div className="flex items-center space-x-2 bg-[#15171A] border border-white/10 rounded-xl p-1.5">
+            <div className="flex items-center space-x-2 bg-[#FAFAF9] border border-black/10 rounded-xl p-1.5">
               <button
                 onClick={() => browseData?.parent && loadBrowse(browseData.parent)}
                 disabled={!browseData?.parent}
-                className="p-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-lg text-slate-300 transition"
+                className="p-1.5 bg-black/[0.03] hover:bg-black/[0.06] disabled:opacity-30 rounded-lg text-zinc-700 transition"
                 title="返回上一级目录 (Up)"
               >
                 <CornerLeftUp className="w-4 h-4" />
@@ -193,14 +193,14 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                   value={manualPath}
                   onChange={(e) => setManualPath(e.target.value)}
                   placeholder="输入或粘贴本地目录路径..."
-                  className="w-full bg-transparent text-xs text-slate-200 font-mono px-2 py-1 focus:outline-none placeholder:text-slate-600"
+                  className="w-full bg-transparent text-xs text-zinc-900 font-mono px-2 py-1 focus:outline-none placeholder:text-zinc-400"
                 />
               </form>
 
               <button
                 onClick={handleManualSubmit}
                 disabled={!manualPath.trim()}
-                className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition shadow"
+                className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition shadow"
               >
                 前往
               </button>
@@ -208,10 +208,10 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
 
             {/* Current Folder Status Banner (If it is a Git repo) */}
             {browseData?.isCurrentGitRepo && (
-              <div className="p-3 bg-emerald-500/15 border border-emerald-500/30 rounded-xl flex items-center justify-between">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <div className="text-xs text-emerald-300">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <div className="text-xs text-emerald-700">
                     当前目录是一个有效的 <strong>Git 仓库</strong>
                   </div>
                 </div>
@@ -220,7 +220,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                     onSelectRepo(browseData.current);
                     onClose();
                   }}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition shadow-md shadow-emerald-600/20"
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition shadow-sm shadow-emerald-600/20"
                 >
                   打开此仓库
                 </button>
@@ -230,13 +230,13 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
             {/* Subdirectories Filter */}
             <div className="flex items-center justify-between pt-1">
               <div className="relative flex-1 mr-3">
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+                <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
                 <input
                   type="text"
                   value={folderFilter}
                   onChange={(e) => setFolderFilter(e.target.value)}
                   placeholder="在当前目录下筛选文件夹..."
-                  className="w-full bg-[#15171A] text-xs text-slate-300 pl-8 pr-3 py-1.5 rounded-lg border border-white/5 focus:outline-none focus:border-blue-500/50"
+                  className="w-full bg-[#FAFAF9] text-xs text-zinc-700 pl-8 pr-3 py-1.5 rounded-lg border border-black/5 focus:outline-none focus:border-zinc-400"
                 />
               </div>
 
@@ -244,10 +244,10 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
               <button
                 onClick={handlePickNative}
                 disabled={isPicking}
-                className="text-[11px] px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg transition flex items-center space-x-1 shrink-0"
+                className="text-[11px] px-2.5 py-1.5 bg-black/[0.03] hover:bg-black/[0.06] text-zinc-700 rounded-lg transition flex items-center space-x-1 shrink-0"
                 title="若需要在系统原生弹窗中选择"
               >
-                <FolderOpen className="w-3 h-3 text-blue-400" />
+                <FolderOpen className="w-3 h-3 text-zinc-600" />
                 <span>{isPicking ? '选择中...' : '系统弹窗'}</span>
               </button>
             </div>
@@ -255,12 +255,12 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
             {/* Folders Grid / List */}
             <div className="flex-1 overflow-y-auto pr-1">
               {isLoadingBrowse ? (
-                <div className="p-12 text-center text-xs text-slate-500 flex flex-col items-center justify-center space-y-2">
-                  <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                <div className="p-12 text-center text-xs text-zinc-500 flex flex-col items-center justify-center space-y-2">
+                  <div className="w-5 h-5 rounded-full border-2 border-zinc-400 border-t-transparent animate-spin" />
                   <span>正在扫描本地文件夹...</span>
                 </div>
               ) : filteredDirs.length === 0 ? (
-                <div className="p-12 text-center text-xs text-slate-500">
+                <div className="p-12 text-center text-xs text-zinc-500">
                   当前目录下没有子文件夹
                 </div>
               ) : (
@@ -270,8 +270,8 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                       key={dir.path}
                       className={`p-2.5 rounded-xl border transition flex items-center justify-between group select-none ${
                         dir.isGitRepo
-                          ? 'bg-blue-950/25 hover:bg-blue-900/40 border-blue-500/30'
-                          : 'bg-[#121417] hover:bg-[#23262B] border-white/5'
+                          ? 'bg-zinc-100 hover:bg-zinc-200 border-zinc-300'
+                          : 'bg-[#FFFFFF] hover:bg-[#E9E9E6] border-black/5'
                       }`}
                     >
                       <div
@@ -281,8 +281,8 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                         <div
                           className={`p-1.5 rounded-lg shrink-0 ${
                             dir.isGitRepo
-                              ? 'bg-blue-500/20 text-blue-300'
-                              : 'bg-white/5 text-slate-400'
+                              ? 'bg-zinc-100 text-zinc-700'
+                              : 'bg-black/[0.03] text-zinc-600'
                           }`}
                         >
                           {dir.isGitRepo ? (
@@ -292,11 +292,11 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                           )}
                         </div>
                         <div className="flex flex-col min-w-0">
-                          <span className="text-xs font-semibold text-slate-200 group-hover:text-white truncate">
+                          <span className="text-xs font-semibold text-zinc-900 group-hover:text-zinc-950 truncate">
                             {dir.name}
                           </span>
                           {dir.isGitRepo && (
-                            <span className="text-[10px] text-emerald-400 font-medium">
+                            <span className="text-[10px] text-emerald-700 font-medium">
                               🌿 Git 仓库
                             </span>
                           )}
@@ -310,14 +310,14 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                             onSelectRepo(dir.path);
                             onClose();
                           }}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold rounded-md transition shrink-0 shadow-sm"
+                          className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-semibold rounded-md transition shrink-0 shadow-sm"
                         >
                           打开
                         </button>
                       ) : (
                         <button
                           onClick={() => loadBrowse(dir.path)}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-white transition"
+                          className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-zinc-950 transition"
                         >
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
@@ -332,9 +332,9 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
 
         {/* Modal Footer: Recent Repos */}
         {recentRepos.length > 0 && (
-          <div className="px-6 py-2.5 bg-[var(--surface-canvas)] border-t border-white/10 flex items-center justify-between text-xs shrink-0">
-            <div className="flex items-center space-x-2 text-slate-400 text-[11px] overflow-x-auto max-w-[80%] py-0.5">
-              <span className="font-semibold text-slate-500 shrink-0">最近打开:</span>
+          <div className="px-6 py-2.5 bg-[var(--surface-canvas)] border-t border-black/10 flex items-center justify-between text-xs shrink-0">
+            <div className="flex items-center space-x-2 text-zinc-600 text-[11px] overflow-x-auto max-w-[80%] py-0.5">
+              <span className="font-semibold text-zinc-500 shrink-0">最近打开:</span>
               {recentRepos.slice(0, 4).map((r) => {
                 const name = r.split(/[\/\\]/).pop() || r;
                 return (
@@ -344,7 +344,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                       onSelectRepo(r);
                       onClose();
                     }}
-                    className="shrink-0 bg-white/5 hover:bg-blue-600/20 hover:border-blue-500/30 border border-white/10 text-slate-300 hover:text-blue-200 px-2 py-0.5 rounded text-[11px] font-mono transition"
+                    className="shrink-0 bg-black/[0.03] hover:bg-zinc-900 hover:border-zinc-900 border border-black/10 text-zinc-700 hover:text-white px-2 py-0.5 rounded text-[11px] font-mono transition"
                     title={r}
                   >
                     {name}
@@ -352,7 +352,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                 );
               })}
             </div>
-            <span className="text-[11px] text-slate-500">双击文件夹可向下深入浏览</span>
+            <span className="text-[11px] text-zinc-500">双击文件夹可向下深入浏览</span>
           </div>
         )}
       </div>

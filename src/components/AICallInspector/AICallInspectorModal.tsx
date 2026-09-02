@@ -96,26 +96,26 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 animate-in fade-in duration-150 p-3 md:p-6">
-      <div className="bg-[var(--surface-canvas)] border border-white/10 rounded-xl w-full max-w-6xl h-[88vh] flex flex-col shadow-2xl overflow-hidden font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 animate-in fade-in duration-150 p-3 md:p-6">
+      <div className="bg-[var(--surface-canvas)] border border-black/10 rounded-xl w-full max-w-6xl h-[88vh] flex flex-col shadow-xl overflow-hidden font-sans">
         {/* Header */}
-        <div className="h-14 bg-[#171A1F] border-b border-white/10 px-5 flex items-center justify-between shrink-0 select-none">
+        <div className="h-14 bg-[#FAFAF9] border-b border-black/10 px-5 flex items-center justify-between shrink-0 select-none">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+            <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-900 flex items-center justify-center text-white">
               <Terminal className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-bold text-sm text-slate-100">
+                <span className="font-bold text-sm text-zinc-950">
                   AI 实时调用控制台 (AI Stream & Call Inspector)
                 </span>
                 {isAnyRunning ? (
-                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold animate-pulse">
+                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 text-[10px] font-semibold animate-pulse">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                     <span>正在实时流式输出</span>
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-500 font-mono">
+                  <span className="text-[10px] text-zinc-500 font-mono">
                     已捕获 {sessions.length} 次调用
                   </span>
                 )}
@@ -129,8 +129,8 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
               onClick={() => setAutoScroll(!autoScroll)}
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs transition border ${
                 autoScroll
-                  ? 'bg-blue-600/20 text-blue-300 border-blue-500/40'
-                  : 'bg-white/5 text-slate-400 border-white/10 hover:text-slate-200'
+                  ? 'bg-zinc-900 text-white border-zinc-900'
+                  : 'bg-black/[0.03] text-zinc-600 border-black/10 hover:text-zinc-900'
               }`}
               title="大模型流式输出时自动滚动至底部"
             >
@@ -141,17 +141,17 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
             <button
               onClick={handleCopyOutput}
               disabled={!activeSession?.rawOutput}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-xs transition disabled:opacity-40"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-black/[0.03] hover:bg-black/[0.06] border border-black/10 text-zinc-700 hover:text-zinc-950 text-xs transition disabled:opacity-40"
               title="复制当前会话的完整原始输出"
             >
-              {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              {copied ? <Check className="w-3 h-3 text-emerald-700" /> : <Copy className="w-3 h-3" />}
               <span>{copied ? '已复制' : '复制输出'}</span>
             </button>
 
             <button
               onClick={handleClearLogs}
               disabled={sessions.length === 0}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-300 hover:text-rose-200 text-xs transition disabled:opacity-40"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 hover:text-rose-800 text-xs transition disabled:opacity-40"
               title="清空所有调用日志"
             >
               <Trash2 className="w-3 h-3" />
@@ -160,7 +160,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
 
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition ml-2"
+              className="p-1.5 text-zinc-600 hover:text-zinc-950 hover:bg-black/[0.06] rounded-lg transition ml-2"
             >
               <X className="w-5 h-5" />
             </button>
@@ -170,17 +170,17 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
         {/* Body (2 Columns) */}
         <div className="flex-1 flex min-h-0">
           {/* Left Column: Call Sessions List (w-80) */}
-          <div className="w-80 border-r border-white/10 bg-[#15171A] flex flex-col shrink-0">
+          <div className="w-80 border-r border-black/10 bg-[#FAFAF9] flex flex-col shrink-0">
             {/* Search / Filter */}
-            <div className="p-3 border-b border-white/5">
+            <div className="p-3 border-b border-black/5">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+                <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2.5" />
                 <input
                   type="text"
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
                   placeholder="筛选调用记录..."
-                  className="w-full bg-[#191C21] border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+                  className="w-full bg-[#FFFFFF] border border-black/10 rounded-lg pl-8 pr-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:outline-none focus:border-zinc-400"
                 />
               </div>
             </div>
@@ -188,10 +188,10 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
             {/* Sessions Scroll List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
               {filteredSessions.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 text-xs">
-                  <Activity className="w-8 h-8 mx-auto mb-2 text-slate-600 stroke-1" />
+                <div className="text-center py-12 text-zinc-500 text-xs">
+                  <Activity className="w-8 h-8 mx-auto mb-2 text-zinc-400 stroke-1" />
                   <span>暂无 AI 调用记录</span>
-                  <p className="text-[11px] text-slate-600 mt-1">
+                  <p className="text-[11px] text-zinc-400 mt-1">
                     点击伪代码、直接解释或深度审查即可在此实时监控
                   </p>
                 </div>
@@ -207,33 +207,33 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                       onClick={() => setSelectedSessionId(s.id)}
                       className={`w-full text-left p-3 rounded-xl border transition flex flex-col space-y-1.5 ${
                         isSelected
-                          ? 'bg-blue-950/30 border-blue-500/60 shadow-sm'
-                          : 'bg-[#191C21]/60 hover:bg-[#23262B] border-white/5 text-slate-400 hover:text-slate-200'
+                          ? 'bg-zinc-100 border-zinc-400 shadow-sm'
+                          : 'bg-[#FFFFFF]/60 hover:bg-[#E9E9E6] border-black/5 text-zinc-600 hover:text-zinc-900'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-1.5 min-w-0">
                           {isRunning ? (
-                            <Activity className="w-3.5 h-3.5 text-emerald-400 animate-spin shrink-0" />
+                            <Activity className="w-3.5 h-3.5 text-emerald-700 animate-spin shrink-0" />
                           ) : isError ? (
-                            <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                            <XCircle className="w-3.5 h-3.5 text-rose-700 shrink-0" />
                           ) : (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
                           )}
                           <span
                             className={`font-semibold text-xs truncate ${
-                              isSelected ? 'text-white' : 'text-slate-200'
+                              isSelected ? 'text-zinc-950' : 'text-zinc-900'
                             }`}
                           >
                             {s.title}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                        <span className="text-[10px] text-zinc-500 font-mono shrink-0">
                           {formatDuration(s.startTime, s.endTime)}
                         </span>
                       </div>
 
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
                         <span className="truncate max-w-[140px]" title={s.model}>
                           🏷️ {s.model}
                         </span>
@@ -248,20 +248,20 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
 
           {/* Right Column: Active Session Inspector */}
           {activeSession ? (
-            <div className="flex-1 flex flex-col min-w-0 bg-[#0F1114]">
+            <div className="flex-1 flex flex-col min-w-0 bg-[#F7F7F5]">
               {/* Session Meta Header & Sub-Tabs */}
-              <div className="bg-[#171A1F] border-b border-white/10 px-5 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="bg-[#FAFAF9] border-b border-black/10 px-5 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <div className="flex items-center space-x-3">
                   <div>
                     <div className="flex items-center space-x-2">
-                      <span className="font-bold text-slate-100 text-sm">{activeSession.title}</span>
+                      <span className="font-bold text-zinc-950 text-sm">{activeSession.title}</span>
                       <span
                         className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
                           activeSession.status === 'running'
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 animate-pulse'
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200 animate-pulse'
                             : activeSession.status === 'error'
-                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
-                            : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                            ? 'bg-rose-100 text-rose-700 border-rose-200'
+                            : 'bg-zinc-100 text-zinc-700 border-zinc-300'
                         }`}
                       >
                         {activeSession.status === 'running'
@@ -271,23 +271,23 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                           : '✓ 执行完成'}
                       </span>
                     </div>
-                    <div className="flex items-center space-x-3 text-xs text-slate-400 mt-1 font-mono">
-                      <span>模型: <strong className="text-blue-300">{activeSession.model}</strong></span>
-                      <span>提供商: <strong className="text-slate-300">{activeSession.provider}</strong></span>
-                      <span>耗时: <strong className="text-slate-300">{formatDuration(activeSession.startTime, activeSession.endTime)}</strong></span>
-                      <span>字符数: <strong className="text-slate-300">{activeSession.rawOutput.length}</strong></span>
+                    <div className="flex items-center space-x-3 text-xs text-zinc-600 mt-1 font-mono">
+                      <span>模型: <strong className="text-zinc-700">{activeSession.model}</strong></span>
+                      <span>提供商: <strong className="text-zinc-700">{activeSession.provider}</strong></span>
+                      <span>耗时: <strong className="text-zinc-700">{formatDuration(activeSession.startTime, activeSession.endTime)}</strong></span>
+                      <span>字符数: <strong className="text-zinc-700">{activeSession.rawOutput.length}</strong></span>
                     </div>
                   </div>
                 </div>
 
                 {/* Sub-Tabs */}
-                <div className="flex items-center bg-[#1F2227] border border-white/10 rounded-lg p-1 space-x-1">
+                <div className="flex items-center bg-[#F1F1EF] border border-black/10 rounded-lg p-1 space-x-1">
                   <button
                     onClick={() => setActiveTab('stream')}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1.5 ${
                       activeTab === 'stream'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-zinc-900 text-white shadow-sm'
+                        : 'text-zinc-600 hover:text-zinc-900'
                     }`}
                   >
                     <Terminal className="w-3.5 h-3.5" />
@@ -298,8 +298,8 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     onClick={() => setActiveTab('reasoning')}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1.5 ${
                       activeTab === 'reasoning'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-zinc-900 text-white shadow-sm'
+                        : 'text-zinc-600 hover:text-zinc-900'
                     }`}
                   >
                     <Brain className="w-3.5 h-3.5" />
@@ -315,8 +315,8 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     onClick={() => setActiveTab('input')}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1.5 ${
                       activeTab === 'input'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-zinc-900 text-white shadow-sm'
+                        : 'text-zinc-600 hover:text-zinc-900'
                     }`}
                   >
                     <Code2 className="w-3.5 h-3.5" />
@@ -330,22 +330,22 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                 {/* TAB 1: Live Stream Output */}
                 {activeTab === 'stream' && (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs text-slate-400">
+                    <div className="flex items-center justify-between text-xs text-zinc-600">
                       <div className="flex items-center space-x-2">
-                        <span className="font-semibold text-slate-300">原始大模型流式输出：</span>
+                        <span className="font-semibold text-zinc-700">原始大模型流式输出：</span>
                         {activeSession.status === 'running' && (
-                          <span className="text-emerald-400 animate-pulse font-mono text-[11px]">
+                          <span className="text-emerald-700 animate-pulse font-mono text-[11px]">
                             ● 正在接收来自大模型服务端的实时 Token 数据流...
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center space-x-1 bg-[#191C21] border border-white/10 rounded-md p-0.5 text-[11px]">
+                      <div className="flex items-center space-x-1 bg-[#FFFFFF] border border-black/10 rounded-md p-0.5 text-[11px]">
                         <button
                           onClick={() => setOutputViewFormat('raw')}
                           className={`px-2 py-0.5 rounded transition ${
                             outputViewFormat === 'raw'
-                              ? 'bg-blue-600 text-white'
-                              : 'text-slate-400 hover:text-white'
+                              ? 'bg-zinc-900 text-white'
+                              : 'text-zinc-600 hover:text-zinc-950'
                           }`}
                         >
                           💻 纯文本 (Raw)
@@ -354,8 +354,8 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                           onClick={() => setOutputViewFormat('markdown')}
                           className={`px-2 py-0.5 rounded transition ${
                             outputViewFormat === 'markdown'
-                              ? 'bg-blue-600 text-white'
-                              : 'text-slate-400 hover:text-white'
+                              ? 'bg-zinc-900 text-white'
+                              : 'text-zinc-600 hover:text-zinc-950'
                           }`}
                         >
                           📝 Markdown 预览
@@ -364,29 +364,29 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     </div>
 
                     {activeSession.error && (
-                      <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs font-mono">
+                      <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-mono">
                         <strong>❌ 错误信息：</strong>
                         <pre className="mt-1 whitespace-pre-wrap">{activeSession.error}</pre>
                       </div>
                     )}
 
                     {outputViewFormat === 'raw' ? (
-                      <div className="p-4 rounded-xl bg-[#0C0E11] border border-white/10 font-mono text-xs text-emerald-300 leading-relaxed overflow-x-auto whitespace-pre-wrap selection:bg-blue-600 selection:text-white min-h-[300px]">
+                      <div className="p-4 rounded-xl bg-[#F6F6F4] border border-black/10 font-mono text-xs text-emerald-700 leading-relaxed overflow-x-auto whitespace-pre-wrap selection:bg-zinc-900 selection:text-white min-h-[300px]">
                         {activeSession.rawOutput ? (
                           activeSession.rawOutput
                         ) : activeSession.status === 'running' ? (
-                          <span className="text-slate-500 italic animate-pulse">
+                          <span className="text-zinc-500 italic animate-pulse">
                             (正在连接模型并等待首个 Token 返回...)
                           </span>
                         ) : (
-                          <span className="text-slate-500 italic">(无输出内容)</span>
+                          <span className="text-zinc-500 italic">(无输出内容)</span>
                         )}
                         {activeSession.status === 'running' && (
                           <span className="inline-block w-2 h-4 bg-emerald-400 ml-1 animate-pulse align-middle"></span>
                         )}
                       </div>
                     ) : (
-                      <div className="p-5 rounded-xl bg-[#15181C] border border-white/5 text-slate-200 text-xs leading-relaxed prose prose-invert prose-sm max-w-none min-h-[300px]">
+                      <div className="p-5 rounded-xl bg-[#F7F7F5] border border-black/5 text-zinc-900 text-xs leading-relaxed prose  prose-sm max-w-none min-h-[300px]">
                         {activeSession.rawOutput ? (
                           <div
                             dangerouslySetInnerHTML={{
@@ -394,7 +394,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                             }}
                           />
                         ) : (
-                          <span className="text-slate-500 italic">(等待 Markdown 输出...)</span>
+                          <span className="text-zinc-500 italic">(等待 Markdown 输出...)</span>
                         )}
                       </div>
                     )}
@@ -406,12 +406,12 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                   <div className="space-y-4 text-xs">
                     {/* DeepSeek Reasoning Content */}
                     {activeSession.reasoningContent ? (
-                      <div className="p-4 rounded-xl bg-blue-950/20 border border-blue-500/20 space-y-2">
-                        <div className="flex items-center space-x-2 text-blue-300 font-bold text-xs">
-                          <Brain className="w-4 h-4 text-blue-400" />
+                      <div className="p-4 rounded-xl bg-zinc-100 border border-zinc-200 space-y-2">
+                        <div className="flex items-center space-x-2 text-zinc-700 font-bold text-xs">
+                          <Brain className="w-4 h-4 text-zinc-600" />
                           <span>大模型思维链推导 (DeepSeek Reasoner / Thinking Trace)</span>
                         </div>
-                        <div className="font-mono text-slate-300 text-xs whitespace-pre-wrap leading-relaxed bg-[#0D0F12] p-3 rounded-lg border border-white/5">
+                        <div className="font-mono text-zinc-700 text-xs whitespace-pre-wrap leading-relaxed bg-[#F6F6F4] p-3 rounded-lg border border-black/5">
                           {activeSession.reasoningContent}
                         </div>
                       </div>
@@ -420,27 +420,27 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     {/* Codex Agent Tool Call Events */}
                     {activeSession.toolEvents && activeSession.toolEvents.length > 0 ? (
                       <div className="space-y-2.5">
-                        <div className="flex items-center space-x-2 text-slate-300 font-bold">
-                          <Wrench className="w-4 h-4 text-blue-400" />
+                        <div className="flex items-center space-x-2 text-zinc-700 font-bold">
+                          <Wrench className="w-4 h-4 text-zinc-600" />
                           <span>Codex 智能体探查轨迹 ({activeSession.toolEvents.length} 次工具调用)</span>
                         </div>
 
                         {activeSession.toolEvents.map((t, idx) => (
                           <div
                             key={`tool-${idx}`}
-                            className="p-3.5 rounded-xl bg-[#15181C] border border-white/5 space-y-2 font-mono text-xs"
+                            className="p-3.5 rounded-xl bg-[#F7F7F5] border border-black/5 space-y-2 font-mono text-xs"
                           >
-                            <div className="flex items-center justify-between text-blue-300 font-semibold">
+                            <div className="flex items-center justify-between text-zinc-700 font-semibold">
                               <span>
-                                #{idx + 1} 工具: <strong className="text-white">{t.name}</strong>
+                                #{idx + 1} 工具: <strong className="text-zinc-950">{t.name}</strong>
                               </span>
-                              <span className="text-slate-500 text-[10px]">
+                              <span className="text-zinc-500 text-[10px]">
                                 {new Date(t.timestamp).toLocaleTimeString()}
                               </span>
                             </div>
 
                             {t.args && (
-                              <div className="bg-[#0D0F12] p-2 rounded-lg border border-white/5 text-sky-300">
+                              <div className="bg-[#F6F6F4] p-2 rounded-lg border border-black/5 text-sky-700">
                                 <strong>参数 (Args):</strong>
                                 <pre className="mt-1 whitespace-pre-wrap text-[11px]">
                                   {JSON.stringify(t.args, null, 2)}
@@ -449,7 +449,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                             )}
 
                             {t.output && (
-                              <div className="bg-[#0D0F12] p-2 rounded-lg border border-white/5 text-slate-300">
+                              <div className="bg-[#F6F6F4] p-2 rounded-lg border border-black/5 text-zinc-700">
                                 <strong>输出 (Output):</strong>
                                 <pre className="mt-1 whitespace-pre-wrap text-[11px] max-h-48 overflow-y-auto">
                                   {t.output}
@@ -463,8 +463,8 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
 
                     {!activeSession.reasoningContent &&
                       (!activeSession.toolEvents || activeSession.toolEvents.length === 0) && (
-                        <div className="text-center py-16 text-slate-500">
-                          <Brain className="w-10 h-10 mx-auto mb-2 text-slate-600 stroke-1" />
+                        <div className="text-center py-16 text-zinc-500">
+                          <Brain className="w-10 h-10 mx-auto mb-2 text-zinc-400 stroke-1" />
                           <span>该次调用为直连推理，无独立工具调用或推理链</span>
                         </div>
                       )}
@@ -476,11 +476,11 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                   <div className="space-y-4 text-xs">
                     {/* User Prompt / Instruction */}
                     {activeSession.userPrompt && (
-                      <div className="p-4 rounded-xl bg-[#15181C] border border-white/5 space-y-1.5">
-                        <span className="font-bold text-slate-200">
+                      <div className="p-4 rounded-xl bg-[#F7F7F5] border border-black/5 space-y-1.5">
+                        <span className="font-bold text-zinc-900">
                           📌 发送的用户指令 / 专用提示词 (User Prompt)
                         </span>
-                        <pre className="font-mono text-slate-300 bg-[#0D0F12] p-3 rounded-lg border border-white/5 whitespace-pre-wrap leading-relaxed">
+                        <pre className="font-mono text-zinc-700 bg-[#F6F6F4] p-3 rounded-lg border border-black/5 whitespace-pre-wrap leading-relaxed">
                           {activeSession.userPrompt}
                         </pre>
                       </div>
@@ -488,11 +488,11 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
 
                     {/* System Prompt */}
                     {activeSession.systemPrompt && (
-                      <div className="p-4 rounded-xl bg-[#15181C] border border-white/5 space-y-1.5">
-                        <span className="font-bold text-slate-200">
+                      <div className="p-4 rounded-xl bg-[#F7F7F5] border border-black/5 space-y-1.5">
+                        <span className="font-bold text-zinc-900">
                           ⚙️ 系统设定提示词 (System Prompt)
                         </span>
-                        <pre className="font-mono text-slate-300 bg-[#0D0F12] p-3 rounded-lg border border-white/5 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
+                        <pre className="font-mono text-zinc-700 bg-[#F6F6F4] p-3 rounded-lg border border-black/5 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
                           {activeSession.systemPrompt}
                         </pre>
                       </div>
@@ -500,11 +500,11 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
 
                     {/* Input Diff */}
                     {activeSession.inputDiff && (
-                      <div className="p-4 rounded-xl bg-[#15181C] border border-white/5 space-y-1.5">
-                        <span className="font-bold text-slate-200">
+                      <div className="p-4 rounded-xl bg-[#F7F7F5] border border-black/5 space-y-1.5">
+                        <span className="font-bold text-zinc-900">
                           📄 输入的 Git Diff 上下文代码
                         </span>
-                        <pre className="font-mono text-slate-300 bg-[#0D0F12] p-3 rounded-lg border border-white/5 whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto">
+                        <pre className="font-mono text-zinc-700 bg-[#F6F6F4] p-3 rounded-lg border border-black/5 whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto">
                           {activeSession.inputDiff}
                         </pre>
                       </div>
@@ -514,8 +514,8 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
               </div>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-xs">
-              <Terminal className="w-12 h-12 mb-2 text-slate-600 stroke-1" />
+            <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 text-xs">
+              <Terminal className="w-12 h-12 mb-2 text-zinc-400 stroke-1" />
               <span>请选择左侧调用会话以查看完整输出过程</span>
             </div>
           )}

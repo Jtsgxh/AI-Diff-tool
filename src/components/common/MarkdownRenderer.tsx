@@ -25,7 +25,7 @@ export const MarkdownRenderer = React.memo<MarkdownRendererProps>(({ content, cl
 
   return (
     <div
-      className={className || 'prose prose-invert prose-xs max-w-none'}
+      className={className || 'prose  prose-xs max-w-none'}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

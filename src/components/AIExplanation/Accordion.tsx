@@ -31,7 +31,7 @@ export const Accordion: React.FC<AccordionProps> = ({
   <div className={`rounded-xl overflow-hidden ${tone.shell}`}>
     <div
       onClick={onToggle}
-      className={`flex items-center justify-between px-3.5 py-2.5 cursor-pointer select-none transition border-b border-white/5 ${tone.header}`}
+      className={`flex items-center justify-between px-3.5 py-2.5 cursor-pointer select-none transition border-b border-black/5 ${tone.header}`}
     >
       <div className={`flex items-center space-x-2 text-xs font-semibold ${tone.text}`}>
         {icon}
@@ -47,6 +47,6 @@ export const Accordion: React.FC<AccordionProps> = ({
       </div>
     </div>
 
-    {isOpen && <div className={`border-t border-white/5 ${tone.body}`}>{children}</div>}
+    {isOpen && <div className={`border-t border-black/5 ${tone.body}`}>{children}</div>}
   </div>
 );

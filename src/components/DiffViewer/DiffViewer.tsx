@@ -119,10 +119,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
   if (!file || !parsedDiff || !hunks) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--surface-panel)] text-slate-500 p-8">
-        <FileCode className="w-12 h-12 mb-3 text-slate-600 stroke-1" />
-        <p className="text-sm font-medium text-slate-400">请选择左侧文件以查看代码差异对比</p>
-        <p className="text-xs text-slate-600 mt-1">
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--surface-panel)] text-zinc-500 p-8">
+        <FileCode className="w-12 h-12 mb-3 text-zinc-400 stroke-1" />
+        <p className="text-sm font-medium text-zinc-600">请选择左侧文件以查看代码差异对比</p>
+        <p className="text-xs text-zinc-400 mt-1">
           支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🤖 AI 伪代码对照」
         </p>
       </div>
@@ -146,7 +146,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onToggleViewMode={onToggleViewMode}
       />
 
-      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#15171A]">
+      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#FAFAF9]">
         <div
           className="absolute inset-0 overflow-auto pb-16"
           style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
@@ -186,17 +186,17 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
             className="absolute top-0 bottom-0 z-20 w-2 -ml-1 cursor-col-resize group/split"
             style={{ left: `${split.pct}%` }}
           >
-            <div className="mx-auto h-full w-px bg-white/20 group-hover/split:w-0.5 group-hover/split:bg-blue-400 group-active/split:bg-blue-300 transition-[width,background-color]" />
+            <div className="mx-auto h-full w-px bg-black/10 group-hover/split:w-0.5 group-hover/split:bg-blue-400 group-active/split:bg-blue-300 transition-[width,background-color]" />
           </div>
         )}
       </div>
 
       {/* Multi-selection action bar */}
       {selectedHunkIds.size > 0 && (
-        <div className="absolute bottom-3 left-6 right-6 bg-[#171A1F]/95 border border-blue-500/50 rounded-xl px-4 py-2.5 shadow-2xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
+        <div className="absolute bottom-3 left-6 right-6 bg-[#FAFAF9]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
-            <div className="flex items-center space-x-1.5 text-blue-300 font-semibold font-mono">
-              <Layers className="w-4 h-4 text-blue-400" />
+            <div className="flex items-center space-x-1.5 text-zinc-700 font-semibold font-mono">
+              <Layers className="w-4 h-4 text-zinc-600" />
               <span>
                 已选中 {selectedHunkIds.size} / {hunks.length} 个改动块
               </span>
@@ -204,20 +204,20 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
             <div className="flex items-center space-x-1.5 text-[11px] font-mono">
               {selection.additions > 0 && (
-                <span className="text-emerald-400">+{selection.additions}</span>
+                <span className="text-emerald-700">+{selection.additions}</span>
               )}
               {selection.deletions > 0 && (
-                <span className="text-rose-400">-{selection.deletions}</span>
+                <span className="text-rose-700">-{selection.deletions}</span>
               )}
             </div>
 
-            <div className="flex items-center space-x-2 text-[11px] text-slate-400 pl-2 border-l border-white/10">
-              <button onClick={selectAllHunks} className="hover:text-white underline transition">
+            <div className="flex items-center space-x-2 text-[11px] text-zinc-600 pl-2 border-l border-black/10">
+              <button onClick={selectAllHunks} className="hover:text-zinc-950 underline transition">
                 全选
               </button>
               <button
                 onClick={clearHunkSelection}
-                className="hover:text-rose-400 underline transition"
+                className="hover:text-rose-700 underline transition"
               >
                 取消选择
               </button>
@@ -227,16 +227,16 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
           <div className="flex items-center space-x-2">
             <button
               onClick={() => onExplainMultipleHunks(selection.hunks, file, 'fast')}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-200 border border-amber-500/40 font-medium text-xs rounded-lg transition"
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-800 border border-amber-300 font-medium text-xs rounded-lg transition"
               title="仅针对选中的改动块进行直接快速对比解释"
             >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <Zap className="w-3.5 h-3.5 text-amber-700" />
               <span>直接联合解释 ({selectedHunkIds.size} 块)</span>
             </button>
 
             <button
               onClick={() => onExplainMultipleHunks(selection.hunks, file, 'agent')}
-              className="flex items-center space-x-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg shadow-lg transition"
+              className="flex items-center space-x-2 px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-lg shadow-sm transition"
               title="Codex 智能体将探查代码库，联合分析所选改动块的跨文件影响"
             >
               <Brain className="w-4 h-4" />
