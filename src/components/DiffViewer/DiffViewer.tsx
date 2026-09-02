@@ -146,7 +146,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onToggleViewMode={onToggleViewMode}
       />
 
-      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#F5F5F2]">
+      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#ECECE8]">
         <div
           className="absolute inset-0 overflow-auto pb-16"
           style={{ ['--diff-split-left' as string]: `${split.pct}%` }}

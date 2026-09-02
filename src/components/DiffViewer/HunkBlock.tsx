@@ -50,7 +50,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
     return (
       <div
         ref={ref}
-        className={`relative group transition-all duration-150 border-b border-black/10 ${
+        className={`relative group transition-all duration-150 border-b border-black/15 ${
           isSelected
             ? 'bg-zinc-100/70 border-l-4 border-l-blue-500 shadow-sm'
             : 'hover:bg-black/[0.015]'
@@ -153,7 +153,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
 
         {/* Split mode carries its own header; unified renders it inline with the rows. */}
         {viewMode === 'split' && (
-          <div className="bg-zinc-100 border-y border-zinc-300 px-3 py-1 text-xs text-zinc-800 font-mono select-none flex items-center justify-between">
+          <div className="bg-zinc-200/80 border-y border-zinc-400 px-3 py-1 text-xs text-zinc-900 font-mono select-none flex items-center justify-between">
             <span>{hunk.header}</span>
             <div className="flex items-center space-x-2">
               {showPseudocode && (

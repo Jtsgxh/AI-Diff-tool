@@ -28,7 +28,7 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
             return (
               <div
                 key={`hunk-hdr-${lineIdx}`}
-                className="bg-zinc-100 border-y border-zinc-300 px-3 py-1 text-xs text-zinc-800 font-mono select-none flex items-center justify-between"
+                className="bg-zinc-200/80 border-y border-zinc-400 px-3 py-1 text-xs text-zinc-900 font-mono select-none flex items-center justify-between"
               >
                 <span>{line.content}</span>
                 {showPseudocode && (
@@ -59,23 +59,23 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
           return (
             <div
               key={`line-${lineIdx}`}
-              className={`flex items-stretch font-mono text-xs leading-5 min-w-max w-full hover:bg-black/[0.07] transition-colors ${
+              className={`flex items-stretch font-mono text-xs leading-5 min-w-max w-full hover:brightness-[0.97] transition ${
                 isAdd
-                  ? 'bg-emerald-50 text-emerald-800'
+                  ? 'bg-emerald-100/80 text-emerald-950'
                   : isDelete
-                  ? 'bg-rose-50 text-rose-800'
-                  : 'text-zinc-800'
+                  ? 'bg-rose-100/80 text-rose-950'
+                  : 'bg-white text-zinc-950'
               }`}
             >
-              <div className="w-12 shrink-0 text-right pr-2 text-zinc-600 bg-[#FFFFFF]/60 select-none border-r border-black/10">
+              <div className="w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
                 {line.oldLineNumber || ''}
               </div>
-              <div className="w-12 shrink-0 text-right pr-2 text-zinc-600 bg-[#FFFFFF]/60 select-none border-r border-black/10">
+              <div className="w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
                 {line.newLineNumber || ''}
               </div>
               <div
                 className={`w-6 shrink-0 text-center font-bold select-none ${
-                  isAdd ? 'text-emerald-700' : isDelete ? 'text-rose-700' : 'text-zinc-500'
+                  isAdd ? 'text-emerald-800' : isDelete ? 'text-rose-800' : 'text-zinc-600'
                 }`}
               >
                 {isAdd ? '+' : isDelete ? '-' : ' '}
@@ -125,14 +125,14 @@ export const HunkSplitRows = React.memo<HunkRowsProps>(({ hunk, showPseudocode, 
         {rows.map((row, rowIdx) => (
           <div
             key={`split-left-${rowIdx}`}
-            className={`flex items-stretch h-5 font-mono text-xs leading-5 w-max min-w-full border-b border-black/10 ${
-              row.leftIsDelete ? 'bg-rose-50 text-rose-800' : 'text-zinc-800'
+            className={`flex items-stretch h-5 font-mono text-xs leading-5 w-max min-w-full border-b border-black/15 hover:brightness-[0.97] transition ${
+              row.leftIsDelete ? 'bg-rose-100/80 text-rose-950' : 'bg-white text-zinc-950'
             }`}
           >
-            <div className="w-12 shrink-0 text-right pr-2 text-zinc-600 bg-[#FFFFFF]/60 select-none border-r border-black/10">
+            <div className="w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
               {row.leftNumber}
             </div>
-            <div className="w-5 shrink-0 text-center font-bold select-none text-rose-700">
+            <div className="w-5 shrink-0 text-center font-bold select-none text-rose-800">
               {row.leftIsDelete ? '-' : ''}
             </div>
             <div className="whitespace-pre pl-1 pr-3">{row.leftContent}</div>
@@ -144,14 +144,14 @@ export const HunkSplitRows = React.memo<HunkRowsProps>(({ hunk, showPseudocode, 
         {rows.map((row, rowIdx) => (
           <div
             key={`split-right-${rowIdx}`}
-            className={`flex items-stretch h-5 font-mono text-xs leading-5 w-max min-w-full border-b border-black/10 ${
-              row.rightIsAdd ? 'bg-emerald-50 text-emerald-800' : 'text-zinc-800'
+            className={`flex items-stretch h-5 font-mono text-xs leading-5 w-max min-w-full border-b border-black/15 hover:brightness-[0.97] transition ${
+              row.rightIsAdd ? 'bg-emerald-100/80 text-emerald-950' : 'bg-white text-zinc-950'
             }`}
           >
-            <div className="w-12 shrink-0 text-right pr-2 text-zinc-600 bg-[#FFFFFF]/60 select-none border-r border-black/10">
+            <div className="w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
               {row.rightNumber}
             </div>
-            <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-700">
+            <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-800">
               {row.rightIsAdd ? '+' : ''}
             </div>
             <div className="whitespace-pre pl-1 pr-3">{row.rightContent}</div>
