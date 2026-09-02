@@ -6,6 +6,7 @@ import { exec } from 'child_process';
 import util from 'util';
 import { asyncHandler, badRequest, notFound } from '../http/errors';
 import { resolveRepoPath } from '../utils/paths';
+import { isGitRepository } from '../gitService';
 
 const execPromise = util.promisify(exec);
 
@@ -44,7 +45,7 @@ systemRouter.get('/quick-paths', (_req, res) => {
 });
 
 /** Lists sub-directories of a path, surfacing git repositories first. */
-systemRouter.get('/browse', (req, res) => {
+systemRouter.get('/browse', asyncHandler(async (req, res) => {
   const currentPath = resolveRepoPath((req.query.path as string) || os.homedir());
 
   if (!fs.existsSync(currentPath)) {
@@ -63,15 +64,18 @@ systemRouter.get('/browse', (req, res) => {
     if (item.name.startsWith('$') || item.name === 'System Volume Information') continue;
 
     const itemFullPath = path.join(currentPath, item.name);
-    let isGitRepo = false;
-    try {
-      isGitRepo = fs.existsSync(path.join(itemFullPath, '.git'));
-    } catch {
-      isGitRepo = false;
-    }
-
-    directories.push({ name: item.name, path: itemFullPath, isGitRepo });
+    directories.push({ name: item.name, path: itemFullPath, isGitRepo: false });
   }
+
+  const isCurrentGitRepoPromise = isGitRepository(currentPath);
+  await Promise.all(
+    directories.map(async (directory) => {
+      // Only repository roots have a .git marker. Git performs the final validation,
+      // so empty/stale markers are not advertised as repositories.
+      if (!fs.existsSync(path.join(directory.path, '.git'))) return;
+      directory.isGitRepo = await isGitRepository(directory.path);
+    })
+  );
 
   directories.sort((a, b) => {
     if (a.isGitRepo !== b.isGitRepo) return a.isGitRepo ? -1 : 1;
@@ -86,10 +90,10 @@ systemRouter.get('/browse', (req, res) => {
     parent,
     currentPath,
     parentPath: parent,
-    isCurrentGitRepo: fs.existsSync(path.join(currentPath, '.git')),
+    isCurrentGitRepo: await isCurrentGitRepoPromise,
     directories: directories.slice(0, MAX_BROWSE_ENTRIES),
   });
-});
+}));
 
 /** Native folder dialog. Windows-only; other platforms fall back to /browse. */
 systemRouter.post(

@@ -29,6 +29,16 @@ function normalizeGitPath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+/** Uses Git itself as the authority instead of trusting a stray `.git` marker. */
+export async function isGitRepository(repoPath: string): Promise<boolean> {
+  try {
+    if (!fs.existsSync(repoPath) || !fs.statSync(repoPath).isDirectory()) return false;
+    return await simpleGit(repoPath).checkIsRepo();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Diffs of a given commit (or of an immutable SHA range) never change, so they
  * are worth holding on to: re-selecting a commit in the graph then becomes a
