@@ -235,7 +235,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         style={{ paddingLeft: `${Math.max(8, depth * 14)}px` }}
         className={`flex items-center justify-between py-1.5 px-2 rounded-lg cursor-pointer transition select-none group text-xs ${
           isSelected
-            ? 'bg-zinc-900 text-white border border-zinc-400 shadow-sm'
+            ? 'bg-zinc-300 text-zinc-950 border border-zinc-400 shadow-sm'
             : 'text-zinc-800 hover:bg-black/[0.07]'
         }`}
       >
@@ -243,7 +243,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
           {getStatusBadge(file.status)}
           <span
             className={`font-medium truncate text-xs ${
-              isSelected ? 'text-white' : 'text-zinc-900 group-hover:text-zinc-950'
+              isSelected ? 'text-zinc-950' : 'text-zinc-900 group-hover:text-zinc-950'
             }`}
           >
             {node.name}
@@ -392,7 +392,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                 onClick={() => onSelectFile(file.newPath || file.oldPath)}
                 className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition select-none group text-xs ${
                   isSelected
-                    ? 'bg-zinc-900 text-white border border-zinc-400 shadow-sm'
+                    ? 'bg-zinc-300 text-zinc-950 border border-zinc-400 shadow-sm'
                     : 'text-zinc-800 hover:bg-black/[0.07]'
                 }`}
               >
@@ -400,7 +400,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                   {getStatusBadge(file.status)}
                   <div className="flex flex-col min-w-0">
                     <span className={`font-medium truncate ${
-                      isSelected ? 'text-white' : 'text-zinc-900 group-hover:text-zinc-950'
+                      isSelected ? 'text-zinc-950' : 'text-zinc-900 group-hover:text-zinc-950'
                     }`}>
                       {fileName}
                     </span>
