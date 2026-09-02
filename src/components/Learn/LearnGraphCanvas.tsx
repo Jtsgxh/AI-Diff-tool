@@ -708,7 +708,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = '#F7F7F5';
+      ctx.fillStyle = '#EFEFEC';
       ctx.fillRect(0, 0, w, h);
 
       const cam = camRef.current;
@@ -1281,12 +1281,12 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜索节点"
-          className="pointer-events-auto w-36 bg-white/90 border border-black/10 rounded-md px-2 py-1 text-[11px] text-zinc-900 placeholder:text-zinc-500 shadow-sm"
+          className="pointer-events-auto w-36 bg-white/90 border border-black/15 rounded-md px-2 py-1 text-[11px] text-zinc-900 placeholder:text-zinc-600 shadow-sm"
         />
         <button
           type="button"
           onClick={fitToView}
-          className="pointer-events-auto text-[10px] px-2 py-0.5 rounded-md border border-black/10 bg-white/90 text-zinc-700 hover:text-zinc-950 hover:border-black/20 shadow-sm"
+          className="pointer-events-auto text-[10px] px-2 py-0.5 rounded-md border border-black/15 bg-white/90 text-zinc-800 hover:text-zinc-950 hover:border-black/20 shadow-sm"
         >
           适应视图
         </button>
@@ -1295,12 +1295,12 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             <span className="max-w-52 truncate" title={focusedDetailsNode?.label || selectedNodeId}>
               已固定：{focusedDetailsNode?.label || selectedNodeId}
             </span>
-            <button type="button" onClick={clearSelection} className="shrink-0 text-zinc-700 hover:text-zinc-950">
+            <button type="button" onClick={clearSelection} className="shrink-0 text-zinc-800 hover:text-zinc-950">
               取消固定
             </button>
           </div>
         )}
-        <div className="pointer-events-auto flex items-center rounded-md border border-black/10 bg-white/90 p-0.5 shadow-sm">
+        <div className="pointer-events-auto flex items-center rounded-md border border-black/15 bg-white/90 p-0.5 shadow-sm">
           <button
             type="button"
             title="只显示主要跨类调用活动"
@@ -1309,7 +1309,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             className={`rounded px-2 py-0.5 text-[10px] ${
               density === 'simple'
                 ? 'bg-amber-100 text-amber-900'
-                : 'text-zinc-500 hover:text-zinc-900'
+                : 'text-zinc-600 hover:text-zinc-900'
             }`}
           >
             简化
@@ -1322,7 +1322,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             className={`rounded px-2 py-0.5 text-[10px] ${
               density === 'rich'
                 ? 'bg-amber-100 text-amber-900'
-                : 'text-zinc-500 hover:text-zinc-900'
+                : 'text-zinc-600 hover:text-zinc-900'
             }`}
           >
             丰富
@@ -1338,7 +1338,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             onHideTestNodesChange(!hideTestNodes);
           }}
           className={`pointer-events-auto rounded-md border bg-white/90 px-2 py-1 text-[10px] shadow-sm ${
-            hideTestNodes ? 'border-sky-300 text-sky-800' : 'border-black/10 text-zinc-600'
+            hideTestNodes ? 'border-sky-300 text-sky-800' : 'border-black/15 text-zinc-700'
           }`}
         >
           隐藏测试节点{hideTestNodes ? ' ✓' : ''} · {testNodeCount}
@@ -1372,7 +1372,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             className={`pointer-events-auto max-w-52 rounded-md border bg-white/90 px-2 py-1 text-[10px] shadow-sm ${
               routeFocusActive
                 ? 'border-emerald-300 text-emerald-800'
-                : 'border-black/10 text-zinc-700'
+                : 'border-black/15 text-zinc-800'
             }`}
           >
             <option value="">社区总览（不聚焦路线）</option>
@@ -1408,7 +1408,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
                 onSelectCommunity(selectedCommunityId === c.id ? null : c.id);
               }}
               className={`pointer-events-auto text-[10px] px-2 py-0.5 rounded-full border flex items-center gap-1 ${
-                active ? 'text-zinc-950 border-black/30' : 'text-zinc-700 border-black/10'
+                active ? 'text-zinc-950 border-black/30' : 'text-zinc-800 border-black/15'
               } ${on ? 'bg-white/90' : 'bg-zinc-100 opacity-40'}`}
             >
               <span
@@ -1416,7 +1416,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
                 style={{ background: communityColor(c.id) }}
               />
               {c.label}
-              <span className="text-zinc-500">
+              <span className="text-zinc-600">
                 {density === 'simple'
                   ? `${visibleCommunityCounts.get(c.id) || 0}/${c.nodeCount}`
                   : c.nodeCount}
@@ -1426,11 +1426,11 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
         })}
       </div>
       {hideTestNodes && testNodeCount > 0 && graph.nodes.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs text-zinc-600">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs text-zinc-700">
           所有节点都已按测试规则隐藏，关闭「隐藏测试节点」即可恢复。
         </div>
       )}
-      <div className="absolute bottom-2 left-2 text-[10px] text-zinc-500 pointer-events-none">
+      <div className="absolute bottom-2 left-2 text-[10px] text-zinc-600 pointer-events-none">
         {(layoutCache.get(density)?.key !== layoutKey || layoutCache.get(density)?.worker) && (
           <span className="mr-2 text-amber-700">正在后台整理社区布局…</span>
         )}
@@ -1445,12 +1445,12 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
           ? ` · 路线聚焦 ${activeRoute.label} · ${routeMappedStepCounts.get(activeRoute.id) || 0}/${activeRoute.steps.length} 步可见`
           : ' · 社区总览'}
         {hideTestNodes && testNodeCount > 0 ? ` · 已隐藏 ${testNodeCount} 个测试节点及相关连线` : ''}
-        <span className="ml-2 text-zinc-400">滚轮缩放 · 左键/中键拖动画布 · 单击节点固定路线 · 固定后缩放、拖动、悬停不切换</span>
+        <span className="ml-2 text-zinc-500">滚轮缩放 · 左键/中键拖动画布 · 单击节点固定路线 · 固定后缩放、拖动、悬停不切换</span>
       </div>
       {focusedDetailsNode && (
-        <div role="region" aria-label="节点连接详情" className="absolute bottom-2 right-2 max-w-[320px] bg-white/95 border border-black/10 rounded-lg px-2.5 py-2 text-[11px] text-zinc-900 shadow-sm pointer-events-none">
+        <div role="region" aria-label="节点连接详情" className="absolute bottom-2 right-2 max-w-[320px] bg-white/95 border border-black/15 rounded-lg px-2.5 py-2 text-[11px] text-zinc-900 shadow-sm pointer-events-none">
           <div className="font-semibold text-zinc-950">{focusedDetailsNode.label}</div>
-          <div className="text-zinc-600">
+          <div className="text-zinc-700">
             {focusedDetailsNode.kind} · 度 {focusedDetailsNode.degree}
             {focusedDetailsNode.file ? ` · ${focusedDetailsNode.file}` : ''}
           </div>
@@ -1469,7 +1469,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
             </div>
           ))}
           {outgoingConnections.length + incomingConnections.length > 10 && (
-            <div className="text-[10px] text-zinc-500">其余连接继续沿高亮曲线查看</div>
+            <div className="text-[10px] text-zinc-600">其余连接继续沿高亮曲线查看</div>
           )}
         </div>
       )}

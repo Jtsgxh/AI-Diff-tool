@@ -370,15 +370,15 @@ export const App: React.FC = () => {
         {isSidebarCollapsed && (
           <div
             onClick={handleToggleSidebar}
-            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
+            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/15 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
             title="点击展开 Git 提交历史图谱面板"
           >
-            <button className="p-1.5 rounded-lg bg-black/[0.03] group-hover:bg-zinc-100 group-hover:text-zinc-950 transition mb-4">
+            <button className="p-1.5 rounded-lg bg-black/[0.06] group-hover:bg-zinc-100 group-hover:text-zinc-950 transition mb-4">
               <PanelLeftOpen className="w-4 h-4" />
             </button>
             <div className="flex-1 flex items-center justify-center">
               <span
-                className="text-[11px] font-medium text-zinc-600 group-hover:text-zinc-950 transition select-none"
+                className="text-[11px] font-medium text-zinc-700 group-hover:text-zinc-950 transition select-none"
                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
               >
                 提交历史 ({commits.length})
@@ -426,18 +426,18 @@ export const App: React.FC = () => {
         {isFilesPanelCollapsed && (
           <div
             onClick={handleToggleFilesPanel}
-            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
+            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/15 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
             title="点击展开变更文件列表"
           >
             <button
               type="button"
-              className="p-1.5 rounded-lg bg-black/[0.03] group-hover:bg-sky-100 group-hover:text-sky-700 transition mb-4"
+              className="p-1.5 rounded-lg bg-black/[0.06] group-hover:bg-sky-100 group-hover:text-sky-700 transition mb-4"
             >
               <PanelLeftOpen className="w-4 h-4" />
             </button>
             <div className="flex-1 flex items-center justify-center">
               <span
-                className="text-[11px] font-medium text-zinc-600 group-hover:text-sky-700 transition select-none"
+                className="text-[11px] font-medium text-zinc-700 group-hover:text-sky-700 transition select-none"
                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
               >
                 变更文件 ({diffResult?.files.length ?? 0})

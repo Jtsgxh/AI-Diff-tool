@@ -45,9 +45,9 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
     const allSelected = selectedCount === hunkCount && hunkCount > 0;
 
     return (
-      <div className="h-11 bg-[var(--surface-panel)] border-b border-black/10 px-3 flex items-center justify-between select-none shrink-0 gap-2 overflow-x-auto">
+      <div className="h-11 bg-[var(--surface-panel)] border-b border-black/15 px-3 flex items-center justify-between select-none shrink-0 gap-2 overflow-x-auto">
         <div className="flex items-center space-x-2 min-w-0 shrink">
-          <FileCode className="w-4 h-4 text-zinc-600 shrink-0" />
+          <FileCode className="w-4 h-4 text-zinc-700 shrink-0" />
           <span
             className="font-mono text-xs font-semibold text-zinc-900 truncate max-w-[160px] md:max-w-[260px] lg:max-w-[360px]"
             title={file.newPath}
@@ -56,7 +56,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           </span>
           <span className="text-[11px] text-emerald-700 font-mono shrink-0">+{file.additions}</span>
           <span className="text-[11px] text-rose-700 font-mono shrink-0">-{file.deletions}</span>
-          <span className="text-[11px] bg-black/[0.03] text-zinc-600 px-1.5 py-0.5 rounded font-mono shrink-0 hidden sm:inline-block">
+          <span className="text-[11px] bg-black/[0.06] text-zinc-700 px-1.5 py-0.5 rounded font-mono shrink-0 hidden sm:inline-block">
             {hunkCount} 块
           </span>
         </div>
@@ -65,12 +65,12 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           {hunkCount > 1 && (
             <button
               onClick={onToggleSelectAll}
-              className="text-xs text-zinc-600 hover:text-zinc-700 transition flex items-center gap-1 shrink-0 whitespace-nowrap px-1"
+              className="text-xs text-zinc-700 hover:text-zinc-800 transition flex items-center gap-1 shrink-0 whitespace-nowrap px-1"
               title="多选当前文件的所有改动块"
             >
               {allSelected ? (
                 <>
-                  <CheckSquare className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                  <CheckSquare className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
                   <span>已全选</span>
                 </>
               ) : (
@@ -87,7 +87,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
               isPseudocodeActive
                 ? 'bg-zinc-900 text-white border-zinc-900 shadow-sm'
-                : 'bg-[var(--surface-raised)] hover:bg-[#E9E9E6] text-zinc-700 border-black/10 hover:text-zinc-950'
+                : 'bg-[var(--surface-raised)] hover:bg-[#DCDCD7] text-zinc-800 border-black/15 hover:text-zinc-950'
             }`}
             title={
               isPseudocodeActive
@@ -98,10 +98,10 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             <Sparkles
               className={`w-3.5 h-3.5 shrink-0 ${
                 isPseudocodeLoading
-                  ? 'animate-spin text-zinc-700'
+                  ? 'animate-spin text-zinc-800'
                   : isPseudocodeActive
                   ? 'text-white'
-                  : 'text-zinc-600'
+                  : 'text-zinc-700'
               }`}
             />
             <span>
@@ -114,13 +114,13 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           </button>
 
           {/* Default engine for per-hunk and per-file explanations */}
-          <div className="flex items-center bg-[var(--surface-raised)] border border-black/10 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
             <button
               onClick={() => onSetDefaultMode('agent')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'agent'
                   ? 'bg-zinc-900 text-white shadow-sm'
-                  : 'text-zinc-600 hover:text-zinc-900'
+                  : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="默认模式：关联解释（Codex Agent 自主全库探查）"
             >
@@ -132,7 +132,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'fast'
                   ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-zinc-600 hover:text-zinc-900'
+                  : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="默认模式：直接 Diff 解释（仅看增删改动）"
             >
@@ -158,13 +158,13 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             <span>{defaultMode === 'agent' ? 'Codex 解释此文件' : '解释此文件'}</span>
           </button>
 
-          <div className="flex items-center bg-[var(--surface-raised)] border border-black/10 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
             <button
               onClick={() => onToggleViewMode('split')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'split'
                   ? 'bg-zinc-900 text-white font-medium shadow-sm'
-                  : 'text-zinc-600 hover:text-zinc-900'
+                  : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="双栏代码对比 (Side-by-Side Split Diff)"
             >
@@ -176,7 +176,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'unified'
                   ? 'bg-zinc-900 text-white font-medium shadow-sm'
-                  : 'text-zinc-600 hover:text-zinc-900'
+                  : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="单栏内联代码对比 (Inline Unified Diff)"
             >

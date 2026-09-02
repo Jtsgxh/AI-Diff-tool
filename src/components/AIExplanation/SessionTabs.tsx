@@ -31,8 +31,8 @@ export const SessionTabs = React.memo<SessionTabsProps>(
               title={tooltip}
               className={`flex items-center space-x-2 px-2.5 py-1 rounded-lg text-xs cursor-pointer select-none transition shrink-0 group border ${
                 isActive
-                  ? 'bg-zinc-900 border-zinc-300 text-white font-medium shadow-sm'
-                  : 'bg-black/[0.025] border-transparent text-zinc-600 hover:bg-black/[0.05] hover:text-zinc-900'
+                  ? 'bg-zinc-900 border-zinc-400 text-white font-medium shadow-sm'
+                  : 'bg-black/[0.05] border-transparent text-zinc-700 hover:bg-black/[0.10] hover:text-zinc-900'
               }`}
             >
               {sess.engineMode === 'agent' ? (

@@ -5,14 +5,14 @@
     color-scheme: light;
     --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', Consolas, Monaco, monospace;
-    --surface-canvas: #f7f7f5;
+    --surface-canvas: #efefec;
     --surface-panel: #ffffff;
-    --surface-raised: #f1f1ef;
-    --surface-hover: #e9e9e6;
-    --border-subtle: rgba(24, 24, 27, 0.1);
-    --text-primary: #18181b;
-    --text-secondary: #52525b;
-    --accent: #18181b;
+    --surface-raised: #e5e5e1;
+    --surface-hover: #dcdcd7;
+    --border-subtle: rgba(9, 9, 11, 0.16);
+    --text-primary: #09090b;
+    --text-secondary: #3f3f46;
+    --accent: #09090b;
   }
 
   html,
@@ -45,14 +45,14 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(24, 24, 27, 0.16);
+  background: rgba(9, 9, 11, 0.24);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(24, 24, 27, 0.28);
+  background: rgba(9, 9, 11, 0.4);
   border: 2px solid transparent;
   background-clip: padding-box;
 }

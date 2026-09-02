@@ -50,7 +50,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
     return (
       <div
         ref={ref}
-        className={`relative group transition-all duration-150 border-b border-black/5 ${
+        className={`relative group transition-all duration-150 border-b border-black/10 ${
           isSelected
             ? 'bg-zinc-100/70 border-l-4 border-l-blue-500 shadow-sm'
             : 'hover:bg-black/[0.015]'
@@ -73,7 +73,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             className={`px-2 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border shadow-sm transition ${
               isSelected
                 ? 'bg-zinc-900 text-white border-zinc-900'
-                : 'bg-[#F1F1EF]/90 text-zinc-700 border-black/10 hover:border-zinc-400 hover:text-zinc-950'
+                : 'bg-[#E5E5E1]/90 text-zinc-800 border-black/15 hover:border-zinc-400 hover:text-zinc-950'
             }`}
           >
             <div
@@ -92,7 +92,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border shadow-sm transition ${
               showPseudocode
                 ? 'bg-zinc-900 text-white border-zinc-900'
-                : 'bg-[#F1F1EF]/90 hover:bg-zinc-900 text-zinc-700 hover:text-white border-zinc-300'
+                : 'bg-[#E5E5E1]/90 hover:bg-zinc-900 text-zinc-800 hover:text-white border-zinc-400'
             }`}
             title={
               showPseudocode
@@ -102,7 +102,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
                 : '点击通过 AI 将本块 Diff 改动行原位转译为伪代码'
             }
           >
-            <Sparkles className={`w-3 h-3 ${pseudocode?.loading ? 'animate-spin text-zinc-700' : ''}`} />
+            <Sparkles className={`w-3 h-3 ${pseudocode?.loading ? 'animate-spin text-zinc-800' : ''}`} />
             <span>
               {showPseudocode
                 ? pseudocode?.loading
@@ -122,7 +122,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border shadow-sm transition ${
               showNaturalLanguage
                 ? 'bg-zinc-900 text-white border-zinc-900'
-                : 'bg-[#F1F1EF]/90 hover:bg-zinc-900 text-zinc-700 hover:text-white border-zinc-300'
+                : 'bg-[#E5E5E1]/90 hover:bg-zinc-900 text-zinc-800 hover:text-white border-zinc-400'
             }`}
             title="点击在此 Diff 块内直接展开/折叠自然语言直读释义"
           >
@@ -143,7 +143,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           <button
             type="button"
             onClick={() => onExplain(hunk, 'agent')}
-            className="px-2.5 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-sm border border-zinc-300 transition"
+            className="px-2.5 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-sm border border-zinc-400 transition"
             title="【文件关联解释】Codex 智能体将自主检索全库关联文件与下游调用"
           >
             <Brain className="w-3.5 h-3.5" />
@@ -153,15 +153,15 @@ export const HunkBlock = React.memo<HunkBlockProps>(
 
         {/* Split mode carries its own header; unified renders it inline with the rows. */}
         {viewMode === 'split' && (
-          <div className="bg-zinc-100 border-y border-zinc-200 px-3 py-1 text-xs text-zinc-700 font-mono select-none flex items-center justify-between">
+          <div className="bg-zinc-100 border-y border-zinc-300 px-3 py-1 text-xs text-zinc-800 font-mono select-none flex items-center justify-between">
             <span>{hunk.header}</span>
             <div className="flex items-center space-x-2">
               {showPseudocode && (
-                <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-100 text-zinc-700 border border-zinc-300 font-sans font-medium">
+                <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-zinc-400 font-sans font-medium">
                   ✨ 概括性伪代码模式
                 </span>
               )}
-              <span className="text-[11px] text-zinc-500 font-sans">块 #{hunk.index}</span>
+              <span className="text-[11px] text-zinc-600 font-sans">块 #{hunk.index}</span>
             </div>
           </div>
         )}
@@ -191,9 +191,9 @@ export const HunkBlock = React.memo<HunkBlockProps>(
         )}
 
         {showNaturalLanguage && (
-          <div className="bg-zinc-100/80 border-y border-zinc-300 px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150">
-            <div className="p-1.5 rounded-lg bg-zinc-100 text-zinc-700 shrink-0 mt-0.5 border border-zinc-300">
-              <BookOpen className="w-4 h-4 text-zinc-600" />
+          <div className="bg-zinc-100/80 border-y border-zinc-400 px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150">
+            <div className="p-1.5 rounded-lg bg-zinc-100 text-zinc-800 shrink-0 mt-0.5 border border-zinc-400">
+              <BookOpen className="w-4 h-4 text-zinc-700" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1.5">
@@ -202,26 +202,26 @@ export const HunkBlock = React.memo<HunkBlockProps>(
                     改动块 #{hunk.index} 自然语言直读
                   </span>
                   {naturalLanguage?.loading && (
-                    <span className="text-[10px] text-zinc-600 animate-pulse font-mono font-normal">
+                    <span className="text-[10px] text-zinc-700 animate-pulse font-mono font-normal">
                       (AI 正在实时转译中...)
                     </span>
                   )}
                 </div>
                 <button
                   onClick={() => onToggleNaturalLanguage(hunk)}
-                  className="text-[10px] text-zinc-600 hover:text-zinc-900 transition"
+                  className="text-[10px] text-zinc-700 hover:text-zinc-900 transition"
                 >
                   收起
                 </button>
               </div>
-              <div className="text-zinc-700 leading-relaxed font-sans text-xs">
+              <div className="text-zinc-800 leading-relaxed font-sans text-xs">
                 {naturalLanguage?.text ? (
                   <MarkdownRenderer
                     content={naturalLanguage.text}
                     className="prose prose-sm max-w-none text-zinc-900 text-xs leading-relaxed"
                   />
                 ) : (
-                  <span className="text-zinc-600 animate-pulse text-[11px]">
+                  <span className="text-zinc-700 animate-pulse text-[11px]">
                     正在调用 AI 将该块代码改动转译为自然语言叙述...
                   </span>
                 )}

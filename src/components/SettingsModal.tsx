@@ -212,34 +212,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
-      <div className="bg-[#FFFFFF] border border-black/10 rounded-xl w-full max-w-2xl shadow-xl overflow-hidden text-zinc-900 flex flex-col max-h-[90vh]">
+      <div className="bg-[#FFFFFF] border border-black/15 rounded-xl w-full max-w-2xl shadow-xl overflow-hidden text-zinc-900 flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-5 py-4 bg-[#FFFFFF] border-b border-black/10 flex items-center justify-between shrink-0">
+        <div className="px-5 py-4 bg-[#FFFFFF] border-b border-black/15 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-2.5">
-            <div className="p-1.5 rounded-lg bg-zinc-100 text-zinc-700">
+            <div className="p-1.5 rounded-lg bg-zinc-100 text-zinc-800">
               <Settings className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-zinc-950">AI 引擎与提示词配置</h2>
-              <p className="text-[11px] text-zinc-600">
+              <p className="text-[11px] text-zinc-700">
                 配置模型连接、代码审查、仓库学习提示词与 Codex 智能体运行参数
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-zinc-600 hover:text-zinc-900">
+          <button onClick={onClose} className="text-zinc-700 hover:text-zinc-900">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex items-center bg-[#FAFAF9] px-5 pt-2 border-b border-black/5 space-x-4 text-xs font-semibold select-none shrink-0">
+        <div className="flex items-center bg-[#F5F5F2] px-5 pt-2 border-b border-black/10 space-x-4 text-xs font-semibold select-none shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('model')}
             className={`pb-2.5 flex items-center space-x-1.5 border-b-2 transition ${
               activeTab === 'model'
-                ? 'border-zinc-400 text-zinc-700 font-bold'
-                : 'border-transparent text-zinc-600 hover:text-zinc-900'
+                ? 'border-zinc-400 text-zinc-800 font-bold'
+                : 'border-transparent text-zinc-700 hover:text-zinc-900'
             }`}
           >
             <Cpu className="w-3.5 h-3.5" />
@@ -251,11 +251,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={() => setActiveTab('prompts')}
             className={`pb-2.5 flex items-center space-x-1.5 border-b-2 transition ${
               activeTab === 'prompts'
-                ? 'border-zinc-400 text-zinc-700 font-bold'
-                : 'border-transparent text-zinc-600 hover:text-zinc-900'
+                ? 'border-zinc-400 text-zinc-800 font-bold'
+                : 'border-transparent text-zinc-700 hover:text-zinc-900'
             }`}
           >
-            <MessageSquareQuote className="w-3.5 h-3.5 text-zinc-600" />
+            <MessageSquareQuote className="w-3.5 h-3.5 text-zinc-700" />
             <span>提示词定制</span>
             {form.customSystemPrompt && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
@@ -267,11 +267,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onClick={() => setActiveTab('agent')}
             className={`pb-2.5 flex items-center space-x-1.5 border-b-2 transition ${
               activeTab === 'agent'
-                ? 'border-zinc-400 text-zinc-700 font-bold'
-                : 'border-transparent text-zinc-600 hover:text-zinc-900'
+                ? 'border-zinc-400 text-zinc-800 font-bold'
+                : 'border-transparent text-zinc-700 hover:text-zinc-900'
             }`}
           >
-            <Brain className="w-3.5 h-3.5 text-zinc-600" />
+            <Brain className="w-3.5 h-3.5 text-zinc-700" />
             <span>Codex 探查与运行上限</span>
           </button>
         </div>
@@ -282,7 +282,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === 'model' && (
             <div className="space-y-4">
               <div>
-                <label className="block text-zinc-700 font-semibold mb-2">
+                <label className="block text-zinc-800 font-semibold mb-2">
                   选择 AI 大模型提供商
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -301,21 +301,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className={`p-2.5 rounded-lg border text-left transition flex flex-col justify-between ${
                         form.provider === item.id
                           ? 'bg-zinc-100 border-zinc-400 text-zinc-950 shadow-sm'
-                          : 'bg-[#F1F1EF] border-black/5 text-zinc-600 hover:text-zinc-900 hover:border-black/10'
+                          : 'bg-[#E5E5E1] border-black/10 text-zinc-700 hover:text-zinc-900 hover:border-black/15'
                       }`}
                     >
                       <span className="font-semibold text-zinc-900 text-xs">{item.label}</span>
-                      <span className="text-[10px] text-zinc-500 mt-1">{item.desc}</span>
+                      <span className="text-[10px] text-zinc-600 mt-1">{item.desc}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="space-y-3 pt-2 border-t border-black/5">
+              <div className="space-y-3 pt-2 border-t border-black/10">
                 {/* API Key */}
                 <div>
-                  <label className="block text-zinc-700 font-semibold mb-1 flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-zinc-600" />
+                  <label className="block text-zinc-800 font-semibold mb-1 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-zinc-700" />
                     <span>API 密钥 (API Key)</span>
                   </label>
                   <input
@@ -325,13 +325,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     placeholder={
                       form.provider === 'ollama' ? 'Ollama 本地运行无需填 Key' : form.provider === 'openrouter' ? 'sk-or-v1-...' : 'sk-...'
                     }
-                    className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg px-3 py-2 text-zinc-900 focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg px-3 py-2 text-zinc-900 focus:outline-none focus:border-zinc-400"
                   />
                 </div>
 
                 {/* Base URL */}
                 <div>
-                  <label className="block text-zinc-700 font-semibold mb-1 flex items-center gap-1.5">
+                  <label className="block text-zinc-800 font-semibold mb-1 flex items-center gap-1.5">
                     <Globe className="w-3.5 h-3.5 text-sky-700" />
                     <span>接口地址 (Base URL)</span>
                   </label>
@@ -340,19 +340,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={form.baseUrl}
                     onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                     placeholder={form.provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.deepseek.com/v1'}
-                    className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg px-3 py-2 text-zinc-900 font-mono text-[11px] focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg px-3 py-2 text-zinc-900 font-mono text-[11px] focus:outline-none focus:border-zinc-400"
                   />
                 </div>
 
                 {/* Model */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="block text-zinc-700 font-semibold flex items-center gap-1.5">
+                    <label className="block text-zinc-800 font-semibold flex items-center gap-1.5">
                       <Cpu className="w-3.5 h-3.5 text-emerald-700" />
                       <span>模型名称 (Model)</span>
                     </label>
                     {form.provider === 'openrouter' && (
-                      <span className="text-[10px] text-zinc-700">💡 点击下方推荐模型快捷填入</span>
+                      <span className="text-[10px] text-zinc-800">💡 点击下方推荐模型快捷填入</span>
                     )}
                   </div>
                   <input
@@ -360,7 +360,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     value={form.model}
                     onChange={(e) => setForm({ ...form, model: e.target.value })}
                     placeholder="deepseek-chat / anthropic/claude-3.5-sonnet / gpt-4o-mini"
-                    className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg px-3 py-2 text-zinc-900 font-mono text-[11px] focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg px-3 py-2 text-zinc-900 font-mono text-[11px] focus:outline-none focus:border-zinc-400"
                   />
 
                   {/* OpenRouter Model Quick Presets */}
@@ -380,7 +380,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           className={`text-[10px] px-2 py-0.5 rounded border transition font-mono ${
                             form.model === m.name
                               ? 'bg-zinc-900 text-white border-zinc-900'
-                              : 'bg-black/[0.03] text-zinc-600 border-black/5 hover:text-zinc-900 hover:bg-black/[0.06]'
+                              : 'bg-black/[0.06] text-zinc-700 border-black/10 hover:text-zinc-900 hover:bg-black/[0.12]'
                           }`}
                         >
                           {m.label}
@@ -390,9 +390,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   )}
                 </div>
               </div>
-              <div className="pt-3 border-t border-black/5 space-y-3">
+              <div className="pt-3 border-t border-black/10 space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-zinc-700 font-semibold flex items-center gap-1.5">
+                  <label className="text-zinc-800 font-semibold flex items-center gap-1.5">
                     <Maximize2 className="w-3.5 h-3.5 text-amber-700" />
                     <span>上下文窗口</span>
                   </label>
@@ -414,14 +414,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         className={`p-2 rounded-lg border text-left transition ${
                           active
                             ? 'bg-amber-100 border-amber-300 text-amber-900 shadow-sm'
-                            : 'bg-[#F1F1EF] border-black/5 text-zinc-600 hover:text-zinc-900 hover:border-black/10'
+                            : 'bg-[#E5E5E1] border-black/10 text-zinc-700 hover:text-zinc-900 hover:border-black/15'
                         }`}
                       >
                         <div className="flex items-center justify-between font-semibold text-xs">
                           <span>{preset.label}</span>
                           {active && <Check className="w-3 h-3 text-amber-700" />}
                         </div>
-                        <p className="text-[10px] text-zinc-600 mt-0.5">{preset.hint}</p>
+                        <p className="text-[10px] text-zinc-700 mt-0.5">{preset.hint}</p>
                       </button>
                     );
                   })}
@@ -438,9 +438,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         parseInt(e.target.value, 10) || CONTEXT_WINDOW_TOKENS.default,
                     })
                   }
-                  className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-amber-300"
+                  className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-amber-300"
                 />
-                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                <p className="text-[10px] text-zinc-600 leading-relaxed">
                   不设应用上限，请按模型文档填写真实窗口。Agent 初始 Diff 约{' '}
                   {agentChars.toLocaleString()} 字符，快速解释约 {fastChars.toLocaleString()} 字符；其余空间留给工具结果和输出。
                 </p>
@@ -453,14 +453,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="space-y-4">
               {/* Category Sub-Tabs */}
               <div className="flex items-start justify-between gap-2">
-                <div className="flex flex-wrap items-center bg-[#FAFAF9] border border-black/10 rounded-lg p-1 gap-1">
+                <div className="flex flex-wrap items-center bg-[#F5F5F2] border border-black/15 rounded-lg p-1 gap-1">
                   <button
                     type="button"
                     onClick={() => setPromptCategory('review')}
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'review'
                         ? 'bg-zinc-900 text-white shadow-sm'
-                        : 'text-zinc-600 hover:text-zinc-900'
+                        : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
                     <Brain className="w-3 h-3" />
@@ -473,7 +473,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'learn'
                         ? 'bg-zinc-900 text-white shadow-sm'
-                        : 'text-zinc-600 hover:text-zinc-900'
+                        : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
                     <BookOpen className="w-3 h-3" />
@@ -486,7 +486,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'fastDiff'
                         ? 'bg-zinc-900 text-white shadow-sm'
-                        : 'text-zinc-600 hover:text-zinc-900'
+                        : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
                     <Zap className="w-3 h-3" />
@@ -499,7 +499,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'pseudocode'
                         ? 'bg-zinc-900 text-white shadow-sm'
-                        : 'text-zinc-600 hover:text-zinc-900'
+                        : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
                     <Sparkles className="w-3 h-3" />
@@ -512,7 +512,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'naturalLanguage'
                         ? 'bg-zinc-900 text-white shadow-sm'
-                        : 'text-zinc-600 hover:text-zinc-900'
+                        : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
                     <BookOpen className="w-3 h-3" />
@@ -523,7 +523,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={handleResetAllPrompts}
-                  className="text-[11px] text-zinc-600 hover:text-zinc-700 flex items-center gap-1 shrink-0 ml-2"
+                  className="text-[11px] text-zinc-700 hover:text-zinc-800 flex items-center gap-1 shrink-0 ml-2"
                   title="恢复所有 5 个场景的内置推荐提示词"
                 >
                   <RotateCcw className="w-3 h-3" />
@@ -536,7 +536,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="space-y-3 animate-in fade-in duration-150">
                   {/* One-Click Presets */}
                   <div>
-                    <label className="block text-zinc-700 font-semibold mb-1.5">
+                    <label className="block text-zinc-800 font-semibold mb-1.5">
                       ⚡ 常用审查偏好一键预设 (点击即可填充)
                     </label>
                     <div className="grid grid-cols-1 gap-1.5">
@@ -552,22 +552,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             className={`p-2 rounded-lg border text-left transition flex items-start space-x-2.5 ${
                               isSelected
                                 ? 'bg-zinc-100 border-zinc-400 text-zinc-950 shadow-sm'
-                                : 'bg-[#FAFAF9] border-black/5 text-zinc-600 hover:text-zinc-900 hover:border-black/10'
+                                : 'bg-[#F5F5F2] border-black/10 text-zinc-700 hover:text-zinc-900 hover:border-black/15'
                             }`}
                           >
-                            <Icon className="w-3.5 h-3.5 text-zinc-600 shrink-0 mt-0.5" />
+                            <Icon className="w-3.5 h-3.5 text-zinc-700 shrink-0 mt-0.5" />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold text-zinc-900 text-xs">
                                   {preset.title}
                                 </span>
                                 {isSelected && (
-                                  <span className="text-[10px] text-zinc-700 font-mono flex items-center gap-0.5">
+                                  <span className="text-[10px] text-zinc-800 font-mono flex items-center gap-0.5">
                                     <Check className="w-3 h-3" /> 当前选中
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[10px] text-zinc-600 mt-0.5 leading-relaxed">
+                              <p className="text-[10px] text-zinc-700 mt-0.5 leading-relaxed">
                                 {preset.desc}
                               </p>
                             </div>
@@ -580,7 +580,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   {/* Textarea */}
                   <div className="space-y-1.5 pt-1">
                     <div className="flex items-center justify-between">
-                      <label className="block text-zinc-700 font-semibold">
+                      <label className="block text-zinc-800 font-semibold">
                         当前生效的 Codex 深度审查指令 (可自由编辑)
                       </label>
                       <button
@@ -592,7 +592,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             customSystemPrompt: DEFAULT_PROMPTS.reviewPrompt,
                           })
                         }
-                        className="text-[10px] text-zinc-600 hover:text-zinc-700 transition flex items-center gap-1"
+                        className="text-[10px] text-zinc-700 hover:text-zinc-800 transition flex items-center gap-1"
                       >
                         <RotateCcw className="w-2.5 h-2.5" />
                         <span>恢复此项默认</span>
@@ -609,9 +609,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         })
                       }
                       placeholder="可在此手写任意审查指令..."
-                      className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
+                      className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
                     />
-                    <p className="text-[10px] text-zinc-500">
+                    <p className="text-[10px] text-zinc-600">
                       用于「🧠 关联解释 (Codex)」和全文件审查，100% 由上方这段 Prompt 决定。
                     </p>
                   </div>
@@ -621,16 +621,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Sub-Category 2: Repository Business Analysis Prompt */}
               {promptCategory === 'learn' && (
                 <div className="space-y-3 animate-in fade-in duration-150">
-                  <div className="p-3 bg-[#F7F7F5] border border-black/5 rounded-lg text-zinc-700 text-xs">
-                    <span className="font-semibold text-zinc-700">💡 功能说明：</span>
-                    <span className="text-zinc-600 ml-1">
+                  <div className="p-3 bg-[#EFEFEC] border border-black/10 rounded-lg text-zinc-800 text-xs">
+                    <span className="font-semibold text-zinc-800">💡 功能说明：</span>
+                    <span className="text-zinc-700 ml-1">
                       用于「学习此仓库」的首次业务路线分析和后续追问。您可以调整分析重点、展开深度和表达方式；社区与业务路线的机器数据协议仍由系统固定。
                     </span>
                   </div>
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="block text-zinc-700 font-semibold">
+                      <label className="block text-zinc-800 font-semibold">
                         仓库业务路线分析提示词 (可自由编辑)
                       </label>
                       <button
@@ -638,7 +638,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onClick={() =>
                           setForm({ ...form, learnPrompt: DEFAULT_PROMPTS.learnPrompt })
                         }
-                        className="text-[10px] text-zinc-600 hover:text-zinc-700 transition flex items-center gap-1"
+                        className="text-[10px] text-zinc-700 hover:text-zinc-800 transition flex items-center gap-1"
                       >
                         <RotateCcw className="w-2.5 h-2.5" />
                         <span>恢复此项默认</span>
@@ -649,9 +649,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       value={form.learnPrompt || ''}
                       onChange={(e) => setForm({ ...form, learnPrompt: e.target.value })}
                       placeholder="写下您希望 AI 如何分析和讲解仓库业务路线..."
-                      className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
+                      className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
                     />
-                    <p className="text-[10px] text-zinc-500">
+                    <p className="text-[10px] text-zinc-600">
                       保存不会自动调用 AI。下次手动分析时使用新的提示词；旧提示词生成的学习缓存不会复用。
                     </p>
                   </div>
@@ -661,16 +661,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Sub-Category 3: Fast Direct Diff Prompt */}
               {promptCategory === 'fastDiff' && (
                 <div className="space-y-3 animate-in fade-in duration-150">
-                  <div className="p-3 bg-[#F7F7F5] border border-black/5 rounded-lg text-zinc-700 text-xs">
-                    <span className="font-semibold text-zinc-700">💡 功能说明：</span>
-                    <span className="text-zinc-600 ml-1">
+                  <div className="p-3 bg-[#EFEFEC] border border-black/10 rounded-lg text-zinc-800 text-xs">
+                    <span className="font-semibold text-zinc-800">💡 功能说明：</span>
+                    <span className="text-zinc-700 ml-1">
                       当您在改动块或文件工具栏中点击「⚡ 直接解释」时，大模型将执行此提示词进行快速技术剖析。
                     </span>
                   </div>
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="block text-zinc-700 font-semibold">
+                      <label className="block text-zinc-800 font-semibold">
                         直接 Diff 解释提示词 (可自由编辑)
                       </label>
                       <button
@@ -678,7 +678,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onClick={() =>
                           setForm({ ...form, fastDiffPrompt: DEFAULT_PROMPTS.fastDiffPrompt })
                         }
-                        className="text-[10px] text-zinc-600 hover:text-zinc-700 transition flex items-center gap-1"
+                        className="text-[10px] text-zinc-700 hover:text-zinc-800 transition flex items-center gap-1"
                       >
                         <RotateCcw className="w-2.5 h-2.5" />
                         <span>恢复此项默认</span>
@@ -689,7 +689,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       value={form.fastDiffPrompt || ''}
                       onChange={(e) => setForm({ ...form, fastDiffPrompt: e.target.value })}
                       placeholder="手写直接 Diff 解释指令..."
-                      className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
+                      className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
                     />
                   </div>
                 </div>
@@ -698,16 +698,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Sub-Category 4: Conceptual Pseudocode Prompt */}
               {promptCategory === 'pseudocode' && (
                 <div className="space-y-3 animate-in fade-in duration-150">
-                  <div className="p-3 bg-[#F7F7F5] border border-black/5 rounded-lg text-zinc-700 text-xs">
-                    <span className="font-semibold text-zinc-700">💡 功能说明：</span>
-                    <span className="text-zinc-600 ml-1">
+                  <div className="p-3 bg-[#EFEFEC] border border-black/10 rounded-lg text-zinc-800 text-xs">
+                    <span className="font-semibold text-zinc-800">💡 功能说明：</span>
+                    <span className="text-zinc-700 ml-1">
                       当您点击改动块上的「🤖 AI 伪代码」时，大模型将按照此提示词提炼出高层语义、通俗精炼的伪代码对照步骤。
                     </span>
                   </div>
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="block text-zinc-700 font-semibold">
+                      <label className="block text-zinc-800 font-semibold">
                         概括性伪代码提炼提示词 (可自由编辑)
                       </label>
                       <button
@@ -715,7 +715,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         onClick={() =>
                           setForm({ ...form, pseudocodePrompt: DEFAULT_PROMPTS.pseudocodePrompt })
                         }
-                        className="text-[10px] text-zinc-600 hover:text-zinc-700 transition flex items-center gap-1"
+                        className="text-[10px] text-zinc-700 hover:text-zinc-800 transition flex items-center gap-1"
                       >
                         <RotateCcw className="w-2.5 h-2.5" />
                         <span>恢复此项默认</span>
@@ -726,7 +726,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       value={form.pseudocodePrompt || ''}
                       onChange={(e) => setForm({ ...form, pseudocodePrompt: e.target.value })}
                       placeholder="手写概括性伪代码提炼指令..."
-                      className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
+                      className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
                     />
                   </div>
                 </div>
@@ -735,16 +735,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* Sub-Category 5: Natural Language Narrative Prompt */}
               {promptCategory === 'naturalLanguage' && (
                 <div className="space-y-3 animate-in fade-in duration-150">
-                  <div className="p-3 bg-[#F7F7F5] border border-black/5 rounded-lg text-zinc-700 text-xs">
-                    <span className="font-semibold text-zinc-700">💡 功能说明：</span>
-                    <span className="text-zinc-600 ml-1">
+                  <div className="p-3 bg-[#EFEFEC] border border-black/10 rounded-lg text-zinc-800 text-xs">
+                    <span className="font-semibold text-zinc-800">💡 功能说明：</span>
+                    <span className="text-zinc-700 ml-1">
                       当您在改动块点击「📖 块释义」或右上角开启「📖 自然语言直读」时，大模型将按照此提示词将 Diff 叙述为通俗的业务故事。
                     </span>
                   </div>
 
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="block text-zinc-700 font-semibold">
+                      <label className="block text-zinc-800 font-semibold">
                         自然语言转译提示词 (可自由编辑)
                       </label>
                       <button
@@ -755,7 +755,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             naturalLanguagePrompt: DEFAULT_PROMPTS.naturalLanguagePrompt,
                           })
                         }
-                        className="text-[10px] text-zinc-600 hover:text-zinc-700 transition flex items-center gap-1"
+                        className="text-[10px] text-zinc-700 hover:text-zinc-800 transition flex items-center gap-1"
                       >
                         <RotateCcw className="w-2.5 h-2.5" />
                         <span>恢复此项默认</span>
@@ -766,7 +766,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       value={form.naturalLanguagePrompt || ''}
                       onChange={(e) => setForm({ ...form, naturalLanguagePrompt: e.target.value })}
                       placeholder="手写自然语言直读叙述指令..."
-                      className="w-full bg-[#FAFAF9] border border-black/10 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
+                      className="w-full bg-[#F5F5F2] border border-black/15 rounded-lg p-3 text-zinc-900 text-xs focus:outline-none focus:border-zinc-400 leading-relaxed font-sans"
                     />
                   </div>
                 </div>
@@ -777,15 +777,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* TAB 3: Agent Exploration & Limits Configuration */}
           {activeTab === 'agent' && (
             <div className="space-y-4">
-              <div className="p-3 bg-zinc-100 border border-zinc-300 rounded-lg text-zinc-700 text-xs flex items-center justify-between">
+              <div className="p-3 bg-zinc-100 border border-zinc-400 rounded-lg text-zinc-800 text-xs flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <Brain className="w-4 h-4 text-zinc-600 shrink-0" />
+                  <Brain className="w-4 h-4 text-zinc-700 shrink-0" />
                   <span>在此微调 Codex 智能体对代码库探查的深度、超时保护与步数控制。</span>
                 </div>
                 <button
                   type="button"
                   onClick={handleResetAgentDefaults}
-                  className="text-[11px] text-zinc-600 hover:text-zinc-700 flex items-center gap-1 shrink-0 ml-2"
+                  className="text-[11px] text-zinc-700 hover:text-zinc-800 flex items-center gap-1 shrink-0 ml-2"
                   title="恢复默认推荐值"
                 >
                   <RotateCcw className="w-3 h-3" />
@@ -794,17 +794,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               {/* 1. Autonomous Planning vs Fixed Turns */}
-              <div className="p-3 bg-[#FAFAF9] border border-black/5 rounded-lg space-y-3">
+              <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-zinc-900 flex items-center gap-1.5">
-                    <Brain className="w-3.5 h-3.5 text-zinc-600" />
+                    <Brain className="w-3.5 h-3.5 text-zinc-700" />
                     <span>探查模式与轮数上限 (Autonomous Planning)</span>
                   </label>
                   <span
                     className={`font-mono font-bold text-xs px-2 py-0.5 rounded border ${
                       !form.maxExplorationTurns || form.maxExplorationTurns === 0
                         ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                        : 'bg-zinc-100 text-zinc-700 border-zinc-300'
+                        : 'bg-zinc-100 text-zinc-800 border-zinc-400'
                     }`}
                   >
                     {!form.maxExplorationTurns || form.maxExplorationTurns === 0
@@ -820,7 +820,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`p-2.5 rounded-lg border text-left transition ${
                       !form.maxExplorationTurns || form.maxExplorationTurns === 0
                         ? 'bg-zinc-100 border-zinc-400 text-zinc-950 shadow-sm'
-                        : 'bg-[#FFFFFF] border-black/5 text-zinc-600 hover:text-zinc-900'
+                        : 'bg-[#FFFFFF] border-black/10 text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
                     <div className="flex items-center justify-between font-semibold text-xs">
@@ -829,7 +829,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <Check className="w-3.5 h-3.5 text-emerald-700" />
                       )}
                     </div>
-                    <p className="text-[10px] text-zinc-600 mt-1">
+                    <p className="text-[10px] text-zinc-700 mt-1">
                       由 Codex 自主决定何时收敛；安全上限使用 Agents SDK 默认的 10 轮，达到后自动进入综合阶段。
                     </p>
                   </button>
@@ -840,26 +840,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className={`p-2.5 rounded-lg border text-left transition ${
                       form.maxExplorationTurns && form.maxExplorationTurns > 0
                         ? 'bg-zinc-100 border-zinc-400 text-zinc-950 shadow-sm'
-                        : 'bg-[#FFFFFF] border-black/5 text-zinc-600 hover:text-zinc-900'
+                        : 'bg-[#FFFFFF] border-black/10 text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
                     <div className="flex items-center justify-between font-semibold text-xs">
                       <span>⚙️ 手动设定步数上限</span>
                       {form.maxExplorationTurns && form.maxExplorationTurns > 0 ? (
-                        <Check className="w-3.5 h-3.5 text-zinc-600" />
+                        <Check className="w-3.5 h-3.5 text-zinc-700" />
                       ) : null}
                     </div>
-                    <p className="text-[10px] text-zinc-600 mt-1">
+                    <p className="text-[10px] text-zinc-700 mt-1">
                       设定明确的探查轮数阈值，适合严苛控制 API 消耗。
                     </p>
                   </button>
                 </div>
 
                 {form.maxExplorationTurns && form.maxExplorationTurns > 0 ? (
-                  <div className="space-y-1.5 pt-2 border-t border-black/5">
-                    <div className="flex justify-between text-[11px] text-zinc-700">
+                  <div className="space-y-1.5 pt-2 border-t border-black/10">
+                    <div className="flex justify-between text-[11px] text-zinc-800">
                       <span>手动步数上限滑块：</span>
-                      <span className="font-mono font-bold text-zinc-700">
+                      <span className="font-mono font-bold text-zinc-800">
                         {form.maxExplorationTurns} 轮
                       </span>
                     </div>
@@ -871,7 +871,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onChange={(e) =>
                         setForm({ ...form, maxExplorationTurns: parseInt(e.target.value, 10) })
                       }
-                      className="w-full bg-[#FFFFFF] border border-black/10 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
+                      className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                     />
                   </div>
                 ) : null}
@@ -880,8 +880,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {/* 2. Timeout & Retries */}
               <div className="grid grid-cols-2 gap-3">
                 {/* Timeout */}
-                <div className="p-3 bg-[#FAFAF9] border border-black/5 rounded-lg space-y-1.5">
-                  <label className="font-semibold text-zinc-700 text-xs flex items-center gap-1.5">
+                <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-1.5">
+                  <label className="font-semibold text-zinc-800 text-xs flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-sky-700" />
                     <span>首包等待超时 (TTFB)</span>
                   </label>
@@ -894,16 +894,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) =>
                       setForm({ ...form, timeoutSeconds: parseInt(e.target.value, 10) })
                     }
-                    className="w-full bg-[#FFFFFF] border border-black/10 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                   />
-                  <p className="text-[10px] text-zinc-500">
+                  <p className="text-[10px] text-zinc-600">
                     只限制模型迟迟不开始响应；开始流式输出后不会按总时长截断
                   </p>
                 </div>
 
                 {/* Stream idle timeout */}
-                <div className="p-3 bg-[#FAFAF9] border border-black/5 rounded-lg space-y-1.5">
-                  <label className="font-semibold text-zinc-700 text-xs flex items-center gap-1.5">
+                <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-1.5">
+                  <label className="font-semibold text-zinc-800 text-xs flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
                     <span>流式静默超时</span>
                   </label>
@@ -916,16 +916,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) =>
                       setForm({ ...form, streamIdleTimeoutSeconds: parseInt(e.target.value, 10) })
                     }
-                    className="w-full bg-[#FFFFFF] border border-black/10 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                   />
-                  <p className="text-[10px] text-zinc-500">
+                  <p className="text-[10px] text-zinc-600">
                     流式开始后连续无真实 AI 进度才中止；正常持续输出可运行任意时长
                   </p>
                 </div>
 
                 {/* Retries */}
-                <div className="p-3 bg-[#FAFAF9] border border-black/5 rounded-lg space-y-1.5">
-                  <label className="font-semibold text-zinc-700 text-xs flex items-center gap-1.5">
+                <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-1.5">
+                  <label className="font-semibold text-zinc-800 text-xs flex items-center gap-1.5">
                     <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
                     <span>网络断线/超时重试</span>
                   </label>
@@ -935,17 +935,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     step={1}
                     value={form.maxRetries !== undefined ? form.maxRetries : 2}
                     onChange={(e) => setForm({ ...form, maxRetries: parseInt(e.target.value, 10) })}
-                    className="w-full bg-[#FFFFFF] border border-black/10 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                   />
-                  <p className="text-[10px] text-zinc-500">遇到 504/网络抖动时自动指数退避重试</p>
+                  <p className="text-[10px] text-zinc-600">遇到 504/网络抖动时自动指数退避重试</p>
                 </div>
               </div>
 
               {/* 3. Read Lines & Search Results */}
               <div className="grid grid-cols-2 gap-3">
                 {/* Max File Read Lines */}
-                <div className="p-3 bg-[#FAFAF9] border border-black/5 rounded-lg space-y-1.5">
-                  <label className="font-semibold text-zinc-700 text-xs flex items-center gap-1.5">
+                <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-1.5">
+                  <label className="font-semibold text-zinc-800 text-xs flex items-center gap-1.5">
                     <FileCode2 className="w-3.5 h-3.5 text-emerald-700" />
                     <span>单文件最大阅读行数</span>
                   </label>
@@ -957,14 +957,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) =>
                       setForm({ ...form, maxReadFileLines: parseInt(e.target.value, 10) || 2000 })
                     }
-                    className="w-full bg-[#FFFFFF] border border-black/10 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                   />
-                  <p className="text-[10px] text-zinc-500">默认 2000 行；大文件会返回下一页行号，可继续读取</p>
+                  <p className="text-[10px] text-zinc-600">默认 2000 行；大文件会返回下一页行号，可继续读取</p>
                 </div>
 
                 {/* Max Search Results */}
-                <div className="p-3 bg-[#FAFAF9] border border-black/5 rounded-lg space-y-1.5">
-                  <label className="font-semibold text-zinc-700 text-xs flex items-center gap-1.5">
+                <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-1.5">
+                  <label className="font-semibold text-zinc-800 text-xs flex items-center gap-1.5">
                     <Search className="w-3.5 h-3.5 text-sky-700" />
                     <span>全库符号搜索上限</span>
                   </label>
@@ -976,14 +976,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) =>
                       setForm({ ...form, maxSearchResults: parseInt(e.target.value, 10) || 200 })
                     }
-                    className="w-full bg-[#FFFFFF] border border-black/10 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
+                    className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                   />
-                  <p className="text-[10px] text-zinc-500">默认每页 200 条；可由 Agent 使用 offset 继续翻页</p>
+                  <p className="text-[10px] text-zinc-600">默认每页 200 条；可由 Agent 使用 offset 继续翻页</p>
                 </div>
               </div>
 
               {/* 5. Cache Storage Manager */}
-              <div className="p-3 bg-[#FAFAF9] border border-black/5 rounded-lg space-y-2">
+              <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-zinc-900 text-xs flex items-center gap-1.5">
                     <Database className="w-3.5 h-3.5 text-sky-700" />
@@ -993,7 +993,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     已保存 {aiCache.getCount()} 处审查结果
                   </span>
                 </div>
-                <p className="text-[11px] text-zinc-600 leading-relaxed">
+                <p className="text-[11px] text-zinc-700 leading-relaxed">
                   系统会自动为已分析过的改动块与 Codex 报告建立指纹缓存，再次查看时 0ms 瞬间加载，0 额外 Token 消耗。
                 </p>
                 <div className="pt-1 flex justify-end">
@@ -1014,13 +1014,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
 
           {/* Footer */}
-          <div className="pt-3 border-t border-black/10 flex items-center justify-between shrink-0">
-            <span className="text-[11px] text-zinc-500">配置将持久化保存在本地浏览器</span>
+          <div className="pt-3 border-t border-black/15 flex items-center justify-between shrink-0">
+            <span className="text-[11px] text-zinc-600">配置将持久化保存在本地浏览器</span>
             <div className="flex items-center space-x-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3 py-1.5 rounded-lg bg-zinc-200 hover:bg-zinc-300 text-zinc-700 transition"
+                className="px-3 py-1.5 rounded-lg bg-zinc-200 hover:bg-zinc-300 text-zinc-800 transition"
               >
                 取消
               </button>

@@ -191,18 +191,18 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
           <div
             onClick={() => toggleFolder(node.path)}
             style={{ paddingLeft: `${Math.max(6, depth * 14)}px` }}
-            className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-black/[0.05] text-xs text-zinc-700 hover:text-zinc-950 cursor-pointer select-none group transition"
+            className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-black/[0.10] text-xs text-zinc-800 hover:text-zinc-950 cursor-pointer select-none group transition"
           >
             <div className="flex items-center space-x-1.5 min-w-0">
               {isCollapsed ? (
-                <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0 group-hover:text-zinc-950" />
+                <ChevronRight className="w-3.5 h-3.5 text-zinc-600 shrink-0 group-hover:text-zinc-950" />
               ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-zinc-600 shrink-0 group-hover:text-zinc-950" />
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-700 shrink-0 group-hover:text-zinc-950" />
               )}
               {isCollapsed ? (
-                <Folder className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                <Folder className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
               ) : (
-                <FolderOpen className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+                <FolderOpen className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
               )}
               <span className="font-semibold truncate text-[11px] text-zinc-900 group-hover:text-zinc-950">
                 {node.name}
@@ -235,8 +235,8 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         style={{ paddingLeft: `${Math.max(8, depth * 14)}px` }}
         className={`flex items-center justify-between py-1.5 px-2 rounded-lg cursor-pointer transition select-none group text-xs ${
           isSelected
-            ? 'bg-zinc-900 text-white border border-zinc-300 shadow-sm'
-            : 'text-zinc-700 hover:bg-black/[0.035]'
+            ? 'bg-zinc-900 text-white border border-zinc-400 shadow-sm'
+            : 'text-zinc-800 hover:bg-black/[0.07]'
         }`}
       >
         <div className="flex items-center space-x-1.5 min-w-0 mr-1.5">
@@ -271,7 +271,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                 e.stopPropagation();
                 onExplainFile(file);
               }}
-              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-100 text-zinc-700 rounded transition ml-1"
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-100 text-zinc-800 rounded transition ml-1"
               title="使用 AI 语义解释该文件"
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -283,14 +283,14 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[var(--surface-panel)] border-r border-black/10 text-zinc-900">
+    <div className="flex flex-col h-full bg-[var(--surface-panel)] border-r border-black/15 text-zinc-900">
       {/* Header & Stats */}
-      <div className="p-3 border-b border-black/10 flex flex-col space-y-2.5 bg-[#FAFAF9]">
+      <div className="p-3 border-b border-black/15 flex flex-col space-y-2.5 bg-[#F5F5F2]">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-xs font-semibold text-zinc-700">
+          <div className="flex items-center space-x-2 text-xs font-semibold text-zinc-800">
             <FileDiff className="w-4 h-4 text-sky-700" />
             <span>变更文件</span>
-            <span className="text-[11px] bg-black/[0.03] text-zinc-600 px-1.5 py-0.2 rounded font-mono">
+            <span className="text-[11px] bg-black/[0.06] text-zinc-700 px-1.5 py-0.2 rounded font-mono">
               {files.length}
             </span>
           </div>
@@ -310,11 +310,11 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
             )}
 
             {/* Tree vs List View Toggle */}
-            <div className="flex items-center bg-[#F1F1EF] border border-black/10 rounded-md p-0.5 text-xs">
+            <div className="flex items-center bg-[#E5E5E1] border border-black/15 rounded-md p-0.5 text-xs">
               <button
                 onClick={() => setViewMode('tree')}
                 className={`p-1 rounded transition ${
-                  viewMode === 'tree' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:text-zinc-950'
+                  viewMode === 'tree' ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:text-zinc-950'
                 }`}
                 title="树状目录层级视图"
               >
@@ -323,7 +323,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
               <button
                 onClick={() => setViewMode('list')}
                 className={`p-1 rounded transition ${
-                  viewMode === 'list' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:text-zinc-950'
+                  viewMode === 'list' ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:text-zinc-950'
                 }`}
                 title="平铺文件列表视图"
               >
@@ -334,7 +334,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
             {onCollapse && (
               <button
                 onClick={onCollapse}
-                className="p-1 text-zinc-600 hover:text-zinc-900 hover:bg-black/[0.03] rounded transition flex items-center gap-1 text-[11px]"
+                className="p-1 text-zinc-700 hover:text-zinc-900 hover:bg-black/[0.06] rounded transition flex items-center gap-1 text-[11px]"
                 title="收起变更文件列表"
               >
                 <PanelLeftClose className="w-3.5 h-3.5" />
@@ -356,13 +356,13 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
 
         {/* Filter Input */}
         <div className="relative">
-          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2.5" />
+          <Search className="w-3.5 h-3.5 text-zinc-600 absolute left-2.5 top-2.5" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="筛选改动文件 / 目录..."
-            className="w-full bg-[var(--surface-raised)] text-xs text-zinc-900 pl-8 pr-3 py-1.5 rounded-lg border border-black/5 focus:outline-none focus:border-zinc-400 transition placeholder:text-zinc-500"
+            className="w-full bg-[var(--surface-raised)] text-xs text-zinc-900 pl-8 pr-3 py-1.5 rounded-lg border border-black/10 focus:outline-none focus:border-zinc-400 transition placeholder:text-zinc-600"
           />
         </div>
       </div>
@@ -370,8 +370,8 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
       {/* Files Content */}
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
         {filteredFiles.length === 0 ? (
-          <div className="p-8 text-center text-xs text-zinc-500 flex flex-col items-center justify-center space-y-1.5">
-            <FileCode className="w-8 h-8 text-zinc-400 stroke-1" />
+          <div className="p-8 text-center text-xs text-zinc-600 flex flex-col items-center justify-center space-y-1.5">
+            <FileCode className="w-8 h-8 text-zinc-500 stroke-1" />
             <span>{isLoading ? '正在加载文件差异...' : '暂无变更文件'}</span>
           </div>
         ) : viewMode === 'tree' ? (
@@ -392,8 +392,8 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                 onClick={() => onSelectFile(file.newPath || file.oldPath)}
                 className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition select-none group text-xs ${
                   isSelected
-                    ? 'bg-zinc-900 text-white border border-zinc-300 shadow-sm'
-                    : 'text-zinc-700 hover:bg-black/[0.035]'
+                    ? 'bg-zinc-900 text-white border border-zinc-400 shadow-sm'
+                    : 'text-zinc-800 hover:bg-black/[0.07]'
                 }`}
               >
                 <div className="flex items-center space-x-2 min-w-0 mr-2">
@@ -405,7 +405,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                       {fileName}
                     </span>
                     {dirPath && (
-                      <span className="text-[10px] text-zinc-500 truncate">{dirPath}</span>
+                      <span className="text-[10px] text-zinc-600 truncate">{dirPath}</span>
                     )}
                   </div>
                 </div>
@@ -431,7 +431,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                         e.stopPropagation();
                         onExplainFile(file);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-100 text-zinc-700 rounded transition ml-1"
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-100 text-zinc-800 rounded transition ml-1"
                       title="使用 AI 语义解释该文件"
                     >
                       <Sparkles className="w-3.5 h-3.5" />

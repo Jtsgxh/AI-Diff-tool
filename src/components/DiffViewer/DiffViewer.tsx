@@ -119,10 +119,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
   if (!file || !parsedDiff || !hunks) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--surface-panel)] text-zinc-500 p-8">
-        <FileCode className="w-12 h-12 mb-3 text-zinc-400 stroke-1" />
-        <p className="text-sm font-medium text-zinc-600">请选择左侧文件以查看代码差异对比</p>
-        <p className="text-xs text-zinc-400 mt-1">
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--surface-panel)] text-zinc-600 p-8">
+        <FileCode className="w-12 h-12 mb-3 text-zinc-500 stroke-1" />
+        <p className="text-sm font-medium text-zinc-700">请选择左侧文件以查看代码差异对比</p>
+        <p className="text-xs text-zinc-500 mt-1">
           支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🤖 AI 伪代码对照」
         </p>
       </div>
@@ -146,7 +146,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onToggleViewMode={onToggleViewMode}
       />
 
-      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#FAFAF9]">
+      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#F5F5F2]">
         <div
           className="absolute inset-0 overflow-auto pb-16"
           style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
@@ -193,10 +193,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
       {/* Multi-selection action bar */}
       {selectedHunkIds.size > 0 && (
-        <div className="absolute bottom-3 left-6 right-6 bg-[#FAFAF9]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
+        <div className="absolute bottom-3 left-6 right-6 bg-[#F5F5F2]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
-            <div className="flex items-center space-x-1.5 text-zinc-700 font-semibold font-mono">
-              <Layers className="w-4 h-4 text-zinc-600" />
+            <div className="flex items-center space-x-1.5 text-zinc-800 font-semibold font-mono">
+              <Layers className="w-4 h-4 text-zinc-700" />
               <span>
                 已选中 {selectedHunkIds.size} / {hunks.length} 个改动块
               </span>
@@ -211,7 +211,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
               )}
             </div>
 
-            <div className="flex items-center space-x-2 text-[11px] text-zinc-600 pl-2 border-l border-black/10">
+            <div className="flex items-center space-x-2 text-[11px] text-zinc-700 pl-2 border-l border-black/15">
               <button onClick={selectAllHunks} className="hover:text-zinc-950 underline transition">
                 全选
               </button>
