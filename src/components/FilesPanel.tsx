@@ -348,7 +348,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         <button
           onClick={onExplainAll}
           disabled={files.length === 0 || isLoading}
-          className="w-full flex items-center justify-center space-x-2 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white text-xs font-semibold py-1.5 px-3 rounded-lg transition shadow-sm"
+          className="w-full flex items-center justify-center space-x-2 bg-black/80 hover:bg-black/90 disabled:opacity-50 text-white text-xs font-semibold py-1.5 px-3 rounded-lg transition shadow-sm"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>AI 语义解析整体改动</span>
