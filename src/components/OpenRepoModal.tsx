@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FolderGit2,
   FolderOpen,
@@ -48,6 +48,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
   const [quickPaths, setQuickPaths] = useState<QuickPathsResponse | null>(null);
   const [isLoadingBrowse, setIsLoadingBrowse] = useState(false);
   const [folderFilter, setFolderFilter] = useState('');
+  const browseRequestIdRef = useRef(0);
 
   // Load initial browse state
   useEffect(() => {
@@ -65,15 +66,18 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
   };
 
   const loadBrowse = async (path?: string) => {
+    const requestId = ++browseRequestIdRef.current;
     setIsLoadingBrowse(true);
     try {
       const data = await browseDirectory(path);
+      if (requestId !== browseRequestIdRef.current) return;
       setBrowseData(data);
       setManualPath(data.current);
+      setFolderFilter('');
     } catch (e) {
-      console.error(e);
+      if (requestId === browseRequestIdRef.current) console.error(e);
     } finally {
-      setIsLoadingBrowse(false);
+      if (requestId === browseRequestIdRef.current) setIsLoadingBrowse(false);
     }
   };
 
@@ -268,16 +272,14 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                   {filteredDirs.map((dir) => (
                     <div
                       key={dir.path}
-                      className={`p-2.5 rounded-xl border transition flex items-center justify-between group select-none ${
+                      onClick={() => loadBrowse(dir.path)}
+                      className={`p-2.5 rounded-xl border transition flex items-center justify-between group select-none cursor-pointer ${
                         dir.isGitRepo
                           ? 'bg-zinc-100 hover:bg-zinc-200 border-zinc-400'
                           : 'bg-[#FFFFFF] hover:bg-[#DCDCD7] border-black/10'
                       }`}
                     >
-                      <div
-                        onClick={() => loadBrowse(dir.path)}
-                        className="flex items-center space-x-2.5 min-w-0 cursor-pointer flex-1 mr-2"
-                      >
+                      <div className="flex items-center space-x-2.5 min-w-0 flex-1 mr-2">
                         <div
                           className={`p-1.5 rounded-lg shrink-0 ${
                             dir.isGitRepo
@@ -306,7 +308,8 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                       {/* Direct Open Button if Git Repo */}
                       {dir.isGitRepo ? (
                         <button
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             onSelectRepo(dir.path);
                             onClose();
                           }}
@@ -316,7 +319,10 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                         </button>
                       ) : (
                         <button
-                          onClick={() => loadBrowse(dir.path)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            loadBrowse(dir.path);
+                          }}
                           className="opacity-0 group-hover:opacity-100 p-1 text-zinc-700 hover:text-zinc-950 transition"
                         >
                           <ArrowRight className="w-3.5 h-3.5" />
@@ -352,7 +358,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                 );
               })}
             </div>
-            <span className="text-[11px] text-zinc-600">双击文件夹可向下深入浏览</span>
+            <span className="text-[11px] text-zinc-600">点击文件夹可向下深入浏览</span>
           </div>
         )}
       </div>
