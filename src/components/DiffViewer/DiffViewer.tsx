@@ -236,7 +236,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
             <button
               onClick={() => onExplainMultipleHunks(selection.hunks, file, 'agent')}
-              className="flex items-center space-x-2 px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-lg shadow-sm transition"
+              className="flex items-center space-x-2 px-4 py-1.5 bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950 font-bold text-xs rounded-lg shadow-sm transition"
               title="Codex 智能体将探查代码库，联合分析所选改动块的跨文件影响"
             >
               <Brain className="w-4 h-4" />

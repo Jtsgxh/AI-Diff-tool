@@ -208,7 +208,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 onClick={() => handleSwitchMode('agent')}
                 className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                   activeSession.engineMode === 'agent'
-                    ? 'bg-zinc-900 text-white shadow-sm'
+                    ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                     : 'text-zinc-700 hover:text-zinc-900'
                 }`}
               >
@@ -219,7 +219,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 onClick={() => handleSwitchMode('fast')}
                 className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                   activeSession.engineMode === 'fast'
-                    ? 'bg-zinc-900 text-white shadow-sm'
+                    ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                     : 'text-zinc-700 hover:text-zinc-900'
                 }`}
               >
@@ -404,8 +404,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                     activeSession.currentFollowUpReasoning ||
                     (activeSession.currentFollowUpToolEvents?.length ?? 0) > 0) && (
                     <div className="flex items-start space-x-2.5 justify-start">
-                      <div className="w-6 h-6 rounded-full bg-zinc-900 border border-zinc-400 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
-                        <Bot className="w-3.5 h-3.5 text-white" />
+                      <div className="w-6 h-6 rounded-full bg-[#C4C4C8] border border-zinc-400 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
+                        <Bot className="w-3.5 h-3.5 text-zinc-700" />
                       </div>
                       <div className="p-3 rounded-xl text-xs max-w-[85%] leading-relaxed bg-[#FFFFFF] border border-zinc-400 text-zinc-900 shadow-sm flex-1">
                         {activeSession.currentFollowUpReasoning && (

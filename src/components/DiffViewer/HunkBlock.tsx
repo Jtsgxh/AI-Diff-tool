@@ -72,7 +72,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             }}
             className={`px-2 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border shadow-sm transition ${
               isSelected
-                ? 'bg-zinc-900 text-white border-zinc-900'
+                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
                 : 'bg-[#E5E5E1]/90 text-zinc-800 border-black/15 hover:border-zinc-400 hover:text-zinc-950'
             }`}
           >
@@ -91,8 +91,8 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             onClick={() => onTogglePseudocode(hunk)}
             className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border shadow-sm transition ${
               showPseudocode
-                ? 'bg-zinc-900 text-white border-zinc-900'
-                : 'bg-[#E5E5E1]/90 hover:bg-zinc-900 text-zinc-800 hover:text-white border-zinc-400'
+                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
+                : 'bg-[#E5E5E1]/90 hover:bg-zinc-400 text-zinc-800 hover:text-zinc-950 border-zinc-400'
             }`}
             title={
               showPseudocode
@@ -121,8 +121,8 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             onClick={() => onToggleNaturalLanguage(hunk)}
             className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border shadow-sm transition ${
               showNaturalLanguage
-                ? 'bg-zinc-900 text-white border-zinc-900'
-                : 'bg-[#E5E5E1]/90 hover:bg-zinc-900 text-zinc-800 hover:text-white border-zinc-400'
+                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
+                : 'bg-[#E5E5E1]/90 hover:bg-zinc-400 text-zinc-800 hover:text-zinc-950 border-zinc-400'
             }`}
             title="点击在此 Diff 块内直接展开/折叠自然语言直读释义"
           >
@@ -143,7 +143,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           <button
             type="button"
             onClick={() => onExplain(hunk, 'agent')}
-            className="px-2.5 py-1 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-sm border border-zinc-400 transition"
+            className="px-2.5 py-1 rounded-md bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950 text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-sm border border-zinc-400 transition"
             title="【文件关联解释】Codex 智能体将自主检索全库关联文件与下游调用"
           >
             <Brain className="w-3.5 h-3.5" />

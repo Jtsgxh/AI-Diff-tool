@@ -86,7 +86,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             onClick={onToggleGlobalPseudocode}
             className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
               isPseudocodeActive
-                ? 'bg-zinc-900 text-white border-zinc-900 shadow-sm'
+                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400 shadow-sm'
                 : 'bg-[var(--surface-raised)] hover:bg-[#DCDCD7] text-zinc-800 border-black/15 hover:text-zinc-950'
             }`}
             title={
@@ -99,8 +99,6 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               className={`w-3.5 h-3.5 shrink-0 ${
                 isPseudocodeLoading
                   ? 'animate-spin text-zinc-800'
-                  : isPseudocodeActive
-                  ? 'text-white'
                   : 'text-zinc-700'
               }`}
             />
@@ -119,7 +117,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               onClick={() => onSetDefaultMode('agent')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'agent'
-                  ? 'bg-zinc-900 text-white shadow-sm'
+                  ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="默认模式：关联解释（Codex Agent 自主全库探查）"
@@ -143,10 +141,10 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
 
           <button
             onClick={onExplainFile}
-            className={`flex items-center space-x-1.5 text-white text-xs font-medium px-2.5 py-1 rounded-lg shadow transition shrink-0 whitespace-nowrap ${
+            className={`flex items-center space-x-1.5 text-xs font-medium px-2.5 py-1 rounded-lg shadow transition shrink-0 whitespace-nowrap ${
               defaultMode === 'agent'
-                ? 'bg-zinc-900 hover:bg-zinc-800'
-                : 'bg-amber-600 hover:bg-amber-500'
+                ? 'bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950'
+                : 'bg-amber-600 hover:bg-amber-500 text-white'
             }`}
             title={`使用当前「${defaultMode === 'agent' ? '文件关联模式' : '直接 Diff 模式'}」审查整个文件`}
           >
@@ -163,7 +161,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               onClick={() => onToggleViewMode('split')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'split'
-                  ? 'bg-zinc-900 text-white font-medium shadow-sm'
+                  ? 'bg-[#C4C4C8] text-zinc-950 font-medium shadow-sm'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="双栏代码对比 (Side-by-Side Split Diff)"
@@ -175,7 +173,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               onClick={() => onToggleViewMode('unified')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'unified'
-                  ? 'bg-zinc-900 text-white font-medium shadow-sm'
+                  ? 'bg-[#C4C4C8] text-zinc-950 font-medium shadow-sm'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="单栏内联代码对比 (Inline Unified Diff)"

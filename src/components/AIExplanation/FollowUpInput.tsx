@@ -45,7 +45,7 @@ export const FollowUpInput = React.memo<FollowUpInputProps>(({ disabled, onSend 
       <button
         type="submit"
         disabled={!text.trim() || disabled}
-        className="bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white p-2 rounded-lg transition shrink-0"
+        className="bg-[#C4C4C8] hover:bg-zinc-400 disabled:opacity-40 text-zinc-950 p-2 rounded-lg transition shrink-0"
       >
         <Send className="w-3.5 h-3.5" />
       </button>

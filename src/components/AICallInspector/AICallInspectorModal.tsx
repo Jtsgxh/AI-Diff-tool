@@ -101,7 +101,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
         {/* Header */}
         <div className="h-14 bg-[#F5F5F2] border-b border-black/15 px-5 flex items-center justify-between shrink-0 select-none">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-900 flex items-center justify-center text-white">
+            <div className="w-8 h-8 rounded-lg bg-[#C4C4C8] border border-zinc-400 flex items-center justify-center text-zinc-950">
               <Terminal className="w-4 h-4" />
             </div>
             <div>
@@ -129,7 +129,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
               onClick={() => setAutoScroll(!autoScroll)}
               className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs transition border ${
                 autoScroll
-                  ? 'bg-zinc-900 text-white border-zinc-900'
+                  ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
                   : 'bg-black/[0.06] text-zinc-700 border-black/15 hover:text-zinc-900'
               }`}
               title="大模型流式输出时自动滚动至底部"
@@ -286,7 +286,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     onClick={() => setActiveTab('stream')}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1.5 ${
                       activeTab === 'stream'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -298,7 +298,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     onClick={() => setActiveTab('reasoning')}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1.5 ${
                       activeTab === 'reasoning'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -315,7 +315,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     onClick={() => setActiveTab('input')}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1.5 ${
                       activeTab === 'input'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -344,7 +344,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                           onClick={() => setOutputViewFormat('raw')}
                           className={`px-2 py-0.5 rounded transition ${
                             outputViewFormat === 'raw'
-                              ? 'bg-zinc-900 text-white'
+                              ? 'bg-[#C4C4C8] text-zinc-950'
                               : 'text-zinc-700 hover:text-zinc-950'
                           }`}
                         >
@@ -354,7 +354,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                           onClick={() => setOutputViewFormat('markdown')}
                           className={`px-2 py-0.5 rounded transition ${
                             outputViewFormat === 'markdown'
-                              ? 'bg-zinc-900 text-white'
+                              ? 'bg-[#C4C4C8] text-zinc-950'
                               : 'text-zinc-700 hover:text-zinc-950'
                           }`}
                         >
@@ -371,7 +371,7 @@ export const AICallInspectorModal: React.FC<AICallInspectorModalProps> = ({ isOp
                     )}
 
                     {outputViewFormat === 'raw' ? (
-                      <div className="p-4 rounded-xl bg-[#ECECE8] border border-black/15 font-mono text-xs text-emerald-700 leading-relaxed overflow-x-auto whitespace-pre-wrap selection:bg-zinc-900 selection:text-white min-h-[300px]">
+                      <div className="p-4 rounded-xl bg-[#ECECE8] border border-black/15 font-mono text-xs text-emerald-700 leading-relaxed overflow-x-auto whitespace-pre-wrap selection:bg-zinc-400 selection:text-zinc-950 min-h-[300px]">
                         {activeSession.rawOutput ? (
                           activeSession.rawOutput
                         ) : activeSession.status === 'running' ? (

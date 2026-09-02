@@ -44,8 +44,8 @@ export const ChatMessageItem = React.memo<{ msg: ChatMessage }>(({ msg }) => {
   return (
     <div className={`flex items-start space-x-2.5 ${isAssistant ? 'justify-start' : 'justify-end'}`}>
       {isAssistant && (
-        <div className="w-6 h-6 rounded-full bg-zinc-900 border border-zinc-400 flex items-center justify-center shrink-0 mt-0.5">
-          <Bot className="w-3.5 h-3.5 text-white" />
+        <div className="w-6 h-6 rounded-full bg-[#C4C4C8] border border-zinc-400 flex items-center justify-center shrink-0 mt-0.5">
+          <Bot className="w-3.5 h-3.5 text-zinc-700" />
         </div>
       )}
 
@@ -53,7 +53,7 @@ export const ChatMessageItem = React.memo<{ msg: ChatMessage }>(({ msg }) => {
         className={`p-3 rounded-xl text-xs max-w-[85%] leading-relaxed select-text ${
           isAssistant
             ? 'bg-[#FFFFFF] border border-black/10 text-zinc-900'
-            : 'bg-zinc-900 text-white shadow-sm'
+            : 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
         }`}
       >
         {isAssistant && msg.reasoning && (

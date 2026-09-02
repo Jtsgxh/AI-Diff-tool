@@ -235,7 +235,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         style={{ paddingLeft: `${Math.max(8, depth * 14)}px` }}
         className={`flex items-center justify-between py-1.5 px-2 rounded-lg cursor-pointer transition select-none group text-xs ${
           isSelected
-            ? 'bg-zinc-300 text-zinc-950 border border-zinc-400 shadow-sm'
+            ? 'bg-[#C4C4C8] text-zinc-950 border border-zinc-400 shadow-sm'
             : 'text-zinc-800 hover:bg-black/[0.07]'
         }`}
       >
@@ -314,7 +314,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
               <button
                 onClick={() => setViewMode('tree')}
                 className={`p-1 rounded transition ${
-                  viewMode === 'tree' ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:text-zinc-950'
+                  viewMode === 'tree' ? 'bg-[#C4C4C8] text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
                 }`}
                 title="树状目录层级视图"
               >
@@ -323,7 +323,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
               <button
                 onClick={() => setViewMode('list')}
                 className={`p-1 rounded transition ${
-                  viewMode === 'list' ? 'bg-zinc-900 text-white' : 'text-zinc-700 hover:text-zinc-950'
+                  viewMode === 'list' ? 'bg-[#C4C4C8] text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
                 }`}
                 title="平铺文件列表视图"
               >
@@ -348,7 +348,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         <button
           onClick={onExplainAll}
           disabled={files.length === 0 || isLoading}
-          className="w-full flex items-center justify-center space-x-2 bg-black/80 hover:bg-black/90 disabled:opacity-50 text-white text-xs font-semibold py-1.5 px-3 rounded-lg transition shadow-sm"
+          className="w-full flex items-center justify-center space-x-2 bg-[#C4C4C8] hover:bg-zinc-400 disabled:opacity-50 text-zinc-950 text-xs font-semibold py-1.5 px-3 rounded-lg transition shadow-sm"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>AI 语义解析整体改动</span>
@@ -392,7 +392,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
                 onClick={() => onSelectFile(file.newPath || file.oldPath)}
                 className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition select-none group text-xs ${
                   isSelected
-                    ? 'bg-zinc-300 text-zinc-950 border border-zinc-400 shadow-sm'
+                    ? 'bg-[#C4C4C8] text-zinc-950 border border-zinc-400 shadow-sm'
                     : 'text-zinc-800 hover:bg-black/[0.07]'
                 }`}
               >

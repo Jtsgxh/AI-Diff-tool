@@ -222,10 +222,10 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
             <div className="pt-1">
               <button
                 onClick={handleApplyBatchExplain}
-                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold transition shadow-sm"
+                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950 text-xs font-semibold transition shadow-sm"
                 title="使用 AI 对这一批提交的合并最终结果进行深度审查"
               >
-                <Brain className="w-3.5 h-3.5 text-white/80" />
+                <Brain className="w-3.5 h-3.5 text-zinc-700" />
                 <span>AI 整体深度审查</span>
               </button>
             </div>
@@ -353,7 +353,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                 }}
                 className={`absolute left-0 right-0 flex items-center pr-3 cursor-pointer select-none transition border-b border-black/10 group ${
                   isCurrSelected
-                    ? 'bg-zinc-900 border-zinc-400'
+                    ? 'bg-[#C4C4C8] border-zinc-400'
                     : 'hover:bg-black/[0.07]'
                 }`}
               >
@@ -416,7 +416,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                     {/* Commit Message */}
                     <span
                       className={`text-xs font-medium truncate flex-1 min-w-[50px] ${
-                        isCurrSelected ? 'text-white font-semibold' : 'text-zinc-900 group-hover:text-zinc-950'
+                        isCurrSelected ? 'text-zinc-950 font-semibold' : 'text-zinc-900 group-hover:text-zinc-950'
                       }`}
                       title={node.message}
                     >
@@ -425,15 +425,13 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                   </div>
 
                   {/* Metadata: Author, Date, SHA */}
-                  <div className={`flex items-center space-x-2.5 shrink-0 text-[11px] font-mono ml-auto ${
-                    isCurrSelected ? 'text-zinc-300' : 'text-zinc-700'
-                  }`}>
+                  <div className="flex items-center space-x-2.5 shrink-0 text-[11px] font-mono ml-auto text-zinc-700">
                     <span className="hidden xl:inline truncate max-w-[80px] font-sans">
                       {node.author}
                     </span>
                     <span className="whitespace-nowrap text-[10px]">{node.date.slice(5, 16)}</span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                      isCurrSelected ? 'bg-white/10 text-zinc-200' : 'bg-black/[0.06] text-zinc-700'
+                      isCurrSelected ? 'bg-black/[0.08] text-zinc-800' : 'bg-black/[0.06] text-zinc-700'
                     }`}>
                       {node.shortHash}
                     </span>

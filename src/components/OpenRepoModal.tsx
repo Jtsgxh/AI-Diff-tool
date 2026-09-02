@@ -110,7 +110,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
         {/* Modal Header */}
         <div className="px-6 py-3.5 bg-[#FFFFFF] border-b border-black/15 flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-xl bg-zinc-900 text-white shadow-sm">
+            <div className="p-2 rounded-xl bg-[#C4C4C8] text-zinc-950 shadow-sm">
               <FolderGit2 className="w-5 h-5" />
             </div>
             <div>
@@ -200,7 +200,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
               <button
                 onClick={handleManualSubmit}
                 disabled={!manualPath.trim()}
-                className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 text-white text-xs font-semibold rounded-lg transition shadow"
+                className="px-3 py-1 bg-[#C4C4C8] hover:bg-zinc-400 disabled:opacity-40 text-zinc-950 text-xs font-semibold rounded-lg transition shadow"
               >
                 前往
               </button>
@@ -310,7 +310,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                             onSelectRepo(dir.path);
                             onClose();
                           }}
-                          className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-semibold rounded-md transition shrink-0 shadow-sm"
+                          className="px-2.5 py-1 bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950 text-[11px] font-semibold rounded-md transition shrink-0 shadow-sm"
                         >
                           打开
                         </button>
@@ -344,7 +344,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                       onSelectRepo(r);
                       onClose();
                     }}
-                    className="shrink-0 bg-black/[0.06] hover:bg-zinc-900 hover:border-zinc-900 border border-black/15 text-zinc-800 hover:text-white px-2 py-0.5 rounded text-[11px] font-mono transition"
+                    className="shrink-0 bg-black/[0.06] hover:bg-zinc-400 hover:border-zinc-400 border border-black/15 text-zinc-800 hover:text-zinc-950 px-2 py-0.5 rounded text-[11px] font-mono transition"
                     title={r}
                   >
                     {name}

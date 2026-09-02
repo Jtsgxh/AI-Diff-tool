@@ -379,7 +379,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           onClick={() => setForm({ ...form, model: m.name })}
                           className={`text-[10px] px-2 py-0.5 rounded border transition font-mono ${
                             form.model === m.name
-                              ? 'bg-zinc-900 text-white border-zinc-900'
+                              ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
                               : 'bg-black/[0.06] text-zinc-700 border-black/10 hover:text-zinc-900 hover:bg-black/[0.12]'
                           }`}
                         >
@@ -459,7 +459,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onClick={() => setPromptCategory('review')}
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'review'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -472,7 +472,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onClick={() => setPromptCategory('learn')}
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'learn'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -485,7 +485,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onClick={() => setPromptCategory('fastDiff')}
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'fastDiff'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -498,7 +498,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onClick={() => setPromptCategory('pseudocode')}
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'pseudocode'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -511,7 +511,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onClick={() => setPromptCategory('naturalLanguage')}
                     className={`px-2.5 py-1 rounded-md text-xs font-semibold transition flex items-center space-x-1 ${
                       promptCategory === 'naturalLanguage'
-                        ? 'bg-zinc-900 text-white shadow-sm'
+                        ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                         : 'text-zinc-700 hover:text-zinc-900'
                     }`}
                   >
@@ -1026,7 +1026,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-semibold transition flex items-center space-x-1 shadow-sm"
+                className="px-4 py-1.5 rounded-lg bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950 font-semibold transition flex items-center space-x-1 shadow-sm"
               >
                 {savedMessage ? <Check className="w-4 h-4" /> : null}
                 <span>{savedMessage ? '已保存！' : '保存全部配置'}</span>

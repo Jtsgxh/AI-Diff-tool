@@ -75,8 +75,8 @@ export const Header = React.memo<HeaderProps>(({
       {/* Left: Brand Logo & Repo Selector */}
       <div className="flex items-center space-x-3 min-w-0">
         <div className="flex items-center space-x-2 mr-2">
-          <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center shadow-sm">
-            <GitBranch className="w-5 h-5 text-white" />
+          <div className="w-8 h-8 rounded-lg bg-[#C4C4C8] flex items-center justify-center shadow-sm">
+            <GitBranch className="w-5 h-5 text-zinc-700" />
           </div>
           <div className="flex flex-col">
             <div className="flex items-center space-x-1.5">
@@ -115,7 +115,7 @@ export const Header = React.memo<HeaderProps>(({
               onClick={onToggleSidebar}
               className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition shadow-sm ${
                 isSidebarCollapsed
-                  ? 'bg-zinc-900 border-zinc-900 text-white hover:bg-zinc-800'
+                  ? 'bg-[#C4C4C8] border-zinc-400 text-zinc-950 hover:bg-zinc-400'
                   : 'bg-[var(--surface-raised)] hover:bg-[#DCDCD7] border-black/15 text-zinc-800 hover:text-zinc-950'
               }`}
               title={
@@ -125,7 +125,7 @@ export const Header = React.memo<HeaderProps>(({
               }
             >
               {isSidebarCollapsed ? (
-                <PanelLeftOpen className="w-4 h-4 text-white" />
+                <PanelLeftOpen className="w-4 h-4 text-zinc-700" />
               ) : (
                 <PanelLeftClose className="w-4 h-4 text-zinc-700" />
               )}
@@ -233,7 +233,7 @@ export const Header = React.memo<HeaderProps>(({
             onClick={onToggleExplanation}
             className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs transition font-medium border shadow-sm ${
               isExplanationOpen
-                ? 'bg-zinc-900 text-white border-zinc-400'
+                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
                 : 'bg-[var(--surface-raised)] hover:bg-[#DCDCD7] text-zinc-800 hover:text-zinc-950 border-black/15 hover:border-zinc-400'
             }`}
             title="打开/收起 AI 深度审查工作台 (查看所有审查标签页与多轮追问对话)"
