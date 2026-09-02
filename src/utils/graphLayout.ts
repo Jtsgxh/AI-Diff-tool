@@ -3,9 +3,9 @@ import { CommitNode, GraphNode } from '../types';
 export const BRANCH_COLORS = [
   '#3B82F6', // Blue
   '#10B981', // Emerald
-  '#8B5CF6', // Purple
+  '#60A5FA', // Light blue
   '#F59E0B', // Amber
-  '#EC4899', // Pink
+  '#2DD4BF', // Teal
   '#06B6D4', // Cyan
   '#F97316', // Orange
   '#14B8A6', // Teal

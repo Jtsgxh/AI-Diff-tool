@@ -27,7 +27,7 @@ export const FollowUpInput = React.memo<FollowUpInputProps>(({ disabled, onSend 
   return (
     <form
       onSubmit={handleSubmit}
-      className="p-3 border-t border-white/10 bg-[#161722] flex items-center space-x-2 shrink-0 select-text"
+      className="p-3 border-t border-white/10 bg-[#171A1F] flex items-center space-x-2 shrink-0 select-text"
     >
       <input
         type="text"
@@ -39,13 +39,13 @@ export const FollowUpInput = React.memo<FollowUpInputProps>(({ disabled, onSend 
             ? 'AI 正在自主探查与生成中...'
             : '追问 AI：例如“这个方法有潜在并发问题吗？”或“在哪些地方被调用了？”'
         }
-        className="flex-1 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500 disabled:opacity-50 font-sans"
+        className="flex-1 bg-[var(--surface-raised)] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-blue-500/50 transition placeholder:text-slate-500 disabled:opacity-50 font-sans"
       />
 
       <button
         type="submit"
         disabled={!text.trim() || disabled}
-        className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white p-2 rounded-lg transition shrink-0"
+        className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white p-2 rounded-lg transition shrink-0"
       >
         <Send className="w-3.5 h-3.5" />
       </button>

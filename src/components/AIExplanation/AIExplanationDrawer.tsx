@@ -150,21 +150,21 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
   return (
     <div
-      className={`h-full w-full min-w-0 min-h-0 bg-[#12131A] border-l border-white/10 flex flex-col font-sans ${
+      className={`h-full w-full min-w-0 min-h-0 bg-[var(--surface-canvas)] border-l border-white/10 flex flex-col font-sans ${
         isOpen ? '' : 'pointer-events-none'
       }`}
     >
       {/* 1. Header & session tabs */}
-      <div className="border-b border-white/10 bg-[#171822] flex flex-col">
+      <div className="border-b border-white/10 bg-[#191C21] flex flex-col">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
           <div className="flex items-center space-x-2.5">
             <div className="flex items-center space-x-2 text-sm font-semibold text-slate-100">
-              <Sparkles className="w-4 h-4 text-purple-400" />
+              <Sparkles className="w-4 h-4 text-blue-400" />
               <span>AI 深度审查工作台</span>
             </div>
 
-            <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-[11px] text-purple-300 font-mono">
-              <Layers className="w-3 h-3 text-purple-400" />
+            <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-300 font-mono">
+              <Layers className="w-3 h-3 text-blue-400" />
               {streamingCount > 0 ? (
                 <span className="text-emerald-400 font-bold">{streamingCount} 个并行运行中</span>
               ) : (
@@ -202,13 +202,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         />
 
         {activeSession && (
-          <div className="flex items-center justify-between px-4 py-2 bg-[#14151F] text-xs">
-            <div className="flex items-center bg-[#1B1C27] p-0.5 rounded-lg border border-white/5">
+          <div className="flex items-center justify-between px-4 py-2 bg-[#15181C] text-xs">
+            <div className="flex items-center bg-[var(--surface-raised)] p-0.5 rounded-lg border border-white/5">
               <button
                 onClick={() => handleSwitchMode('agent')}
                 className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                   activeSession.engineMode === 'agent'
-                    ? 'bg-purple-600 text-white shadow-sm'
+                    ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -219,7 +219,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 onClick={() => handleSwitchMode('fast')}
                 className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                   activeSession.engineMode === 'fast'
-                    ? 'bg-purple-600 text-white shadow-sm'
+                    ? 'bg-blue-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -282,36 +282,36 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           <>
             {/* Live Progress Banner during Streaming */}
             {activeSession.isStreaming && activeSession.agentStatus?.message && (
-              <div className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-purple-950/40 border border-purple-500/30 text-purple-200 text-xs font-mono shadow-sm">
-                <Activity className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+              <div className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-blue-950/40 border border-blue-500/30 text-blue-200 text-xs font-mono shadow-sm">
+                <Activity className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
                 <span className="truncate">{activeSession.agentStatus.message}</span>
               </div>
             )}
             {batchInfo && batchInfo.messages.length > 0 && (
               <Accordion
-                icon={<Layers className="w-4 h-4 text-indigo-400" />}
+                icon={<Layers className="w-4 h-4 text-blue-400" />}
                 title="本次批量合并包含的提交清单"
                 badge={
-                  <span className="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px]">
+                  <span className="px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px]">
                     共 {batchInfo.count} 个提交
                   </span>
                 }
                 isOpen={isBatchExpanded}
                 onToggle={() => setIsBatchExpanded((v) => !v)}
                 tone={{
-                  shell: 'border border-indigo-500/30 bg-[#151624] shadow-md',
+                  shell: 'border border-blue-500/30 bg-[#171A1F] shadow-md',
                   header:
-                    'bg-gradient-to-r from-indigo-950/70 to-purple-950/50 hover:bg-indigo-900/40',
-                  body: 'p-3 bg-[#0F1017] space-y-1.5 max-h-52 overflow-y-auto text-xs font-mono',
-                  text: 'text-indigo-200',
+                    'bg-blue-500/10 hover:bg-blue-900/40',
+                  body: 'p-3 bg-[#101216] space-y-1.5 max-h-52 overflow-y-auto text-xs font-mono',
+                  text: 'text-blue-200',
                 }}
               >
                 {batchInfo.messages.map((msg, i) => (
                   <div
                     key={i}
-                    className="flex items-start space-x-2 p-2 rounded-lg bg-white/[0.03] border border-white/5 text-slate-200 hover:border-indigo-500/30 transition leading-snug"
+                    className="flex items-start space-x-2 p-2 rounded-lg bg-white/[0.03] border border-white/5 text-slate-200 hover:border-blue-500/30 transition leading-snug"
                   >
-                    <span className="text-indigo-400 font-bold shrink-0">#{i + 1}</span>
+                    <span className="text-blue-400 font-bold shrink-0">#{i + 1}</span>
                     <span className="text-slate-200 select-text whitespace-pre-wrap">{msg}</span>
                   </div>
                 ))}
@@ -331,7 +331,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 }
                 title="模型分析过程 (Thinking)"
                 badge={
-                  <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px]">
+                  <span className="px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px]">
                     {initialReasoningDisplay.text.length} 字符
                     {initialReasoningDisplay.hiddenExplorationBlocks > 0
                       ? ` · 已隐藏 ${initialReasoningDisplay.hiddenExplorationBlocks} 段源码载荷`
@@ -341,11 +341,11 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 isOpen={isThinkingExpanded}
                 onToggle={() => setIsThinkingExpanded((v) => !v)}
                 tone={{
-                  shell: 'border border-purple-500/30 bg-[#161524] shadow-md',
+                  shell: 'border border-blue-500/30 bg-[#161524] shadow-md',
                   header:
-                    'bg-gradient-to-r from-purple-950/60 to-indigo-950/40 hover:bg-purple-900/40',
-                  body: 'p-3.5 max-h-72 overflow-y-auto bg-[#101018] text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap selection:bg-purple-500/30',
-                  text: 'text-purple-200',
+                    'bg-blue-500/10 hover:bg-blue-900/40',
+                  body: 'p-3.5 max-h-72 overflow-y-auto bg-[#101216] text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap selection:bg-blue-500/30',
+                  text: 'text-blue-200',
                 }}
               >
                 {initialReasoningDisplay.text}
@@ -390,8 +390,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
             {hasFollowUpActivity && (
               <div className="space-y-3.5 pt-4 border-t border-white/10">
-                <div className="flex items-center space-x-2 text-xs font-semibold text-purple-300">
-                  <Bot className="w-4 h-4 text-purple-400" />
+                <div className="flex items-center space-x-2 text-xs font-semibold text-blue-300">
+                  <Bot className="w-4 h-4 text-blue-400" />
                   <span>💬 追问与延伸讨论记录</span>
                 </div>
 
@@ -404,13 +404,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                     activeSession.currentFollowUpReasoning ||
                     (activeSession.currentFollowUpToolEvents?.length ?? 0) > 0) && (
                     <div className="flex items-start space-x-2.5 justify-start">
-                      <div className="w-6 h-6 rounded-full bg-purple-600/30 border border-purple-500/40 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
-                        <Bot className="w-3.5 h-3.5 text-purple-300" />
+                      <div className="w-6 h-6 rounded-full bg-blue-600/30 border border-blue-500/40 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
+                        <Bot className="w-3.5 h-3.5 text-blue-300" />
                       </div>
-                      <div className="p-3 rounded-2xl text-xs max-w-[85%] leading-relaxed bg-[#181924] border border-purple-500/30 text-slate-200 shadow-md flex-1">
+                      <div className="p-3 rounded-xl text-xs max-w-[85%] leading-relaxed bg-[#191C21] border border-blue-500/30 text-slate-200 shadow-md flex-1">
                         {activeSession.currentFollowUpReasoning && (
-                          <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs shadow-inner">
-                            <div className="flex items-center justify-between px-3 py-1.5 bg-purple-950/50 text-purple-300 border-b border-white/5">
+                          <div className="mb-2.5 rounded-lg border border-blue-500/30 bg-[#121417] overflow-hidden text-xs shadow-inner">
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-blue-950/50 text-blue-300 border-b border-white/5">
                               <div className="flex items-center space-x-1.5 font-medium text-[11px]">
                                 <Brain className="w-3.5 h-3.5 text-amber-300 animate-pulse shrink-0" />
                                 <span>
@@ -418,25 +418,25 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                                 </span>
                               </div>
                             </div>
-                            <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0E0D17] text-[11px] font-mono text-purple-200/90 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
+                            <div className="p-2.5 max-h-48 overflow-y-auto bg-[#0F1114] text-[11px] font-mono text-blue-200/90 whitespace-pre-wrap border-t border-white/5 leading-relaxed select-text">
                               {followUpReasoningDisplay.text}
                             </div>
                           </div>
                         )}
 
                         {(activeSession.currentFollowUpToolEvents?.length ?? 0) > 0 && (
-                          <div className="mb-2.5 rounded-lg border border-purple-500/30 bg-[#12111E] overflow-hidden text-xs shadow-inner">
-                            <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-purple-950/50 text-purple-300 font-medium text-[11px] border-b border-white/5">
-                              <Terminal className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                          <div className="mb-2.5 rounded-lg border border-blue-500/30 bg-[#121417] overflow-hidden text-xs shadow-inner">
+                            <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-950/50 text-blue-300 font-medium text-[11px] border-b border-white/5">
+                              <Terminal className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
                               <span>
                                 正在自主探查代码库... ({activeSession.currentFollowUpToolEvents!.length} 次动作)
                               </span>
                             </div>
-                            <div className="p-2 space-y-1 bg-[#0E0D17] text-[11px] font-mono max-h-36 overflow-y-auto">
+                            <div className="p-2 space-y-1 bg-[#0F1114] text-[11px] font-mono max-h-36 overflow-y-auto">
                               {activeSession.currentFollowUpToolEvents!.map((evt, idx) => (
                                 <div key={idx} className="flex items-center space-x-1.5 text-slate-300">
-                                  <span className="text-purple-400 font-bold">•</span>
-                                  <span className="text-purple-300">{evt.name}:</span>
+                                  <span className="text-blue-400 font-bold">•</span>
+                                  <span className="text-blue-300">{evt.name}:</span>
                                   <span className="text-slate-400 truncate text-[10px]">
                                     {evt.args ? JSON.stringify(evt.args) : ''}
                                   </span>
@@ -449,8 +449,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                         {activeSession.currentFollowUpStream ? (
                           <MarkdownRenderer content={activeSession.currentFollowUpStream} />
                         ) : (
-                          <div className="flex items-center space-x-2 text-purple-400 text-xs py-1">
-                            <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                          <div className="flex items-center space-x-2 text-blue-400 text-xs py-1">
+                            <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
                             <span>AI 正在组织追问解答...</span>
                           </div>
                         )}

@@ -288,7 +288,7 @@ export const App: React.FC = () => {
   }, [diffResult, selectedFilePath]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#181920] text-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-screen bg-[var(--surface-panel)] text-slate-100 overflow-hidden font-sans">
       <Header
         repoInfo={repoInfo}
         repoPath={repoPath}
@@ -370,18 +370,18 @@ export const App: React.FC = () => {
         {isSidebarCollapsed && (
           <div
             onClick={handleToggleSidebar}
-            className="w-10 bg-[#121319] hover:bg-[#1A1C24] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
+            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
             title="点击展开 Git 提交历史图谱面板"
           >
-            <button className="p-1.5 rounded-lg bg-white/5 group-hover:bg-purple-500/20 group-hover:text-purple-300 transition mb-4">
+            <button className="p-1.5 rounded-lg bg-white/5 group-hover:bg-blue-500/20 group-hover:text-blue-300 transition mb-4">
               <PanelLeftOpen className="w-4 h-4" />
             </button>
             <div className="flex-1 flex items-center justify-center">
               <span
-                className="text-[11px] font-semibold tracking-wider text-slate-400 group-hover:text-purple-300 uppercase transition select-none"
+                className="text-[11px] font-medium text-slate-400 group-hover:text-blue-300 transition select-none"
                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
               >
-                📑 提交历史 ({commits.length})
+                提交历史 ({commits.length})
               </span>
             </div>
           </div>
@@ -426,7 +426,7 @@ export const App: React.FC = () => {
         {isFilesPanelCollapsed && (
           <div
             onClick={handleToggleFilesPanel}
-            className="w-10 bg-[#121319] hover:bg-[#1A1C24] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
+            className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-white/10 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
             title="点击展开变更文件列表"
           >
             <button
@@ -437,10 +437,10 @@ export const App: React.FC = () => {
             </button>
             <div className="flex-1 flex items-center justify-center">
               <span
-                className="text-[11px] font-semibold tracking-wider text-slate-400 group-hover:text-sky-300 uppercase transition select-none"
+                className="text-[11px] font-medium text-slate-400 group-hover:text-sky-300 transition select-none"
                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
               >
-                📂 变更文件 ({diffResult?.files.length ?? 0})
+                变更文件 ({diffResult?.files.length ?? 0})
               </span>
             </div>
           </div>

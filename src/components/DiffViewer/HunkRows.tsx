@@ -28,11 +28,11 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
             return (
               <div
                 key={`hunk-hdr-${lineIdx}`}
-                className="bg-indigo-950/30 border-y border-indigo-500/20 px-3 py-1 text-xs text-indigo-300 font-mono select-none flex items-center justify-between"
+                className="bg-blue-950/30 border-y border-blue-500/20 px-3 py-1 text-xs text-blue-300 font-mono select-none flex items-center justify-between"
               >
                 <span>{line.content}</span>
                 {showPseudocode && (
-                  <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30 font-sans flex items-center gap-1">
+                  <span className="text-[10px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded border border-blue-500/30 font-sans flex items-center gap-1">
                     <Sparkles className="w-2.5 h-2.5" />
                     <span>AI 伪代码转换</span>
                     {pseudocode?.loading && <span className="animate-pulse">(大模型生成中...)</span>}
@@ -67,10 +67,10 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
                   : 'text-slate-300'
               }`}
             >
-              <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+              <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#121417]/60 select-none border-r border-white/5">
                 {line.oldLineNumber || ''}
               </div>
-              <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+              <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#121417]/60 select-none border-r border-white/5">
                 {line.newLineNumber || ''}
               </div>
               <div
@@ -129,7 +129,7 @@ export const HunkSplitRows = React.memo<HunkRowsProps>(({ hunk, showPseudocode, 
               row.leftIsDelete ? 'bg-rose-950/25 text-rose-200' : 'text-slate-300'
             }`}
           >
-            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#121417]/60 select-none border-r border-white/5">
               {row.leftNumber}
             </div>
             <div className="w-5 shrink-0 text-center font-bold select-none text-rose-400">
@@ -148,7 +148,7 @@ export const HunkSplitRows = React.memo<HunkRowsProps>(({ hunk, showPseudocode, 
               row.rightIsAdd ? 'bg-emerald-950/25 text-emerald-200' : 'text-slate-300'
             }`}
           >
-            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#14151B]/60 select-none border-r border-white/5">
+            <div className="w-12 shrink-0 text-right pr-2 text-slate-500 bg-[#121417]/60 select-none border-r border-white/5">
               {row.rightNumber}
             </div>
             <div className="w-5 shrink-0 text-center font-bold select-none text-emerald-400">

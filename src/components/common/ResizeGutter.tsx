@@ -76,9 +76,9 @@ export const ResizeGutter = React.memo<ResizeGutterProps>(
           onCommit(valueRef.current);
         }}
         onDoubleClick={onReset}
-        className="w-1.5 shrink-0 cursor-col-resize relative z-10 group/gutter bg-white/[0.04] hover:bg-purple-500/40 active:bg-purple-500/60"
+        className="w-1.5 shrink-0 cursor-col-resize relative z-10 group/gutter bg-white/[0.04] hover:bg-blue-500/40 active:bg-blue-500/60"
       >
-        <div className="absolute inset-y-0 left-1/2 -ml-px w-px bg-white/10 group-hover/gutter:bg-purple-400" />
+        <div className="absolute inset-y-0 left-1/2 -ml-px w-px bg-white/10 group-hover/gutter:bg-blue-400" />
       </div>
     );
   }

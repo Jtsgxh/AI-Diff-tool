@@ -45,9 +45,9 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
     const allSelected = selectedCount === hunkCount && hunkCount > 0;
 
     return (
-      <div className="h-11 bg-[#15161C] border-b border-white/10 px-3 flex items-center justify-between select-none shrink-0 gap-2 overflow-x-auto">
+      <div className="h-11 bg-[var(--surface-panel)] border-b border-white/10 px-3 flex items-center justify-between select-none shrink-0 gap-2 overflow-x-auto">
         <div className="flex items-center space-x-2 min-w-0 shrink">
-          <FileCode className="w-4 h-4 text-purple-400 shrink-0" />
+          <FileCode className="w-4 h-4 text-blue-400 shrink-0" />
           <span
             className="font-mono text-xs font-semibold text-slate-200 truncate max-w-[160px] md:max-w-[260px] lg:max-w-[360px]"
             title={file.newPath}
@@ -65,12 +65,12 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           {hunkCount > 1 && (
             <button
               onClick={onToggleSelectAll}
-              className="text-xs text-slate-400 hover:text-purple-300 transition flex items-center gap-1 shrink-0 whitespace-nowrap px-1"
+              className="text-xs text-slate-400 hover:text-blue-300 transition flex items-center gap-1 shrink-0 whitespace-nowrap px-1"
               title="多选当前文件的所有改动块"
             >
               {allSelected ? (
                 <>
-                  <CheckSquare className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <CheckSquare className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                   <span>已全选</span>
                 </>
               ) : (
@@ -86,8 +86,8 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             onClick={onToggleGlobalPseudocode}
             className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
               isPseudocodeActive
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-md shadow-purple-500/20'
-                : 'bg-[#1E202A] hover:bg-[#282A38] text-slate-300 border-white/10 hover:text-white'
+                ? 'bg-blue-600 text-white border-blue-400 shadow-md'
+                : 'bg-[var(--surface-raised)] hover:bg-[#2A2E34] text-slate-300 border-white/10 hover:text-white'
             }`}
             title={
               isPseudocodeActive
@@ -98,10 +98,10 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             <Sparkles
               className={`w-3.5 h-3.5 shrink-0 ${
                 isPseudocodeLoading
-                  ? 'animate-spin text-purple-300'
+                  ? 'animate-spin text-blue-300'
                   : isPseudocodeActive
                   ? 'text-white'
-                  : 'text-purple-400'
+                  : 'text-blue-400'
               }`}
             />
             <span>
@@ -114,17 +114,17 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           </button>
 
           {/* Default engine for per-hunk and per-file explanations */}
-          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-white/10 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
             <button
               onClick={() => onSetDefaultMode('agent')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'agent'
-                  ? 'bg-purple-600 text-white shadow-sm'
+                  ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title="默认模式：关联解释（Codex Agent 自主全库探查）"
             >
-              <Brain className="w-3 h-3 text-purple-300 shrink-0" />
+              <Brain className="w-3 h-3 text-blue-300 shrink-0" />
               <span>关联解释</span>
             </button>
             <button
@@ -145,8 +145,8 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             onClick={onExplainFile}
             className={`flex items-center space-x-1.5 text-white text-xs font-medium px-2.5 py-1 rounded-lg shadow transition shrink-0 whitespace-nowrap ${
               defaultMode === 'agent'
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
-                : 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500'
+                ? 'bg-blue-600 hover:bg-blue-500'
+                : 'bg-amber-600 hover:bg-amber-500'
             }`}
             title={`使用当前「${defaultMode === 'agent' ? '文件关联模式' : '直接 Diff 模式'}」审查整个文件`}
           >
@@ -158,12 +158,12 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             <span>{defaultMode === 'agent' ? 'Codex 解释此文件' : '解释此文件'}</span>
           </button>
 
-          <div className="flex items-center bg-[#1E202A] border border-white/10 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-white/10 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
             <button
               onClick={() => onToggleViewMode('split')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'split'
-                  ? 'bg-purple-600 text-white font-medium shadow-sm'
+                  ? 'bg-blue-600 text-white font-medium shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title="双栏代码对比 (Side-by-Side Split Diff)"
@@ -175,7 +175,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               onClick={() => onToggleViewMode('unified')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'unified'
-                  ? 'bg-purple-600 text-white font-medium shadow-sm'
+                  ? 'bg-blue-600 text-white font-medium shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
               title="单栏内联代码对比 (Inline Unified Diff)"

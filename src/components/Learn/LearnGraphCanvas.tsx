@@ -708,7 +708,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = '#12131A';
+      ctx.fillStyle = '#111316';
       ctx.fillRect(0, 0, w, h);
 
       const cam = camRef.current;
@@ -1260,7 +1260,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
   };
 
   return (
-    <div className="relative w-full h-full min-h-0 bg-[#12131A]" ref={wrapRef}>
+    <div className="relative w-full h-full min-h-0 bg-[var(--surface-canvas)]" ref={wrapRef}>
       <canvas
         ref={canvasRef}
         className="w-full h-full cursor-grab active:cursor-grabbing"

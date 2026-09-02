@@ -257,8 +257,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
   }, [displayGraph, selectedNode]);
 
   return (
-    <div className="flex-1 min-w-0 h-full flex flex-col bg-[#13141A] overflow-hidden">
-      <div className="h-11 shrink-0 border-b border-white/10 px-4 flex items-center justify-between bg-[#15161C]">
+    <div className="flex-1 min-w-0 h-full flex flex-col bg-[#15171A] overflow-hidden">
+      <div className="h-11 shrink-0 border-b border-white/10 px-4 flex items-center justify-between bg-[var(--surface-panel)]">
         <div className="flex items-center gap-2 min-w-0">
           <BookOpen className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-sm font-semibold text-slate-100 truncate">
@@ -300,7 +300,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             onClick={toggleDetailsPane}
             className={`h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] transition ${
               isDetailsPaneOpen
-                ? 'border-purple-500/30 bg-purple-500/10 text-purple-200'
+                ? 'border-blue-500/30 bg-blue-500/10 text-blue-200'
                 : 'border-white/10 bg-white/[0.03] text-slate-500 hover:text-slate-200'
             }`}
           >
@@ -333,7 +333,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         className={isGraphPaneOpen ? `min-h-0 relative flex flex-col ${isDetailsPaneOpen ? 'shrink-0' : 'flex-1'}` : 'hidden'}
         style={isDetailsPaneOpen ? { height: `${graphPanePct}%` } : undefined}
       >
-        <div className="min-h-9 shrink-0 border-b border-white/10 bg-[#14161d] px-2 py-1 flex items-center justify-between gap-2">
+        <div className="min-h-9 shrink-0 border-b border-white/10 bg-[#15181C] px-2 py-1 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
           <div className="flex shrink-0 items-center rounded-md border border-white/10 bg-black/20 p-0.5">
             <button type="button" aria-pressed={graphMode === 'business'} onClick={() => {
@@ -372,7 +372,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                     title={`${level.target.routeLabel} · 第 ${level.target.stepIndex + 1} 步`}
                     className={`max-w-44 truncate rounded px-1.5 py-1 ${
                       index === session.drillLevels.length - 1
-                        ? 'bg-purple-500/10 text-purple-200'
+                        ? 'bg-blue-500/10 text-blue-200'
                         : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
                     } disabled:cursor-default`}
                   >
@@ -484,9 +484,9 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             storage.set(STORAGE_KEYS.learnGraphPanePct, String(DEFAULT_GRAPH_PANE_PCT));
           }}
           tabIndex={0}
-          className="h-2 shrink-0 cursor-row-resize relative z-20 group/split bg-white/[0.025] hover:bg-purple-500/20 active:bg-purple-500/30"
+          className="h-2 shrink-0 cursor-row-resize relative z-20 group/split bg-white/[0.025] hover:bg-blue-500/20 active:bg-blue-500/30"
         >
-          <div className="absolute inset-x-0 top-1/2 -mt-px h-px bg-white/10 group-hover/split:bg-purple-400" />
+          <div className="absolute inset-x-0 top-1/2 -mt-px h-px bg-white/10 group-hover/split:bg-blue-400" />
         </div>
       )}
 
@@ -498,17 +498,17 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           </p>
         )}
         {activeDrill && (
-          <div className="rounded-xl border border-purple-400/20 bg-purple-500/[0.06] p-3 text-xs text-slate-300">
+          <div className="rounded-xl border border-blue-400/20 bg-blue-500/[0.06] p-3 text-xs text-slate-300">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-[10px] uppercase tracking-wide text-purple-300/70">递归业务子图 · 第 {session.drillLevels.length} 层</div>
+                <div className="text-[10px] uppercase tracking-wide text-blue-300/70">递归业务子图 · 第 {session.drillLevels.length} 层</div>
                 <div className="mt-0.5 text-sm font-semibold text-slate-100">{activeDrill.target.label}</div>
               </div>
               <button
                 type="button"
                 disabled={session.isStreaming}
                 onClick={() => session.leaveDrill(Math.max(0, session.drillLevels.length - 1))}
-                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:border-purple-400/30 hover:text-purple-100 disabled:opacity-40"
+                className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:border-blue-400/30 hover:text-blue-100 disabled:opacity-40"
               >
                 返回上一层
               </button>
@@ -521,7 +521,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         {(selectedBusinessNode || selectedNode || selectedCommunity) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {selectedBusinessNode && selectedBusinessFacts && (
-              <div className="md:col-span-2 rounded-xl border border-emerald-400/20 bg-[#171822] p-3 text-xs">
+              <div className="md:col-span-2 rounded-xl border border-emerald-400/20 bg-[#191C21] p-3 text-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-[10px] uppercase tracking-wide text-emerald-300/70">业务总线节点 · 源码分析</div>
@@ -545,7 +545,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                       disabled={session.isStreaming}
                       onClick={() => session.drillDown(toDrillTarget(occurrence))}
                       title={`只深入这一次路线出现位置：${occurrence.routeLabel} 第 ${occurrence.stepIndex + 1} 步`}
-                      className="flex items-center gap-1.5 rounded-md border border-purple-400/30 bg-purple-500/10 px-2.5 py-1.5 text-[11px] text-purple-100 transition hover:bg-purple-500/20 disabled:opacity-40"
+                      className="flex items-center gap-1.5 rounded-md border border-blue-400/30 bg-blue-500/10 px-2.5 py-1.5 text-[11px] text-blue-100 transition hover:bg-blue-500/20 disabled:opacity-40"
                     >
                       <ScanSearch className="h-3.5 w-3.5" />
                       深入：{occurrence.routeLabel} · 第 {occurrence.stepIndex + 1} 步
@@ -581,7 +581,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
               </div>
             )}
             {selectedNode && (
-              <div className="rounded-xl border border-white/10 bg-[#171822] p-3 text-xs">
+              <div className="rounded-xl border border-white/10 bg-[#191C21] p-3 text-xs">
                 <div className="text-[10px] uppercase tracking-wide text-slate-500">节点</div>
                 <div className="text-sm font-bold text-slate-100 mt-0.5">{selectedNode.label}</div>
                 <p className="text-slate-400 mt-1">
@@ -614,7 +614,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
             )}
             {selectedCommunity && (
               <div
-                className="rounded-xl border bg-[#171822] p-3 text-xs"
+                className="rounded-xl border bg-[#191C21] p-3 text-xs"
                 style={{ borderColor: `${communityColor(selectedCommunity.id)}66` }}
               >
                 <div className="text-[10px] uppercase tracking-wide text-slate-500">社区</div>
@@ -643,7 +643,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         )}
 
         {session.status?.message && session.isStreaming && (
-          <p className="text-[11px] font-mono text-purple-300 truncate">{session.status.message}</p>
+          <p className="text-[11px] font-mono text-blue-300 truncate">{session.status.message}</p>
         )}
 
         {session.error && session.graph?.communities.length ? (
@@ -662,7 +662,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
           )}
 
         {currentBriefing && !looksLikeJsonBlob(currentBriefing) && (
-          <div className="rounded-xl border border-white/10 bg-[#171822] p-4">
+          <div className="rounded-xl border border-white/10 bg-[#191C21] p-4">
             <MarkdownRenderer
               content={currentBriefing}
               className="prose prose-invert prose-sm max-w-none text-slate-200 leading-relaxed"
@@ -671,7 +671,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
         )}
 
         {session.drillStream && !looksLikeJsonBlob(session.drillStream) && (
-          <div className="rounded-xl border border-purple-500/30 bg-[#171822] p-4 text-xs text-slate-300">
+          <div className="rounded-xl border border-blue-500/30 bg-[#191C21] p-4 text-xs text-slate-300">
             <MarkdownRenderer content={session.drillStream} />
           </div>
         )}
@@ -685,8 +685,8 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                   key={i}
                   className={`text-xs rounded-lg p-3 ${
                     turn.role === 'user'
-                      ? 'bg-purple-600/15 border border-purple-500/20 text-slate-200'
-                      : 'bg-[#171822] border border-white/10 text-slate-300'
+                      ? 'bg-blue-600/15 border border-blue-500/20 text-slate-200'
+                      : 'bg-[#191C21] border border-white/10 text-slate-300'
                   }`}
                 >
                   {turn.role === 'assistant' ? (
@@ -698,7 +698,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
               );
             })}
             {session.followUpStream && !looksLikeJsonBlob(session.followUpStream) && (
-              <div className="bg-[#171822] border border-purple-500/30 rounded-lg p-3 text-xs text-slate-300">
+              <div className="bg-[#191C21] border border-blue-500/30 rounded-lg p-3 text-xs text-slate-300">
                 <MarkdownRenderer content={session.followUpStream} />
               </div>
             )}
@@ -708,7 +708,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
 
       <form
         onSubmit={handleSend}
-        className="shrink-0 p-3 border-t border-white/10 bg-[#161722] flex items-center gap-2"
+        className="shrink-0 p-3 border-t border-white/10 bg-[#171A1F] flex items-center gap-2"
       >
         <input
           type="text"
@@ -722,7 +722,7 @@ export const LearnWorkbench: React.FC<LearnWorkbenchProps> = ({
                 ? '当前位于递归子图；点击子节点继续深入，或从面包屑返回顶层提问/补图'
               : '输入问题；回车只问答，点“补图”会把核实出的新路线加入业务总线'
           }
-          className="flex-1 min-w-0 bg-[#1C1D29] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-amber-500/50 placeholder:text-slate-500 disabled:opacity-50"
+          className="flex-1 min-w-0 bg-[var(--surface-raised)] text-xs text-slate-200 px-3 py-2 rounded-lg border border-white/5 focus:outline-none focus:border-amber-500/50 placeholder:text-slate-500 disabled:opacity-50"
         />
         <button
           type="submit"

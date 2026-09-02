@@ -2,12 +2,27 @@
 
 @layer base {
   :root {
-    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color-scheme: dark;
+    --font-sans: 'Segoe UI Variable', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', Consolas, Monaco, monospace;
+    --surface-canvas: #111316;
+    --surface-panel: #17191d;
+    --surface-raised: #1d2025;
+    --border-subtle: rgba(255, 255, 255, 0.09);
+    --accent: #3b82f6;
   }
 
+  html,
   body {
+    background: var(--surface-canvas);
     font-family: var(--font-sans);
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
   }
 
   code, pre, .font-mono {
@@ -15,23 +30,27 @@
   }
 }
 
-/* Custom modern scrollbars */
+/* Quiet scrollbars that stay out of the reading surface. */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(20, 21, 26, 0.4);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.24);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 /* Split-diff drag: keep the col-resize cursor even when the pointer leaves the gutter. */
@@ -53,13 +72,12 @@ body.learn-row-splitting * {
   scrollbar-gutter: stable;
 }
 
-/* Glassmorphism & UI Accents */
+/* Shared panel treatment: solid surfaces and restrained borders. */
 .glass-panel {
-  background: rgba(26, 27, 34, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
 }
 
 .subtle-border {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-subtle);
 }

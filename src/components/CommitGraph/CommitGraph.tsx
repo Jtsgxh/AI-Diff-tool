@@ -163,12 +163,12 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
   const svgWidth = Math.max(LANE_WIDTH * (maxColumns + 1), 32);
 
   return (
-    <div className="flex flex-col h-full bg-[#181920] border-r border-white/10 text-slate-200">
+    <div className="flex flex-col h-full bg-[var(--surface-panel)] border-r border-white/10 text-slate-200">
       {/* Top Bar: Search & Compare Helper */}
-      <div className="p-3 border-b border-white/10 flex flex-col space-y-2 bg-[#15161C]">
+      <div className="p-3 border-b border-white/10 flex flex-col space-y-2 bg-[var(--surface-panel)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 text-xs font-semibold text-slate-300">
-            <GitCommit className="w-4 h-4 text-purple-400" />
+            <GitCommit className="w-4 h-4 text-blue-400" />
             <span>提交历史图谱</span>
             <span className="text-[11px] bg-white/5 text-slate-400 px-1.5 py-0.2 rounded font-mono">
               {filteredCommits.length}
@@ -198,16 +198,16 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="搜索提交信息、作者、SHA、分支..."
-            className="w-full bg-[#1C1D24] text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded-lg border border-white/5 focus:outline-none focus:border-purple-500/50 transition placeholder:text-slate-500"
+            className="w-full bg-[var(--surface-raised)] text-xs text-slate-200 pl-8 pr-3 py-1.5 rounded-lg border border-white/5 focus:outline-none focus:border-blue-500/50 transition placeholder:text-slate-500"
           />
         </div>
 
         {/* Batch Selection Action Banner (Prominent Top Banner) */}
         {selectedBatchSet.size >= 2 && (
-          <div className="flex flex-col space-y-2 bg-gradient-to-r from-purple-950/70 to-indigo-950/70 border border-purple-500/40 rounded-xl p-2.5 shadow-lg shadow-purple-950/30">
+          <div className="flex flex-col space-y-2 bg-blue-500/10 border border-blue-500/40 rounded-xl p-2.5 shadow-lg">
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-1.5 text-xs font-semibold text-purple-200">
-                <Layers className="w-4 h-4 text-purple-400 animate-pulse" />
+              <div className="flex items-center space-x-1.5 text-xs font-semibold text-blue-200">
+                <Layers className="w-4 h-4 text-blue-400 animate-pulse" />
                 <span>已合并选择 {selectedBatchSet.size} 个提交</span>
               </div>
               <button
@@ -222,10 +222,10 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
             <div className="pt-1">
               <button
                 onClick={handleApplyBatchExplain}
-                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold transition shadow-md shadow-purple-600/30"
+                className="w-full flex items-center justify-center space-x-1.5 py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition shadow-md"
                 title="使用 AI 对这一批提交的合并最终结果进行深度审查"
               >
-                <Brain className="w-3.5 h-3.5 text-purple-200" />
+                <Brain className="w-3.5 h-3.5 text-blue-200" />
                 <span>AI 整体深度审查</span>
               </button>
             </div>
@@ -234,17 +234,17 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
 
         {/* Active Comparison Banner */}
         {selection.type === 'compare' && (
-          <div className="flex items-center justify-between bg-purple-500/10 border border-purple-500/30 rounded-lg px-2.5 py-1.5 text-xs text-purple-300">
+          <div className="flex items-center justify-between bg-blue-500/10 border border-blue-500/30 rounded-lg px-2.5 py-1.5 text-xs text-blue-300">
             <div className="flex items-center space-x-1.5 font-mono text-[11px]">
-              <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400" />
+              <ArrowRightLeft className="w-3.5 h-3.5 text-blue-400" />
               <span>对比:</span>
-              <span className="font-semibold text-purple-200">{selection.baseHash?.slice(0, 7)}</span>
+              <span className="font-semibold text-blue-200">{selection.baseHash?.slice(0, 7)}</span>
               <span>↔</span>
-              <span className="font-semibold text-purple-200">{selection.targetHash?.slice(0, 7)}</span>
+              <span className="font-semibold text-blue-200">{selection.targetHash?.slice(0, 7)}</span>
             </div>
             <button
               onClick={() => onSelectCommit(selection.targetHash || selection.baseHash || '')}
-              className="text-[10px] text-purple-400 hover:text-purple-200 underline"
+              className="text-[10px] text-blue-400 hover:text-blue-200 underline"
             >
               退出对比
             </button>
@@ -317,7 +317,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                 <g key={`dot-${node.hash}`}>
                   {/* Outer selection ring */}
                   {isCurrSelected && (
-                    <circle cx={x} cy={y} r={DOT_RADIUS + 4} fill="none" stroke="#A855F7" strokeWidth="2" />
+                    <circle cx={x} cy={y} r={DOT_RADIUS + 4} fill="none" stroke="#3B82F6" strokeWidth="2" />
                   )}
 
                   {/* Commit Dot */}
@@ -326,7 +326,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                     cy={y}
                     r={node.isHead ? DOT_RADIUS + 1 : DOT_RADIUS}
                     fill={node.color}
-                    stroke="#181920"
+                    stroke="#17191D"
                     strokeWidth="2"
                   />
 
@@ -353,7 +353,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                 }}
                 className={`absolute left-0 right-0 flex items-center pr-3 cursor-pointer select-none transition border-b border-white/[0.04] group ${
                   isCurrSelected
-                    ? 'bg-purple-600/20 border-purple-500/30'
+                    ? 'bg-blue-600/20 border-blue-500/30'
                     : 'hover:bg-white/[0.04]'
                 }`}
               >
@@ -361,13 +361,13 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                 <div
                   onClick={(e) => handleToggleCheckbox(node.hash, e)}
                   style={{ left: 8 }}
-                  className="absolute z-20 p-1 text-slate-500 hover:text-purple-300 transition"
+                  className="absolute z-20 p-1 text-slate-500 hover:text-blue-300 transition"
                   title="勾选批量多选；中间提交会自动补齐"
                 >
                   {isBatchChecked ? (
-                    <CheckSquare className="w-3.5 h-3.5 text-purple-400" />
+                    <CheckSquare className="w-3.5 h-3.5 text-blue-400" />
                   ) : (
-                    <Square className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100 hover:text-purple-300 transition" />
+                    <Square className="w-3.5 h-3.5 opacity-30 group-hover:opacity-100 hover:text-blue-300 transition" />
                   )}
                 </div>
 
@@ -440,7 +440,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                         e.stopPropagation();
                         onExplainCommit(node.hash, node.message);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-purple-500/20 text-purple-300 rounded transition"
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-blue-500/20 text-blue-300 rounded transition"
                       title="使用 AI 语义分析该提交"
                     >
                       <Sparkles className="w-3.5 h-3.5" />

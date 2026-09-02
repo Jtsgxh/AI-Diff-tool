@@ -15,7 +15,7 @@ export const SessionTabs = React.memo<SessionTabsProps>(
     if (sessions.length === 0) return null;
 
     return (
-      <div className="flex items-center space-x-1 px-3 py-1.5 overflow-x-auto scrollbar-none bg-[#111218]">
+      <div className="flex items-center space-x-1 px-3 py-1.5 overflow-x-auto scrollbar-none bg-[var(--surface-canvas)]">
         {sessions.map((sess) => {
           const isActive = sess.id === activeSessionId;
           const batch = sess.scope.batchInfo;
@@ -31,12 +31,12 @@ export const SessionTabs = React.memo<SessionTabsProps>(
               title={tooltip}
               className={`flex items-center space-x-2 px-2.5 py-1 rounded-lg text-xs cursor-pointer select-none transition shrink-0 group border ${
                 isActive
-                  ? 'bg-purple-600/25 border-purple-500/40 text-white font-medium shadow-sm'
+                  ? 'bg-blue-600/25 border-blue-500/40 text-white font-medium shadow-sm'
                   : 'bg-white/[0.03] border-transparent text-slate-400 hover:bg-white/[0.06] hover:text-slate-200'
               }`}
             >
               {sess.engineMode === 'agent' ? (
-                <Brain className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <Brain className="w-3.5 h-3.5 text-blue-400 shrink-0" />
               ) : (
                 <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               )}

@@ -17,10 +17,10 @@ export const ExplorationTrail = React.memo<ExplorationTrailProps>(
 
     return (
       <Accordion
-        icon={<Terminal className="w-3.5 h-3.5 text-purple-400" />}
+        icon={<Terminal className="w-3.5 h-3.5 text-blue-400" />}
         title="Codex 自主代码库探查轨迹"
         badge={
-          <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono text-[10px]">
+          <span className="px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px]">
             {events.length} 次动作
           </span>
         }
@@ -28,10 +28,10 @@ export const ExplorationTrail = React.memo<ExplorationTrailProps>(
         onToggle={onToggle}
         showToggleLabel={false}
         tone={{
-          shell: 'border border-purple-500/20 bg-purple-950/20 shadow-inner',
-          header: 'bg-purple-900/30 hover:bg-purple-900/40',
-          body: 'p-2 space-y-1.5 bg-[#141320]/60 max-h-56 overflow-y-auto text-[11px] font-mono',
-          text: 'text-purple-200',
+          shell: 'border border-blue-500/20 bg-blue-950/20 shadow-inner',
+          header: 'bg-blue-900/30 hover:bg-blue-900/40',
+          body: 'p-2 space-y-1.5 bg-[#15181C]/60 max-h-56 overflow-y-auto text-[11px] font-mono',
+          text: 'text-blue-200',
         }}
       >
         {events.map((evt, idx) => {
@@ -39,7 +39,7 @@ export const ExplorationTrail = React.memo<ExplorationTrailProps>(
           return (
             <div
               key={`tool-${idx}`}
-              className="p-1.5 rounded bg-white/[0.03] border border-white/5 hover:border-purple-500/30 transition"
+              className="p-1.5 rounded bg-white/[0.03] border border-white/5 hover:border-blue-500/30 transition"
             >
               <div
                 onClick={() => setExpandedIndex(isExpanded ? null : idx)}
@@ -47,14 +47,14 @@ export const ExplorationTrail = React.memo<ExplorationTrailProps>(
               >
                 <div className="flex items-center space-x-1.5 truncate">
                   {toolIcon(evt.name)}
-                  <span className="font-bold text-purple-300">{evt.name || '工具调用'}</span>
+                  <span className="font-bold text-blue-300">{evt.name || '工具调用'}</span>
                   <span className="text-slate-400 truncate text-[10px]">
                     {evt.args ? JSON.stringify(evt.args) : evt.summary || ''}
                   </span>
                 </div>
 
                 {evt.output && (
-                  <span className="text-[10px] text-purple-400 hover:underline shrink-0 ml-1">
+                  <span className="text-[10px] text-blue-400 hover:underline shrink-0 ml-1">
                     {isExpanded ? '收起' : '详情'}
                   </span>
                 )}

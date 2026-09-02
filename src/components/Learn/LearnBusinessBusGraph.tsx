@@ -30,10 +30,10 @@ interface ViewTransform {
 
 const KIND_META: Record<LearnBusinessStepKind, { label: string; fill: string; stroke: string }> = {
   entry: { label: '入口', fill: '#123047', stroke: '#38bdf8' },
-  process: { label: '处理', fill: '#25244a', stroke: '#a78bfa' },
+  process: { label: '处理', fill: '#172a46', stroke: '#60a5fa' },
   decision: { label: '判断', fill: '#4a3213', stroke: '#fbbf24' },
   state: { label: '状态', fill: '#14392f', stroke: '#34d399' },
-  external: { label: '外部边界', fill: '#44213b', stroke: '#f472b6' },
+  external: { label: '外部边界', fill: '#3d2a20', stroke: '#fb923c' },
   result: { label: '结果', fill: '#183b28', stroke: '#4ade80' },
 };
 
@@ -178,7 +178,7 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
   };
 
   return (
-    <div ref={wrapRef} className="relative h-full min-h-0 overflow-hidden bg-[#11131A]">
+    <div ref={wrapRef} className="relative h-full min-h-0 overflow-hidden bg-[var(--surface-canvas)]">
       <svg
         ref={svgRef}
         className="h-full w-full touch-none select-none"
@@ -281,7 +281,7 @@ export const LearnBusinessBusGraph: React.FC<LearnBusinessBusGraphProps> = ({
                   strokeWidth={activeRouteId && active ? 2.8 : 1.6}
                   markerEnd={`url(#${markerId}-${activeRouteId && active ? 'active' : 'edge'})`} />
                 <text x={geometry.labelX} y={geometry.labelY} textAnchor="middle" fill={geometry.back ? '#fbbf24' : '#94a3b8'}
-                  fontSize={10} paintOrder="stroke" stroke="#11131A" strokeWidth={4}>
+                  fontSize={10} paintOrder="stroke" stroke="#111316" strokeWidth={4}>
                   {truncateBusinessBusText(`${edge.relation}${geometry.back ? ' · 回边' : ''}`, EDGE_LABEL_WIDTH, 10)}
                 </text>
               </g>

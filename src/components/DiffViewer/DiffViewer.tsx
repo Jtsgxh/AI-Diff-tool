@@ -119,7 +119,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
   if (!file || !parsedDiff || !hunks) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#17181F] text-slate-500 p-8">
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--surface-panel)] text-slate-500 p-8">
         <FileCode className="w-12 h-12 mb-3 text-slate-600 stroke-1" />
         <p className="text-sm font-medium text-slate-400">请选择左侧文件以查看代码差异对比</p>
         <p className="text-xs text-slate-600 mt-1">
@@ -130,7 +130,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#181921] overflow-hidden relative">
+    <div className="flex-1 flex flex-col h-full bg-[var(--surface-panel)] overflow-hidden relative">
       <DiffToolbar
         file={file}
         hunkCount={hunks.length}
@@ -146,7 +146,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onToggleViewMode={onToggleViewMode}
       />
 
-      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#13141A]">
+      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#15171A]">
         <div
           className="absolute inset-0 overflow-auto pb-16"
           style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
@@ -186,17 +186,17 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
             className="absolute top-0 bottom-0 z-20 w-2 -ml-1 cursor-col-resize group/split"
             style={{ left: `${split.pct}%` }}
           >
-            <div className="mx-auto h-full w-px bg-white/20 group-hover/split:w-0.5 group-hover/split:bg-purple-400 group-active/split:bg-purple-300 transition-[width,background-color]" />
+            <div className="mx-auto h-full w-px bg-white/20 group-hover/split:w-0.5 group-hover/split:bg-blue-400 group-active/split:bg-blue-300 transition-[width,background-color]" />
           </div>
         )}
       </div>
 
       {/* Multi-selection action bar */}
       {selectedHunkIds.size > 0 && (
-        <div className="absolute bottom-3 left-6 right-6 bg-[#161722]/95 border border-purple-500/50 rounded-xl px-4 py-2.5 shadow-2xl backdrop-blur-md flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
+        <div className="absolute bottom-3 left-6 right-6 bg-[#171A1F]/95 border border-blue-500/50 rounded-xl px-4 py-2.5 shadow-2xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
-            <div className="flex items-center space-x-1.5 text-purple-300 font-semibold font-mono">
-              <Layers className="w-4 h-4 text-purple-400" />
+            <div className="flex items-center space-x-1.5 text-blue-300 font-semibold font-mono">
+              <Layers className="w-4 h-4 text-blue-400" />
               <span>
                 已选中 {selectedHunkIds.size} / {hunks.length} 个改动块
               </span>
@@ -236,7 +236,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
             <button
               onClick={() => onExplainMultipleHunks(selection.hunks, file, 'agent')}
-              className="flex items-center space-x-2 px-4 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs rounded-lg shadow-lg shadow-purple-600/30 transition hover:scale-105 active:scale-95"
+              className="flex items-center space-x-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg shadow-lg transition"
               title="Codex 智能体将探查代码库，联合分析所选改动块的跨文件影响"
             >
               <Brain className="w-4 h-4" />
