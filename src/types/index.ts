@@ -16,6 +16,8 @@ export type {
   DiffFile,
   DiffResult,
   DiffSummary,
+  FilePreview,
+  FilePreviewSource,
   ExplainTask,
   LearnAnalysisCommunity,
   LearnAnalysisEnvelope,

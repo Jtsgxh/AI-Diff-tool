@@ -1,16 +1,19 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { STORAGE_KEYS } from '../../constants/storage';
 import { useResizableSplit } from '../../hooks/useResizableSplit';
 import { Brain, FileCode, Layers, Zap } from 'lucide-react';
-import type { AIProviderConfig, DiffFile, DiffViewMode } from '../../types';
+import type { AIProviderConfig, DiffFile, DiffViewMode, FilePreview } from '../../types';
+import { fetchFilePreview } from '../../services/api';
 import { parseRawDiff, type DiffHunk } from '../../utils/diffParser';
 import { DiffToolbar } from './DiffToolbar';
 import { HunkBlock } from './HunkBlock';
 import { useHunkAnnotations } from './hooks/useHunkAnnotations';
 import { DEFERRED_MOUNT_ROW_THRESHOLD, totalRenderedRows } from './hunkMetrics';
+import { FullFilePreview } from './FullFilePreview';
 
 interface DiffViewerProps {
   file: DiffFile | null;
+  repoPath: string;
   viewMode: DiffViewMode;
   onToggleViewMode: (mode: DiffViewMode) => void;
   onExplainHunk: (
@@ -30,6 +33,7 @@ interface DiffViewerProps {
 
 export const DiffViewer = React.memo<DiffViewerProps>(({
   file,
+  repoPath,
   viewMode,
   onToggleViewMode,
   onExplainHunk,
@@ -39,10 +43,40 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 }) => {
   /** Engine used by the per-hunk and per-file explain buttons. */
   const [defaultMode, setDefaultMode] = useState<'agent' | 'fast'>('agent');
+  const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff');
+  const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
+  const [filePreviewError, setFilePreviewError] = useState<string | null>(null);
+  const [isFilePreviewLoading, setIsFilePreviewLoading] = useState(false);
+  const previewRequestIdRef = useRef(0);
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
   const split = useResizableSplit(STORAGE_KEYS.diffSplitPct);
 
   const annotations = useHunkAnnotations(file, aiConfig);
+
+  useEffect(() => {
+    const source = file?.previewSource;
+    const requestId = ++previewRequestIdRef.current;
+    setFilePreview(null);
+    setFilePreviewError(null);
+
+    if (displayMode !== 'file' || !source) {
+      setIsFilePreviewLoading(false);
+      return;
+    }
+
+    setIsFilePreviewLoading(true);
+    fetchFilePreview(repoPath, source)
+      .then((preview) => {
+        if (requestId === previewRequestIdRef.current) setFilePreview(preview);
+      })
+      .catch((error: unknown) => {
+        if (requestId !== previewRequestIdRef.current) return;
+        setFilePreviewError(error instanceof Error ? error.message : '无法读取完整文件');
+      })
+      .finally(() => {
+        if (requestId === previewRequestIdRef.current) setIsFilePreviewLoading(false);
+      });
+  }, [displayMode, file, repoPath]);
 
   const parsedDiff = useMemo(() => {
     if (!file?.diff) return null;
@@ -136,6 +170,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         hunkCount={hunks.length}
         selectedCount={selectedHunkIds.size}
         viewMode={viewMode}
+        displayMode={displayMode}
         defaultMode={defaultMode}
         isPseudocodeActive={annotations.pseudocodeHunkIds.size > 0}
         isPseudocodeLoading={isPseudocodeLoading}
@@ -144,9 +179,18 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onSetDefaultMode={setDefaultMode}
         onExplainFile={handleExplainFile}
         onToggleViewMode={onToggleViewMode}
+        onDisplayMode={setDisplayMode}
       />
 
-      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#ECECE8]">
+      {displayMode === 'file' ? (
+        <div className="flex-1 min-h-0 bg-[#ECECE8]">
+          <FullFilePreview
+            preview={filePreview}
+            isLoading={isFilePreviewLoading}
+            error={filePreviewError}
+          />
+        </div>
+      ) : <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#ECECE8]">
         <div
           className="absolute inset-0 overflow-auto pb-16"
           style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
@@ -189,10 +233,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
             <div className="mx-auto h-full w-px bg-black/10 group-hover/split:w-0.5 group-hover/split:bg-blue-400 group-active/split:bg-blue-300 transition-[width,background-color]" />
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Multi-selection action bar */}
-      {selectedHunkIds.size > 0 && (
+      {displayMode === 'diff' && selectedHunkIds.size > 0 && (
         <div className="absolute bottom-3 left-6 right-6 bg-[#F5F5F2]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
             <div className="flex items-center space-x-1.5 text-zinc-800 font-semibold font-mono">

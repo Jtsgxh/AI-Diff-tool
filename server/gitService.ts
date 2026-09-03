@@ -7,6 +7,8 @@ import type {
   CommitNode,
   DiffFile,
   DiffResult,
+  FilePreview,
+  FilePreviewSource,
   RepoInfo,
   RepoOverview,
 } from '../shared/types';
@@ -24,9 +26,58 @@ const RECORD_SEP = '\x01';
 const COMMIT_FORMAT = '%H%x00%h%x00%P%x00%an%x00%ae%x00%ad%x00%s%x00%D%x01';
 
 const FULL_SHA_RE = /^[0-9a-f]{40}$/i;
+const MAX_FILE_PREVIEW_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_PREVIEW_LINES = 100_000;
 
 function normalizeGitPath(p: string): string {
   return p.replace(/\\/g, '/');
+}
+
+function validateRelativeGitPath(filePath: string): string {
+  const normalized = normalizeGitPath(filePath).replace(/^\.\//, '');
+  const segments = normalized.split('/');
+  if (
+    !normalized ||
+    normalized === '/dev/null' ||
+    normalized.startsWith('/') ||
+    /^[a-z]:/i.test(normalized) ||
+    normalized.includes('\0') ||
+    segments.includes('..')
+  ) {
+    throw new Error('A valid repository-relative file path is required');
+  }
+  return normalized;
+}
+
+function countTextLines(content: string): number {
+  if (content === '') return 0;
+  let count = 1;
+  for (let index = 0; index < content.length; index++) {
+    if (content[index] === '\n') count++;
+    else if (content[index] === '\r' && content[index + 1] !== '\n') count++;
+  }
+  return count;
+}
+
+function decodePreviewBuffer(buffer: Buffer): {
+  content: string | null;
+  encoding: FilePreview['encoding'];
+  isBinary: boolean;
+} {
+  if (buffer.includes(0)) return { content: null, encoding: null, isBinary: true };
+
+  for (const encoding of ['utf-8', 'gb18030'] as const) {
+    try {
+      return {
+        content: new TextDecoder(encoding, { fatal: true }).decode(buffer),
+        encoding,
+        isBinary: false,
+      };
+    } catch {
+      // Try the next supported source encoding before treating the bytes as binary.
+    }
+  }
+  return { content: null, encoding: null, isBinary: true };
 }
 
 /** Uses Git itself as the authority instead of trusting a stray `.git` marker. */
@@ -210,7 +261,10 @@ export class GitService {
       git.raw(['show', '--numstat', '--format=', hash]),
     ]);
 
-    const result = this.parseDiffOutput(`Commit ${hash.slice(0, 7)}`, showRaw, numstat);
+    const result = this.parseDiffOutput(`Commit ${hash.slice(0, 7)}`, showRaw, numstat, {
+      beforeRevision: `${hash}^`,
+      afterRevision: hash,
+    });
     if (FULL_SHA_RE.test(hash)) {
       diffCache.set(cacheKey, result);
     }
@@ -227,15 +281,17 @@ export class GitService {
     }
 
     const git = this.getGit(repoPath);
-    const [diffRaw, numstat] = await Promise.all([
+    const [diffRaw, numstat, mergeBase] = await Promise.all([
       git.raw(['diff', `${base}...${target}`]),
       git.raw(['diff', '--numstat', `${base}...${target}`]),
+      git.raw(['merge-base', base, target]).then((value) => value.trim()),
     ]);
 
     const result = this.parseDiffOutput(
       `Compare ${base.slice(0, 7)}...${target.slice(0, 7)}`,
       diffRaw,
-      numstat
+      numstat,
+      { beforeRevision: mergeBase, afterRevision: target }
     );
     if (isImmutable) {
       diffCache.set(cacheKey, result);
@@ -304,7 +360,10 @@ export class GitService {
     ]);
 
     const title = `批量合并改动 [${selectedCommits.length} 个提交: ${oldestCommit.shortHash} ➔ ${newestCommit.shortHash}]`;
-    const parsed = this.parseDiffOutput(title, diffRaw, numstat);
+    const parsed = this.parseDiffOutput(title, diffRaw, numstat, {
+      beforeRevision: oldestParent,
+      afterRevision: newestCommit.hash,
+    });
 
     const result = {
       ...parsed,
@@ -341,7 +400,12 @@ export class GitService {
       // A missing HEAD or odd worktree still lets us append untracked files.
     }
 
-    const parsed = this.parseDiffOutput('未提交变更 (Working Tree)', diffRaw || '', numstat || '');
+    const parsed = this.parseDiffOutput(
+      '未提交变更 (Working Tree)',
+      diffRaw || '',
+      numstat || '',
+      { beforeRevision: against, afterWorkingTree: true }
+    );
     const seen = new Set(parsed.files.map((f) => normalizeGitPath(f.newPath)));
 
     let untrackedList = '';
@@ -370,6 +434,87 @@ export class GitService {
     }
 
     return parsed;
+  }
+
+  /** Reads one exact worktree or commit snapshot for the on-demand full-file preview. */
+  async getFilePreview(
+    repoPath: string,
+    filePath: string,
+    revision?: string
+  ): Promise<FilePreview> {
+    const relativePath = validateRelativeGitPath(filePath);
+    const git = this.getGit(repoPath);
+    const repoRoot = path.resolve((await git.raw(['rev-parse', '--show-toplevel'])).trim());
+    let buffer: Buffer;
+    let byteSize: number;
+    let resolvedRevision: string | undefined;
+
+    if (revision) {
+      resolvedRevision = (
+        await git.raw(['rev-parse', '--verify', `${revision}^{commit}`])
+      ).trim();
+      const objectSpec = `${resolvedRevision}:${relativePath}`;
+      byteSize = parseInt((await git.raw(['cat-file', '-s', objectSpec])).trim(), 10);
+      if (!Number.isFinite(byteSize)) throw new Error('Unable to determine file size');
+      if (byteSize > MAX_FILE_PREVIEW_BYTES) {
+        return {
+          path: relativePath,
+          source: 'revision',
+          revision: resolvedRevision,
+          content: null,
+          byteSize,
+          lineCount: null,
+          encoding: null,
+          isBinary: false,
+          isTooLarge: true,
+        };
+      }
+      const result = await git.binaryCatFile(['-p', objectSpec]);
+      buffer = Buffer.isBuffer(result) ? result : Buffer.from(result);
+    } else {
+      const fullPath = path.resolve(repoRoot, ...relativePath.split('/'));
+      const fromRoot = path.relative(repoRoot, fullPath);
+      if (!fromRoot || fromRoot.startsWith(`..${path.sep}`) || path.isAbsolute(fromRoot)) {
+        throw new Error('File path must stay inside the repository');
+      }
+
+      const stat = fs.lstatSync(fullPath);
+      if (stat.isSymbolicLink()) {
+        buffer = Buffer.from(fs.readlinkSync(fullPath), 'utf8');
+        byteSize = buffer.length;
+      } else {
+        if (!stat.isFile()) throw new Error('Preview target is not a file');
+        byteSize = stat.size;
+        if (byteSize > MAX_FILE_PREVIEW_BYTES) {
+          return {
+            path: relativePath,
+            source: 'working-tree',
+            content: null,
+            byteSize,
+            lineCount: null,
+            encoding: null,
+            isBinary: false,
+            isTooLarge: true,
+          };
+        }
+        buffer = fs.readFileSync(fullPath);
+      }
+    }
+
+    const decoded = decodePreviewBuffer(buffer);
+    const lineCount = decoded.content === null ? null : countTextLines(decoded.content);
+    const isTooLarge = lineCount !== null && lineCount > MAX_FILE_PREVIEW_LINES;
+    return {
+      path: relativePath,
+      source: revision ? 'revision' : 'working-tree',
+      revision: resolvedRevision,
+      content: isTooLarge ? null : decoded.content,
+      byteSize,
+      lineCount,
+      encoding: decoded.encoding,
+      isBinary: decoded.isBinary,
+      isTooLarge,
+    };
   }
 
   /** Build a synthetic `diff --git` patch for a file git does not yet track. */
@@ -408,6 +553,7 @@ export class GitService {
         additions: 0,
         deletions: 0,
         diff: header + (tooLarge ? 'File too large to display\n' : 'Binary file (not shown)\n'),
+        previewSource: { type: 'working-tree', path: posix },
       };
     }
 
@@ -427,6 +573,7 @@ export class GitService {
       additions,
       deletions: 0,
       diff: header + hunk,
+      previewSource: { type: 'working-tree', path: posix },
     };
   }
 
@@ -448,7 +595,16 @@ export class GitService {
     }
   }
 
-  private parseDiffOutput(title: string, rawDiff: string, numstatRaw: string): DiffResult {
+  private parseDiffOutput(
+    title: string,
+    rawDiff: string,
+    numstatRaw: string,
+    previewContext: {
+      beforeRevision: string;
+      afterRevision?: string;
+      afterWorkingTree?: boolean;
+    }
+  ): DiffResult {
     const files: DiffFile[] = [];
     const statsMap = new Map<string, { additions: number; deletions: number }>();
 
@@ -505,6 +661,26 @@ export class GitService {
         }
       }
 
+      const previewPath = status === 'deleted' ? oldPath : newPath;
+      let previewSource: FilePreviewSource | undefined;
+      if (previewPath !== '/dev/null') {
+        if (status === 'deleted') {
+          previewSource = {
+            type: 'revision',
+            path: previewPath,
+            revision: previewContext.beforeRevision,
+          };
+        } else if (previewContext.afterWorkingTree) {
+          previewSource = { type: 'working-tree', path: previewPath };
+        } else if (previewContext.afterRevision) {
+          previewSource = {
+            type: 'revision',
+            path: previewPath,
+            revision: previewContext.afterRevision,
+          };
+        }
+      }
+
       files.push({
         oldPath,
         newPath,
@@ -512,6 +688,7 @@ export class GitService {
         additions: adds,
         deletions: dels,
         diff: 'diff --git ' + chunk,
+        previewSource,
       });
     }
 

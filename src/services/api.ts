@@ -4,6 +4,8 @@ import type {
   AIProviderConfig,
   CommitNode,
   DiffResult,
+  FilePreview,
+  FilePreviewSource,
   ExplainTask,
   RepoInfo,
   LearnGraph,
@@ -133,6 +135,20 @@ export function fetchWorkingTreeDiff(path: string): Promise<DiffResult> {
   return getJson(
     `/repo/diff/working-tree?path=${encodeURIComponent(path)}`,
     'Failed to fetch working tree diff'
+  );
+}
+
+export function fetchFilePreview(
+  path: string,
+  source: FilePreviewSource
+): Promise<FilePreview> {
+  const revision =
+    source.type === 'revision' ? `&revision=${encodeURIComponent(source.revision)}` : '';
+  return getJson(
+    `/repo/file-preview?path=${encodeURIComponent(path)}&filePath=${encodeURIComponent(
+      source.path
+    )}${revision}`,
+    'Failed to fetch full file preview'
   );
 }
 

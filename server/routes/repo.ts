@@ -85,6 +85,21 @@ repoRouter.get(
   })
 );
 
+repoRouter.get(
+  '/file-preview',
+  asyncHandler(async (req, res) => {
+    const filePath = req.query.filePath as string;
+    if (!filePath) throw badRequest('filePath is required');
+
+    const preview = await gitService.getFilePreview(
+      resolveRepoPath(req.query.path as string),
+      filePath,
+      (req.query.revision as string) || undefined
+    );
+    res.json(preview);
+  })
+);
+
 /** Consolidated net diff across an arbitrary set of selected commits. */
 repoRouter.post(
   '/diff/batch',

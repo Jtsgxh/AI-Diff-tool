@@ -24,6 +24,24 @@ export interface DiffFile {
   additions: number;
   deletions: number;
   diff: string;
+  /** Exact snapshot shown by the full-file preview for this diff entry. */
+  previewSource?: FilePreviewSource;
+}
+
+export type FilePreviewSource =
+  | { type: 'working-tree'; path: string }
+  | { type: 'revision'; path: string; revision: string };
+
+export interface FilePreview {
+  path: string;
+  source: 'working-tree' | 'revision';
+  revision?: string;
+  content: string | null;
+  byteSize: number;
+  lineCount: number | null;
+  encoding: 'utf-8' | 'gb18030' | null;
+  isBinary: boolean;
+  isTooLarge: boolean;
 }
 
 export interface DiffSummary {

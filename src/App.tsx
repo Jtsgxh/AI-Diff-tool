@@ -460,6 +460,7 @@ export const App: React.FC = () => {
           ) : (
             <DiffViewer
               file={selectedFile}
+              repoPath={repoInfo?.path || repoPath}
               viewMode={viewMode}
               onToggleViewMode={setViewMode}
               onExplainHunk={handleExplainHunk}
