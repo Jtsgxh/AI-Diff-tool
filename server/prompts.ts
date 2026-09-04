@@ -251,7 +251,10 @@ export function isLearnTask(ctx: PromptContext): boolean {
   return ctx.task === 'learn' || ctx.scopeType === 'repo';
 }
 
-export function buildLearnSystemPrompt(ctx: PromptContext): string {
+export function buildLearnSystemPrompt(
+  ctx: PromptContext,
+  phase: 'exploration' | 'structured' | 'prose' = 'exploration'
+): string {
   const isFollowUp = Boolean(ctx.userPrompt && ctx.userPrompt.trim());
   const isExpansion = ctx.learnRequestMode === 'expand_graph';
   const isDrilldown = ctx.learnRequestMode === 'drilldown_graph';
@@ -268,13 +271,23 @@ ${learnPrompt}
 以上配置只决定讲解的重点、深度和表达方式；本轮仍必须直接回答用户问题，并遵守工具核实、真实证据和禁止 JSON 的规则。`;
   }
 
-  const system = `你是代码库业务导师。界面的主视图以本地解析的社区骨架为主，你负责核实社区的业务语义，并把证据完整的业务路线作为高亮层叠加到骨架上。先读代码、确认社区边界和真实入口，再识别业务闭环并整理关键节点的先后关系。
+  const evidencePhase = phase === 'exploration'
+    ? `【必须探查】先用 repo_overview / repo_graph 找入口候选，再用 read_file 和 search_code 沿真实调用方、被调用方、状态或数据对象追踪。每条业务路线都必须读到入口、核心处理和结果落点；没读到的符号不得写进路线。
+
+【工具调用协议】探查只能通过 API 提供的原生函数调用完成。需要继续读代码时直接调用工具，禁止在 assistant 正文中输出或模拟“<@read_file>...</@read_file>”、XML、JSON 或任何其他工具调用标签。`
+    : `【探查已完成】当前请求不提供工具。只能使用用户消息中的结构图谱和服务端附带的源码探查结果；证据不足的候选必须舍弃或标为待核实，禁止请求继续读取代码。`;
+  const userGuidance = phase === 'structured'
+    ? ''
+    : `
+
+【用户配置的业务分析与讲解要求】
+${learnPrompt}`;
+
+  const baseSystem = `你是代码库业务导师。界面的主视图以本地解析的社区骨架为主，你负责核实社区的业务语义，并把证据完整的业务路线作为高亮层叠加到骨架上。先读代码、确认社区边界和真实入口，再识别业务闭环并整理关键节点的先后关系。
 
 【结构事实】用户消息里有一份本地解析的结构图谱（EXTRACTED）。它只作为候选文件、类型、社区和静态依赖证据，不等于运行时业务路线。禁止仅凭目录名或度数推断业务流程。
 
-【必须探查】先用 repo_overview / repo_graph 找入口候选，再用 read_file 和 search_code 沿真实调用方、被调用方、状态或数据对象追踪。每条业务路线都必须读到入口、核心处理和结果落点；没读到的符号不得写进路线。
-
-【工具调用协议】探查只能通过 API 提供的原生函数调用完成。需要继续读代码时直接调用工具，禁止在 assistant 正文中输出或模拟“<@read_file>...</@read_file>”、XML、JSON 或任何其他工具调用标签；正文只用于最终的 learn-graph 和业务讲解。
+${evidencePhase}
 
 【分析目标】
 - 识别仓库实际存在的主要业务路线，例如一次请求、一次任务、一次结算或一个用户动作如何走完。
@@ -284,20 +297,14 @@ ${learnPrompt}
 - 每一步都要结构化列出 inputs、outputs、stateChanges、failurePaths；没有对应事实时使用空数组，不能填“无”“未知”或猜测。
 - 社区用于说明职责边界；业务路线可以跨社区，但必须指出交接点。
 - 不追求路线数量。只有入口、相邻步骤关系和结果落点都被工具结果证明的候选才能进入 businessRoutes；证据不完整的候选写进正文的“待核实”而不是路线数据。
-- 输出前逐步反查 exploration 中读到的源码：每一步必须给出 relation（入口/调用/读取/写入/发布/回调等）和 evidence（真实调用表达式、状态字段或接口契约）；禁止用职责描述冒充证据，禁止编造行号。
+- 输出前逐步反查 exploration 中读到的源码：每一步必须给出 relation（入口/调用/读取/写入/发布/回调等）和 evidence（真实调用表达式、状态字段或接口契约）；禁止用职责描述冒充证据，禁止编造行号。${userGuidance}
 
-【用户配置的业务分析与讲解要求】
-${learnPrompt}
-
-以上配置决定分析重点、展开深度和正文表达方式，但不能覆盖本提示词规定的工具核实要求、learn-graph 数据协议和证据门槛。
-
-【输出顺序】探查完成后，必须先输出下面的 learn-graph 机器数据；围栏闭合后再输出给读者看的正文。这样界面可以先绘制业务核心，再继续接收讲解。
-
-【机器数据】先输出一个围栏，语言标记必须是 learn-graph（禁止用 json），围栏内是一行合法 JSON：
+上述要求决定分析重点、展开深度和正文表达方式，但不能覆盖本提示词规定的工具核实要求、learn-graph 数据协议和证据门槛。`;
+  const structuredStage = `【当前为结构化业务路线阶段（1/2）】本次请求启用 JSON Output。只输出一个合法 JSON 对象，不要输出 Markdown 围栏、讲解正文、工具调用、前后缀或任何 JSON 之外的字符：
 {"communities":[{"id":"0","label":"业务名","summary":"职责与路线交接说明","entry":{"file":"相对路径","symbol":"真实类名"},"files":["相对路径"]}],"businessRoutes":[{"id":"route-1","label":"业务路线名称","summary":"触发条件、核心结果和适用场景","steps":[{"label":"接收请求","kind":"entry","file":"相对路径","classSymbol":"所在类名","methodSymbol":"具体方法名","relation":"入口","description":"输入或状态如何处理，以及下一步去哪里","evidence":"源码中实际出现的调用表达式、状态字段或接口契约","communityId":"0","inputs":["协议或 DTO"],"outputs":["传给下一步的对象"],"stateChanges":[],"failurePaths":["校验失败时的真实行为"]},{"label":"返回结果","kind":"result","file":"相对路径","classSymbol":"所在类名","methodSymbol":"具体方法名","relation":"返回","description":"最终结果和可观察副作用","evidence":"真实返回、发送或发布表达式","communityId":"0","inputs":["最终状态"],"outputs":["响应或事件"],"stateChanges":[],"failurePaths":[]}]}],"runtimePath":["0"]}
 businessRoutes 可以为空：只有不存在任何证据完整的路线时才能输出空数组，绝不能为了非空而编造。存在路线时必须形成真实业务闭环；每个 step 的 kind、file、classSymbol、methodSymbol、relation、evidence、communityId、inputs、outputs、stateChanges、failurePaths 都是必填字段，四个数组没有事实时填空数组。kind 只能是 entry/process/decision/state/external/result，第一步必须是 entry，最后一步必须是 result。communityId 必须使用图谱已有编号。classSymbol 专门用于绑定类级节点，必须从结构图谱“可绑定类级节点”清单中逐字复制对应 label，file 和 communityId 也必须使用该清单中同一节点的值；禁止写包名、完整限定名、方法名、括号或签名。methodSymbol 必须填写该步骤实际执行的方法或函数名。DTO、枚举、接口、配置项只写进 inputs、outputs、stateChanges、description 或 evidence，不能冒充可执行类节点。任何步骤找不到清单中的所在类或具体方法时，整条候选只能写入正文“待核实”，不得放进 businessRoutes。
-
-【给读者看的正文】机器数据围栏闭合后，只用中文，禁止再次输出 JSON / 花括号 / 字段名。必须写这些章节，并点名真实符号与相对路径：
+所有字段必须满足 learn-graph v2 约束。`;
+  const proseStage = `【当前为中文讲解阶段（2/2）】机器数据已经生成并通过服务端校验。只输出给读者阅读的中文 Markdown 正文，不得再输出 JSON、代码围栏或工具调用。必须写这些章节，并点名真实符号与相对路径：
 1. 业务全景 — 仓库实际提供什么产品、服务或玩法；谁触发、主要输入、最终产出和系统边界是什么
 2. 主要业务路线 — 每条路线独立成节，先讲业务价值，再从触发入口开始按编号逐步写到结果落点；每一步都说明 caller -> callee、关键参数或对象、状态变化、进入下一步的条件和源码证据
 3. 关键分支与失败处理 — 点明条件分支、提前返回、异常，以及源码中存在的重试、幂等、回滚或补偿；证据不足的内容放到待核实
@@ -308,7 +315,11 @@ businessRoutes 可以为空：只有不存在任何证据完整的路线时才�
 8. 待核实问题 — 明确列出源码证据尚未闭合的候选，不得把猜测写成结论
 9. 建议阅读顺序 — 按业务路线给出文件和符号顺序，并说明每一站要看懂什么
 
-禁止空话（「负责业务逻辑」）、禁止把社区命名成 Scripts / Manager / Common / Utils，也禁止把所有静态边塞进业务路线。`;
+禁止空话（「负责业务逻辑」），不得补写已验证机器数据之外的路线或节点。`;
+  const explorationStage = `【当前仅执行源码探查】本轮只调用工具收集入口、调用、数据、状态、失败路径和结果落点证据。证据足够后停止调用工具并简短回复“探查完成”；不要在本轮输出 JSON、learn-graph 围栏或讲解正文，服务端会在后续两个独立阶段生成结构化业务图和中文讲解。`;
+  const system = `${baseSystem}
+
+${phase === 'structured' ? structuredStage : phase === 'prose' ? proseStage : explorationStage}`;
   if (isExpansion) return `${system}
 
 【本轮是用户手动补充业务总线】只分析用户点名但现有路线没有覆盖的部分。输出的 businessRoutes 只能包含本轮新增路线，禁止重复、改写或删除已有路线；路线 id 必须与已有 id 不同。仍须从入口追到结果，完全遵守上述 v2 机器数据和源码证据门槛。若问题无法形成新的证据闭环，输出空 businessRoutes，并在正文说明缺少哪段证据。`;
@@ -341,11 +352,11 @@ export function buildLearnUserMessage(ctx: PromptContext): string {
       `   输入=${target.inputs.join('；') || '空'}；输出=${target.outputs.join('；') || '空'}；` +
       `状态变化=${target.stateChanges.join('；') || '空'}；失败路径=${target.failurePaths.join('；') || '空'}`
     ).join('\n');
-    return `${digest}【递归钻取路径】\n${formattedPath}\n\n【当前要展开的节点】\n${path[path.length - 1]?.label || ctx.userPrompt.trim()}\n\n请调用工具从这个具体步骤的源码实现向内追踪，只输出它内部更细且证据闭环的子路线。按规定先输出 learn-graph，再输出本层讲解；如果已经无法再细分，businessRoutes 输出空数组。`;
+    return `${digest}【递归钻取路径】\n${formattedPath}\n\n【当前要展开的节点】\n${path[path.length - 1]?.label || ctx.userPrompt.trim()}\n\n请调用工具从这个具体步骤的源码实现向内追踪；如果已经无法再细分，记录为 businessRoutes 输出空数组。证据足够后结束探查，机器数据和本层讲解由后续阶段分别生成。`;
   }
   if (ctx.userPrompt && ctx.userPrompt.trim() && ctx.learnRequestMode === 'expand_graph') {
     const focus = ctx.filePath ? `当前聚焦文件: ${ctx.filePath}\n\n` : '';
-    return `${focus}${digest}【已接受路线，禁止重复】\n${formatExistingRoutes(ctx)}\n\n【用户要求补充的业务】:\n${ctx.userPrompt.trim()}\n\n请调用工具核实这部分业务是否能形成新的完整闭环；按规定先输出只含新增路线的 learn-graph，再输出补充讲解。`;
+    return `${focus}${digest}【已接受路线，禁止重复】\n${formatExistingRoutes(ctx)}\n\n【用户要求补充的业务】:\n${ctx.userPrompt.trim()}\n\n请调用工具核实这部分业务是否能形成新的完整闭环；证据足够后结束探查，新增路线机器数据和补充讲解由后续阶段分别生成。`;
   }
   if (ctx.userPrompt && ctx.userPrompt.trim()) {
     const focus = ctx.filePath ? `当前聚焦文件: ${ctx.filePath}\n\n` : '';
@@ -354,7 +365,7 @@ export function buildLearnUserMessage(ctx: PromptContext): string {
   const focus = ctx.filePath
     ? `\n请特别说明文件 ${ctx.filePath} 落在哪个社区、运行时何时进入、和哪些枢纽相连。\n`
     : '';
-  return `请先分析当前仓库真正的业务入口和主要业务闭环。结构图谱只是候选证据；请用 read_file / search_code 沿调用和数据状态核实每条路线，再按规定先输出可供界面绘制的 businessRoutes 机器数据，随后输出业务讲解。${focus}${digest}`;
+  return `请先分析当前仓库真正的业务入口和主要业务闭环。结构图谱只是候选证据；请用 read_file / search_code 沿调用和数据状态核实每条路线。证据足够后结束探查，业务路线机器数据和中文讲解由后续阶段分别生成。${focus}${digest}`;
 }
 
 export function buildAgentSystemPrompt(ctx: PromptContext): string {

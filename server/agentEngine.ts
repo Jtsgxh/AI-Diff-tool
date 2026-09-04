@@ -19,6 +19,7 @@ import { SseStream } from './http/sse';
 import {
   buildAgentSystemPrompt,
   buildAgentUserMessage,
+  buildLearnSystemPrompt,
   buildSynthesisPrompt,
   isLearnTask,
   type ExplorationEntry,
@@ -31,7 +32,11 @@ import {
   resolveRequestTimeoutSeconds,
   totalContextChars,
 } from '../shared/types';
-import type { AgentExplainRequest, PartialAIProviderConfig } from '../shared/types';
+import type {
+  AgentExplainRequest,
+  LearnAnalysisEnvelope,
+  PartialAIProviderConfig,
+} from '../shared/types';
 import { parseLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
 
 export type AgentExecutionConfig = PartialAIProviderConfig;
@@ -91,6 +96,24 @@ function fitPairToBudget(first: string, second: string, budget: number): [string
   }
 
   return [clipCharsBalanced(first, firstBudget), clipCharsBalanced(second, secondBudget)];
+}
+
+export function parseStructuredLearnGraphOutput(text: string): LearnAnalysisEnvelope {
+  const content = text.trim();
+  if (!content) throw new Error('结构化业务路线生成结束，但模型返回了空 JSON');
+
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(content);
+  } catch {
+    throw new Error('结构化业务路线不是合法 JSON；当前模型端点没有正确执行 JSON Output');
+  }
+
+  const graph = parseLearnAnalysisEnvelope(decoded);
+  if (!graph) {
+    throw new Error('结构化业务路线 JSON 不符合 learn-graph v2 字段约束');
+  }
+  return graph;
 }
 
 /**
@@ -224,6 +247,12 @@ export class CodexAgentEngine {
     }
     const systemPrompt = buildAgentSystemPrompt(promptCtx);
     const initialUserMsg = buildAgentUserMessage(promptCtx);
+    const structuredLearnSystemPrompt = needsLearnGraph
+      ? buildLearnSystemPrompt(promptCtx, 'structured')
+      : undefined;
+    const proseLearnSystemPrompt = needsLearnGraph
+      ? buildLearnSystemPrompt(promptCtx, 'prose')
+      : undefined;
     usedChars = systemPrompt.length + initialUserMsg.length;
 
     let openaiClient: OpenAI | undefined;
@@ -235,21 +264,15 @@ export class CodexAgentEngine {
     let actionCount = 0;
     let hitMaxTurns = false;
     let outputTruncated = false;
-    let learnOutputStarted = false;
 
     const requiresReasoningRoundTrip = requiresDeepSeekReasoningRoundTrip(provider);
     const emitAssistantContent = (content: string) => {
       accumulatedContent += content;
       lastTurnContent += content;
 
-      if (!needsLearnGraph || learnOutputStarted) {
-        stream.send({ type: 'chunk', text: content });
-        return;
-      }
-      if (hasValidLearnGraphOutput(lastTurnContent)) {
-        learnOutputStarted = true;
-        stream.send({ type: 'chunk', text: lastTurnContent });
-      }
+      // Graph-producing learn requests always use the dedicated structured
+      // stage below. The exploratory agent's final prose is evidence only.
+      if (!needsLearnGraph) stream.send({ type: 'chunk', text: content });
     };
 
     try {
@@ -354,7 +377,6 @@ export class CodexAgentEngine {
               actionCount++;
               // A tool call starts a new turn: preamble before tools is not the report.
               lastTurnContent = '';
-              learnOutputStarted = false;
               const toolCallId = item.callId || `call_${Date.now()}_${actionCount}`;
               const toolName =
                 item.toolName || item.name || item.rawItem?.function?.name || 'read_file';
@@ -447,7 +469,6 @@ export class CodexAgentEngine {
         ) &&
         !stream.isClosed
       ) {
-        const requiresLearnGraph = needsLearnGraph && !hasValidLearnGraphOutput(lastTurnContent);
         await this.streamSynthesis({
           stream,
           openaiClient,
@@ -460,8 +481,10 @@ export class CodexAgentEngine {
           isLearn: learnTask,
           isLearnExpansion,
           isLearnDrilldown,
-          requiresLearnGraph,
-          hasPartialContent: accumulatedContent.length > 0 && !requiresLearnGraph,
+          requiresLearnGraph: needsLearnGraph,
+          structuredLearnSystemPrompt,
+          proseLearnSystemPrompt,
+          hasPartialContent: accumulatedContent.length > 0 && !needsLearnGraph,
           contextChars,
           truncatedDraft: outputTruncated ? lastTurnContent || accumulatedContent : undefined,
           preserveReasoningOnAssistant: requiresReasoningRoundTrip,
@@ -494,9 +517,9 @@ export class CodexAgentEngine {
   }
 
   /**
-   * Fallback pass: the agent loop ended without a report (it exhausted its
-   * turns, or the provider only emitted tool calls). Replay the exploration
-   * results into a plain completion so the user always gets an answer.
+   * Final generation after exploration. Learn-graph tasks first produce and
+   * validate JSON, then start a separate prose stream; reviews keep the plain
+   * synthesis path used for max-turn and truncated-output recovery.
    */
   private async streamSynthesis(params: {
     stream: SseStream;
@@ -511,6 +534,8 @@ export class CodexAgentEngine {
     isLearnExpansion: boolean;
     isLearnDrilldown: boolean;
     requiresLearnGraph: boolean;
+    structuredLearnSystemPrompt?: string;
+    proseLearnSystemPrompt?: string;
     hasPartialContent: boolean;
     contextChars: number;
     truncatedDraft?: string;
@@ -522,14 +547,16 @@ export class CodexAgentEngine {
     stream.send({
       type: 'status',
       phase: 'reporting',
-      message: params.truncatedDraft
-        ? `${params.isLearn ? '业务路线报告' : '终审报告'}不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
-        : `Codex 探查阶段结束（已获取 ${explorationLog.length} 处上下文），正在实时流式输出${
-            params.isLearnDrilldown ? '业务节点子图' : params.isLearnExpansion ? '业务总线补图' : params.isFollowUp ? '追问解答' : params.isLearn ? '业务路线报告' : '深度审查报告'
-          }...`,
+      message: params.requiresLearnGraph
+        ? `源码探查结束（已获取 ${explorationLog.length} 处上下文），正在生成结构化业务路线（1/2）...`
+        : params.truncatedDraft
+          ? `${params.isLearn ? '业务路线报告' : '终审报告'}不完整，正在补全（已探查 ${explorationLog.length} 处上下文）...`
+          : `Codex 探查阶段结束（已获取 ${explorationLog.length} 处上下文），正在实时流式输出${
+              params.isFollowUp ? '追问解答' : '深度审查报告'
+            }...`,
     });
 
-    if (params.hasPartialContent) {
+    if (params.hasPartialContent && !params.requiresLearnGraph) {
       stream.send({ type: 'chunk', text: '\n\n---\n\n' });
     }
 
@@ -542,8 +569,14 @@ export class CodexAgentEngine {
     const synthesisSystemPrompt = `${params.systemPrompt}
 
 【当前为无工具的最终综合阶段】代码探查已经结束，本阶段没有任何可调用工具。只能基于用户消息和下方已经取得的探查证据生成最终回答；禁止请求继续探查，禁止用 XML、普通 JSON、<@read_file> 或其他标签模拟工具调用。证据不足时明确写入“待核实”，需要图谱输出的学习请求仍须输出合法的 learn-graph，不能用工具调用文本代替最终报告。`;
+    const inputSystemPrompt = params.requiresLearnGraph
+      ? params.structuredLearnSystemPrompt
+      : synthesisSystemPrompt;
+    if (!inputSystemPrompt || (params.requiresLearnGraph && !params.proseLearnSystemPrompt)) {
+      throw new Error('最终生成阶段缺少对应的系统提示词');
+    }
     const inputBudget = Math.round(contextChars * SYNTHESIS_INPUT_FRACTION);
-    const userBudget = inputBudget - synthesisSystemPrompt.length;
+    const userBudget = inputBudget - inputSystemPrompt.length;
     if (userBudget <= 0) {
       throw new Error('系统提示词已超过配置的模型上下文窗口');
     }
@@ -553,7 +586,7 @@ export class CodexAgentEngine {
       userBudget
     );
 
-    const messages: any[] = [
+    let messages: any[] = [
       { role: 'system', content: synthesisSystemPrompt },
       {
         role: 'user',
@@ -564,10 +597,97 @@ export class CodexAgentEngine {
         content: synthesisContent,
       },
     ];
+
+    if (params.requiresLearnGraph) {
+      const structuredMessages: any[] = [
+        {
+          role: 'system',
+          content: inputSystemPrompt,
+        },
+        { role: 'user', content: initialUserContent },
+        {
+          role: 'user',
+          content: `${synthesisContent}
+
+现在只输出结构化业务路线 JSON 对象。`,
+        },
+      ];
+      const structuredStream = await openaiClient.chat.completions.create(
+        {
+          model,
+          messages: structuredMessages,
+          stream: true,
+          response_format: { type: 'json_object' },
+        },
+        { signal: stream.signal }
+      );
+      let structuredText = '';
+      let structuredFinishReason: string | null = null;
+      let reportedChars = 0;
+
+      for await (const chunk of structuredStream) {
+        if (stream.isClosed) return;
+        const choice = chunk.choices?.[0];
+        const delta = choice?.delta as any;
+        if (choice?.finish_reason) structuredFinishReason = choice.finish_reason;
+
+        const reasoningChunk = extractReasoningDelta(delta);
+        if (reasoningChunk) {
+          params.onReasoning(reasoningChunk);
+          stream.send({ type: 'thought', text: reasoningChunk });
+        }
+        if (delta?.content) {
+          structuredText += delta.content;
+          if (reportedChars === 0 || structuredText.length - reportedChars >= 2000) {
+            reportedChars = structuredText.length;
+            stream.send({
+              type: 'status',
+              phase: 'reporting',
+              message: `正在接收结构化业务路线（1/2，已生成 ${reportedChars.toLocaleString()} 字符）...`,
+            });
+          }
+        }
+      }
+
+      if (structuredFinishReason === 'length') {
+        throw new Error('结构化业务路线达到模型单次输出长度上限，JSON 不完整');
+      }
+      if (structuredFinishReason !== 'stop') {
+        throw new Error(
+          structuredFinishReason
+            ? `结构化业务路线以非正常原因结束: ${structuredFinishReason}`
+            : '结构化业务路线生成流未返回结束原因'
+        );
+      }
+
+      const structuredGraph = parseStructuredLearnGraphOutput(structuredText);
+      const canonicalGraph = JSON.stringify(structuredGraph);
+      stream.send({ type: 'chunk', text: `\`\`\`learn-graph\n${canonicalGraph}\n\`\`\`\n\n` });
+      stream.send({
+        type: 'status',
+        phase: 'reporting',
+        message: `结构化业务路线已通过校验，正在流式生成中文讲解（2/2）...`,
+      });
+
+      const proseSubject = params.isLearnDrilldown
+        ? `讲解用户要求深入的节点：${params.userPrompt || '当前节点'}`
+        : params.isLearnExpansion
+          ? `只讲解本轮新增业务路线：${params.userPrompt || '本轮补图'}`
+          : '讲解当前仓库已核实的主要业务路线';
+      const prosePrompt = `【已通过服务端校验的业务路线 JSON】
+${canonicalGraph}
+
+【讲解任务】${proseSubject}。结构化业务路线已经发送给界面；严格依据上述数据生成中文 Markdown 正文，不得重复 JSON、learn-graph 围栏或工具调用，也不得补写没有证据的路线或节点。`;
+      messages = [
+        {
+          role: 'system',
+          content: params.proseLearnSystemPrompt!,
+        },
+        { role: 'user', content: prosePrompt },
+      ];
+    }
+
     const continuationBaseLength = messages.length;
-    let synthesisOutput = '';
-    let learnOutputStarted = false;
-    let bufferedLearnOutput = '';
 
     for (let pass = 1; pass <= MAX_SYNTHESIS_PASSES && !stream.isClosed; pass++) {
       let passText = '';
@@ -598,17 +718,7 @@ export class CodexAgentEngine {
         }
         if (delta?.content) {
           passText += delta.content;
-          synthesisOutput += delta.content;
-          if (!params.requiresLearnGraph || learnOutputStarted) {
-            stream.send({ type: 'chunk', text: delta.content });
-          } else {
-            bufferedLearnOutput += delta.content;
-            if (hasValidLearnGraphOutput(bufferedLearnOutput)) {
-              learnOutputStarted = true;
-              stream.send({ type: 'chunk', text: bufferedLearnOutput });
-              bufferedLearnOutput = '';
-            }
-          }
+          stream.send({ type: 'chunk', text: delta.content });
         }
       }
 
@@ -654,11 +764,6 @@ export class CodexAgentEngine {
       if (!passText.trim()) {
         throw new Error('综合生成已结束，但没有输出报告正文');
       }
-      if (params.requiresLearnGraph && !hasValidLearnGraphOutput(synthesisOutput)) {
-        throw new Error(
-          '业务路线综合生成已结束，但模型没有返回合法的 learn-graph 机器数据；已拒绝把工具调用文本当作分析结果'
-        );
-      }
       return;
     }
   }
@@ -671,21 +776,10 @@ function shouldRunSynthesis(
   outputTruncated: boolean,
   needsLearnGraph: boolean
 ): boolean {
+  if (needsLearnGraph) return true;
   if (hitMaxTurns || outputTruncated) return true;
   const output = (lastTurn || accumulated).trim();
   if (!output) return true;
-  return needsLearnGraph && !hasValidLearnGraphOutput(output);
-}
-
-export function hasValidLearnGraphOutput(text: string): boolean {
-  const matches = text.matchAll(/```learn-graph\s*([\s\S]*?)```/gi);
-  for (const match of matches) {
-    try {
-      if (parseLearnAnalysisEnvelope(JSON.parse(match[1].trim()))) return true;
-    } catch {
-      // Keep scanning in case a later fence contains the corrected payload.
-    }
-  }
   return false;
 }
 

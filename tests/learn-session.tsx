@@ -143,11 +143,24 @@ window.fetch = async (input, init) => {
       });
     }
     if (responseMode === 'error') return Response.json({ error: 'fixture AI failure' }, { status: 500 });
+    const responseText = body.learnRequestMode === 'expand_graph'
+      ? expansionReport : body.learnRequestMode === 'drilldown_graph'
+        ? body.drillPath.length > 1 ? drilldownLeafReport : drilldownReport
+        : body.userPrompt ? '这是测试追问回答。' : useFilterGraph ? filterReport : report;
+    if (body.userPrompt && !['expand_graph', 'drilldown_graph'].includes(body.learnRequestMode)) {
+      return new Response([
+        `data: ${JSON.stringify({ type: 'chunk', text: responseText })}\n\n`,
+        'data: {"type":"done"}\n\n',
+      ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
+    }
+    const graphEnd = responseText.indexOf('\n```') + '\n```'.length;
+    const graphChunk = `${responseText.slice(0, graphEnd)}\n\n`;
+    const proseChunk = responseText.slice(graphEnd).trimStart();
     return new Response([
-      `data: ${JSON.stringify({ type: 'chunk', text: body.learnRequestMode === 'expand_graph'
-        ? expansionReport : body.learnRequestMode === 'drilldown_graph'
-          ? body.drillPath.length > 1 ? drilldownLeafReport : drilldownReport
-          : body.userPrompt ? '这是测试追问回答。' : useFilterGraph ? filterReport : report })}\n\n`,
+      `data: ${JSON.stringify({ type: 'status', phase: 'reporting', message: '正在生成结构化业务路线（1/2）...' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'chunk', text: graphChunk })}\n\n`,
+      `data: ${JSON.stringify({ type: 'status', phase: 'reporting', message: '正在流式生成中文讲解（2/2）...' })}\n\n`,
+      `data: ${JSON.stringify({ type: 'chunk', text: proseChunk })}\n\n`,
       'data: {"type":"done"}\n\n',
     ].join(''), { headers: { 'Content-Type': 'text/event-stream' } });
   }

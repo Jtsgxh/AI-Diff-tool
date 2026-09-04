@@ -14,6 +14,7 @@ import {
   parseLearnOverlay,
   serializeLearnGraphReport,
 } from '../src/utils/learnGraph';
+import { parseStructuredLearnGraphOutput } from '../server/agentEngine';
 
 function step(
   node: LearnNode,
@@ -97,6 +98,19 @@ test('v2 learn analysis accepts complete routes and rejects malformed or duplica
     envelope().businessRoutes[0], envelope().businessRoutes[0],
   ] }), null);
   assert.equal(parseLearnAnalysisEnvelope({ ...envelope(), runtimePath: ['missing'] }), null);
+});
+
+test('structured learn stage accepts only a valid bare JSON envelope', () => {
+  const valid = JSON.stringify(envelope());
+  assert.deepEqual(parseStructuredLearnGraphOutput(valid), parseLearnAnalysisEnvelope(envelope()));
+  assert.throws(
+    () => parseStructuredLearnGraphOutput(`\`\`\`json\n${valid}\n\`\`\``),
+    /不是合法 JSON/
+  );
+  assert.throws(
+    () => parseStructuredLearnGraphOutput(JSON.stringify({ ...envelope(), runtimePath: ['missing'] })),
+    /不符合 learn-graph v2/
+  );
 });
 
 test('front-end parser only accepts closed strict learn-graph fences', () => {
@@ -203,6 +217,13 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   };
   assert.match(buildLearnSystemPrompt(expansion), /手动补充业务总线/);
   assert.match(buildLearnSystemPrompt(expansion), /只能包含本轮新增路线/);
+  assert.match(buildLearnSystemPrompt(expansion), /当前仅执行源码探查/);
+  assert.match(buildLearnSystemPrompt(expansion, 'structured'), /启用 JSON Output/);
+  assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /当前仅执行源码探查/);
+  assert.match(buildLearnSystemPrompt(expansion, 'structured'), /探查已完成/);
+  assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /【必须探查】/);
+  assert.match(buildLearnSystemPrompt(expansion, 'prose'), /只输出给读者阅读的中文 Markdown 正文/);
+  assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'prose'), /启用 JSON Output/);
   assert.match(buildLearnUserMessage(expansion), /路线 A/);
   assert.match(buildLearnUserMessage(expansion), /补充管理流程/);
 
