@@ -28,7 +28,7 @@ export interface LearnChatTurn {
 }
 
 const ELAPSED_TICK_MS = 500;
-const LEARN_ROUTE_POLICY_VERSION = 3;
+const LEARN_ROUTE_POLICY_VERSION = 4;
 
 function rejectedRouteLabels(report: string, graph: LearnGraph | null): string[] {
   const overlay = parseLearnOverlay(report);

@@ -240,7 +240,16 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   assert.match(initialStructuredPrompt, /禁止只用“AI 分析”/);
   assert.match(initialStructuredPrompt, /businessRoutes 禁止输出空数组/);
   assert.match(initialStructuredPrompt, /路线可以只位于单个社区/);
-  assert.match(buildLearnSystemPrompt(initial), /至少闭合一条业务路线/);
+  assert.match(initialStructuredPrompt, /复杂仓库通常应覆盖 4 至 8 条主要功能线/);
+  assert.match(initialStructuredPrompt, /所有已在 exploration 中闭合且边界独立的主要功能线都必须输出/);
+  assert.doesNotMatch(initialStructuredPrompt, /不追求路线数量|较少路线/);
+  const initialExplorationPrompt = buildLearnSystemPrompt(initial);
+  assert.match(initialExplorationPrompt, /候选覆盖清单/);
+  assert.match(initialExplorationPrompt, /禁止闭合第一条路线后立即结束/);
+  assert.match(initialExplorationPrompt, /闭合 4 至 8 条互不相同的主要功能线/);
+  assert.match(buildSynthesisPrompt([{ name: 'read_file', args: {}, output: '源码' }], undefined, {
+    learnTask: true,
+  }), /不得只选第一条或最短路线/);
 
   const existingBusinessRoutes = [{
     id: 'a',
@@ -263,6 +272,7 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /启用 JSON Output/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /补充功能线边界/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /businessRoutes 可以输出空数组/);
+  assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /4 至 8 条/);
   assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /生成审查报告.*生成业务路线图/);
   assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /当前仅执行源码探查/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /探查已完成/);
@@ -301,6 +311,7 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   assert.match(buildLearnSystemPrompt(drilldown), /内部更细的执行子路线/);
   assert.match(buildLearnSystemPrompt(drilldown, 'structured'), /本轮只展开所选路线步骤/);
   assert.match(buildLearnSystemPrompt(drilldown, 'structured'), /businessRoutes 可以输出空数组/);
+  assert.doesNotMatch(buildLearnSystemPrompt(drilldown, 'structured'), /4 至 8 条/);
   assert.doesNotMatch(buildLearnSystemPrompt(drilldown, 'structured'), /生成审查报告.*生成业务路线图/);
   assert.match(buildLearnUserMessage(drilldown), /路线 A \/ 第 2 步「鉴权」/);
   assert.match(buildLearnUserMessage(drilldown), /Auth\.authorize/);

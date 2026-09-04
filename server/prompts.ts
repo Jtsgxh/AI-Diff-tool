@@ -300,6 +300,11 @@ ${learnPrompt}`;
 - 共享基础设施是多条路线可以复用的中间节点，不是合并功能线的依据。遇到共享节点后必须继续沿各自调用链追到不同结果，不能在公共引擎处提前收敛。
 - 路线名称必须表达具体用户功能和结果，禁止只用“AI 分析”“请求处理”“业务处理”“数据处理”等技术总称代替功能线。例如“对代码改动生成审查报告”和“分析整个仓库生成业务路线图”即使共用同一个 Agent，也属于两条路线。
 - 反过来，如果触发入口、业务目标和最终结果都相同，只是内部条件分支或实现策略不同，应保留为同一条路线，并写入 decision 或 failurePaths，不能为了增加路线数而拆线。`;
+  const routeCoverageRule = isDrilldown
+    ? '- 本轮只输出当前步骤内部有证据的子路线，不设置数量目标，也不把语句切碎凑数。'
+    : isExpansion
+      ? '- 本轮凡是已经核实、现有路线尚未覆盖且边界独立的新功能线都必须输出；不设置数量目标，也不得重复已有路线。'
+      : '- 在证据门槛不变的前提下追求主要功能覆盖率：凡是已经核实且边界独立的功能线都必须进入 businessRoutes，不得因为已有一条闭环就停止或为了缩短输出而合并、遗漏。复杂仓库通常应覆盖 4 至 8 条主要功能线；这只是覆盖目标而不是凑数配额，源码实际不足时可以更少，证据不完整的候选写进正文的“待核实”而不是路线数据。';
 
   const baseSystem = `你是代码库业务导师。界面的主视图以本地解析的社区骨架为主，你负责核实社区的业务语义，并把证据完整的业务路线作为高亮层叠加到骨架上。先读代码、确认社区边界和真实入口，再识别业务闭环并整理关键节点的先后关系。
 
@@ -317,7 +322,7 @@ ${evidencePhase}
 - 每一步都要结构化列出 inputs、outputs、stateChanges、failurePaths；没有对应事实时使用空数组，不能填“无”“未知”或猜测。
 - 社区用于说明职责边界；业务路线可以跨社区，但必须指出交接点。
 - 业务路线不要求跨社区；只要单个社区内存在真实入口、调用推进和可观察结果，也是一条必须输出的完整业务路线。
-- 不追求路线数量。只有入口、相邻步骤关系和结果落点都被工具结果证明的候选才能进入 businessRoutes；证据不完整的候选写进正文的“待核实”而不是路线数据。
+${routeCoverageRule}
 - 输出前逐步反查 exploration 中读到的源码：每一步必须给出 relation（入口/调用/读取/写入/发布/回调等）和 evidence（真实调用表达式、状态字段或接口契约）；禁止用职责描述冒充证据，禁止编造行号。${userGuidance}
 
 上述要求决定分析重点、展开深度和正文表达方式，但不能覆盖本提示词规定的工具核实要求、learn-graph 数据协议和证据门槛。`;
@@ -325,7 +330,7 @@ ${evidencePhase}
     ? '本轮是手动补图；确实没有新的证据闭环时，businessRoutes 可以输出空数组。'
     : isDrilldown
       ? '本轮是节点钻取；源码确实已经无法继续细分时，businessRoutes 可以输出空数组。'
-      : '本轮是初次整库分析；businessRoutes 禁止输出空数组。必须从已取得的源码证据中至少输出一条入口到结果的完整路线，路线可以只位于单个社区；优先输出已经闭合的较短路线或较少路线，但不得省略真实存在而尚未核实的中间步骤，也不能用社区职责摘要代替路线。';
+      : '本轮是初次整库分析；businessRoutes 禁止输出空数组。必须从已取得的源码证据中输出入口到结果的完整路线，路线可以只位于单个社区；至少一条只是最低合法性要求，不是分析完成标准。所有已在 exploration 中闭合且边界独立的主要功能线都必须输出，不得只挑较短路线或为了减少数量而遗漏路线；同时不得省略真实存在而尚未核实的中间步骤，也不能用社区职责摘要代替路线。';
   const structuredStage = `【当前为结构化业务路线阶段（1/2）】本次请求启用 JSON Output。只输出一个合法 JSON 对象，不要输出 Markdown 围栏、讲解正文、工具调用、前后缀或任何 JSON 之外的字符：
 {"communities":[{"id":"0","label":"业务名","summary":"职责与路线交接说明","entry":{"file":"相对路径","symbol":"真实类名"},"files":["相对路径"]}],"businessRoutes":[{"id":"route-1","label":"业务路线名称","summary":"触发条件、核心结果和适用场景","steps":[{"label":"接收请求","kind":"entry","file":"相对路径","classSymbol":"所在类名","methodSymbol":"具体方法名","relation":"入口","description":"输入或状态如何处理，以及下一步去哪里","evidence":"源码中实际出现的调用表达式、状态字段或接口契约","communityId":"0","inputs":["协议或 DTO"],"outputs":["传给下一步的对象"],"stateChanges":[],"failurePaths":["校验失败时的真实行为"]},{"label":"返回结果","kind":"result","file":"相对路径","classSymbol":"所在类名","methodSymbol":"具体方法名","relation":"返回","description":"最终结果和可观察副作用","evidence":"真实返回、发送或发布表达式","communityId":"0","inputs":["最终状态"],"outputs":["响应或事件"],"stateChanges":[],"failurePaths":[]}]}],"runtimePath":["0"]}
 ${emptyRouteRule} 存在路线时必须形成真实业务闭环；每个 step 的 kind、file、classSymbol、methodSymbol、relation、evidence、communityId、inputs、outputs、stateChanges、failurePaths 都是必填字段，四个数组没有事实时填空数组。kind 只能是 entry/process/decision/state/external/result，第一步必须是 entry，最后一步必须是 result。communityId 必须使用图谱已有编号。classSymbol 专门用于绑定类级节点，必须从结构图谱“可绑定类级节点”清单中逐字复制对应 label，file 和 communityId 也必须使用该清单中同一节点的值；禁止写包名、完整限定名、方法名、括号或签名。methodSymbol 必须填写该步骤实际执行的方法或函数名。DTO、枚举、接口、配置项只写进 inputs、outputs、stateChanges、description 或 evidence，不能冒充可执行类节点。任何步骤找不到清单中的所在类或具体方法时，整条候选只能写入正文“待核实”，不得放进 businessRoutes。
@@ -348,7 +353,7 @@ ${emptyRouteRule} 存在路线时必须形成真实业务闭环；每个 step �
   const initialExplorationRule = !isFollowUp && !isExpansion && !isDrilldown
     ? `
 
-【整库首次分析的收敛顺序】复杂仓库禁止只做社区归类后结束。先从 repo_overview 的真实入口候选选择一条主流程，沿 read_file / search_code 深度优先追到返回、发送、持久化或状态落点，至少闭合一条业务路线；完成第一条后再扩展其他路线。接近轮次上限时立即停止铺开新候选，优先补齐当前路线缺少的 caller、callee、状态和结果证据。`
+【整库首次分析的覆盖与收敛顺序】复杂仓库禁止只做社区归类后结束，也禁止闭合第一条路线后立即结束。先用 repo_overview / repo_graph 枚举用户操作、API、协议消息、命令、定时任务和事件入口，按“入口 + 业务目标 + 结果生命周期”建立候选覆盖清单；再用 read_file / search_code 逐条深度优先追到返回、发送、持久化或状态落点。每闭合一条就继续检查尚未覆盖的入口和业务社区；存在多个可验证入口时，以闭合 4 至 8 条互不相同的主要功能线为覆盖目标。接近轮次上限时停止增加新候选，优先补齐已经开始追踪的路线；确因源码证据不足而少于覆盖目标时，必须记录未闭合候选及其缺失证据，不能编造。`
     : '';
   const explorationStage = `【当前仅执行源码探查】本轮只调用工具收集入口、调用、数据、状态、失败路径和结果落点证据。证据足够后停止调用工具并简短回复“探查完成”；不要在本轮输出 JSON、learn-graph 围栏或讲解正文，服务端会在后续两个独立阶段生成结构化业务图和中文讲解。${initialExplorationRule}`;
   const system = `${baseSystem}
@@ -507,7 +512,7 @@ export function buildSynthesisPrompt(
       : isFollowUp
       ? `【用户追问】:\n${userPrompt?.trim()}\n\n请直接针对用户的追问给出精准、专业、详尽的 Markdown 解答。`
       : isLearn
-        ? '【探查阶段已结束】请严格按照系统规定，先输出包含 businessRoutes 数组的 learn-graph 机器数据，再输出仓库业务讲解；没有证据完整的路线时输出空数组。'
+        ? '【探查阶段已结束】本次没有取得源码探查结果。不得仅凭结构摘要编造业务路线；严格按照系统规定生成结构化结果，并如实暴露证据不足。'
         : '【探查阶段已结束】请根据上述代码修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。';
   } else {
     const contextSummary = explorationLog
@@ -526,7 +531,7 @@ export function buildSynthesisPrompt(
       : isFollowUp
       ? `【探查阶段已结束】已在代码库中探查到以下关联源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n【用户追问】:\n${userPrompt?.trim()}\n\n请结合上述探查到的源码与调用上下文，直接输出精准、专业、详尽的 Markdown 解答。`
       : isLearn
-        ? `【探查阶段已结束】已在代码库中核实以下源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n请从真实入口、调用、数据和状态变化中提炼主要业务路线。严格按照系统规定，先输出包含 businessRoutes 数组的 learn-graph 机器数据，再输出正文；没有证据完整的路线时输出空数组。`
+        ? `【探查阶段已结束】已在代码库中核实以下源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n请逐项检查入口候选，从真实入口、调用、数据和状态变化中提炼主要业务路线。所有已闭合且边界独立的路线都必须输出，不得只选第一条或最短路线；复杂仓库以覆盖 4 至 8 条主要功能线为目标，但不能为凑数使用证据不完整的候选。严格按照系统规定生成结构化结果和正文。`
         : `【探查阶段已结束】已在代码库中检索到以下关联源码与调用上下文：\n${evidenceRule}\n\n${contextSummary}\n\n请根据上述探查到的全部代码上下文与修改差异，严格按照设定的审查规则，直接输出最终完整的 Markdown 深度代码审查报告。`;
   }
 
