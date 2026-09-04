@@ -429,7 +429,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <input
                   type="number"
                   min={CONTEXT_WINDOW_TOKENS.min}
-                  step={1000}
+                  step={1}
                   value={windowTokens}
                   onChange={(e) =>
                     setForm({
@@ -889,7 +889,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="number"
                     min={REQUEST_TIMEOUT_SECONDS.min}
                     max={REQUEST_TIMEOUT_SECONDS.max}
-                    step={30}
+                    step={1}
                     value={form.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default}
                     onChange={(e) =>
                       setForm({ ...form, timeoutSeconds: parseInt(e.target.value, 10) })
@@ -911,7 +911,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="number"
                     min={STREAM_IDLE_TIMEOUT_SECONDS.min}
                     max={STREAM_IDLE_TIMEOUT_SECONDS.max}
-                    step={30}
+                    step={1}
                     value={form.streamIdleTimeoutSeconds || STREAM_IDLE_TIMEOUT_SECONDS.default}
                     onChange={(e) =>
                       setForm({ ...form, streamIdleTimeoutSeconds: parseInt(e.target.value, 10) })
@@ -952,7 +952,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <input
                     type="number"
                     min={100}
-                    step={100}
+                    step={1}
                     value={form.maxReadFileLines || 2000}
                     onChange={(e) =>
                       setForm({ ...form, maxReadFileLines: parseInt(e.target.value, 10) || 2000 })
@@ -971,7 +971,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <input
                     type="number"
                     min={10}
-                    step={10}
+                    step={1}
                     value={form.maxSearchResults || 200}
                     onChange={(e) =>
                       setForm({ ...form, maxSearchResults: parseInt(e.target.value, 10) || 200 })
