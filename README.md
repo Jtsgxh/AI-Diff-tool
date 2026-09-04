@@ -1,174 +1,296 @@
-# AI-Diff-Tool 🚀
+# AI-Diff-Tool
 
-> **基于自主 ReAct 智能体引擎与 Git 原生索引的高性能语义代码审查与可视化工作台**  
-> *AI-Powered Semantic Git Diff & Multi-File Code Review Workbench with Autonomous Agent Engine*
+> 面向真实本地 Git 仓库的代码审查与仓库学习工作台。它把提交图谱、可展开全文的 Diff、AI 代码审查、业务路线分析和源码关系图放在同一个界面中。
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://reactjs.org/)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-38bdf8.svg)](https://tailwindcss.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7-blue.svg)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-8-646cff.svg)](https://vite.dev/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.12-339933.svg)](https://nodejs.org/)
 
----
+## 项目定位
 
-## 🌟 核心亮点与设计理念
+AI-Diff-Tool 不只把补丁交给模型。它先用 Git 读取准确的提交、工作区和文件版本，再让用户按提交、文件或改动块选择审查范围。需要理解跨文件影响时，Codex 智能体可以在只读工具范围内继续检索源码；需要快速说明时，也可以只分析当前 Diff。
 
-在复杂的现代工程（如 Unity / C# / 大型后端单体仓库）中，审查代码如果**仅看当前的局部 Diff 片段**，往往无法看清真实改动的影响范围。**AI-Diff-Tool** 专为解决这一核心痛点而生：
+项目当前只支持 **Git 仓库**。界面不包含演示数据或模拟 AI，Git 信息和模型输出均来自真实仓库与实际配置的模型服务。
 
-1. **🧠 自主 ReAct 智能体架构 (Autonomous Codebase Agent)**
-   - 具备只读代码库环境与决策能力，能主动调用工具跨文件阅读基类定义、接口契约与依赖文件；
-   - 探查与收敛决策两阶段解耦，探查完毕后自动触发终审合成，绝不半路中断。
+## 已有功能总览
 
-2. **⚡ Git 原生索引高速符号检索 (Git Grep & Indexing)**
-   - 抛弃低效的同步文件遍历，底层深度接入 `git grep -E` 与 `git ls-files`；
-   - 毫秒级快速检索下游调用方、类继承与符号引用，自动遵循 `.gitignore`，在大规模仓库中极速响应。
+### 1. 本地仓库与 Git 历史
 
-3. **🌊 纯真 HTTP SSE 实时 Token 流式响应 (Zero-Latency Streaming)**
-   - 拒绝伪流式打字机延迟，报告生成阶段直通大模型服务端 SSE 数据流，Token 实时吐出，零等待感知。
+- 打开并切换本地 Git 仓库，使用 Git 本身验证目录，避免把空的 `.git` 标记误判为仓库。
+- 内置目录浏览器，提供用户目录、文档、桌面、下载、当前工程和 Windows 盘符快捷入口。
+- Windows 支持调用系统原生文件夹选择器；同时支持手动输入路径。
+- 保存最近打开的 10 个仓库，可快速重开或从记录中移除。
+- 显示当前分支、上游分支、ahead/behind 状态、HEAD 和未提交文件数量。
+- 最多读取最近 100 个提交，按 DAG 展示父子关系、分支/标签、作者、时间、SHA 和提交说明。
+- 提交记录可按说明、作者、SHA 或分支搜索。
+- 单击查看某个提交；工作区存在改动时可直接查看 `Working Tree`。
+- 支持复选框、`Ctrl/Cmd` 单击和 `Shift` 区间选择多个提交；选择会自动补齐成连续区间。
+- 多提交模式展示从最旧提交父节点到最新提交的最终净变更，并保留本批提交清单，可直接发起整批 AI 审查。
+- 工作区 Diff 同时覆盖已暂存、未暂存和未跟踪文件；空仓库也能展示未跟踪文本文件。
+- 不可变提交和完整 SHA 范围使用有界 LRU 缓存；实时工作区不缓存。
 
-4. **🎯 专家级代码审查体系 (Before vs After)**
-   - 强制对比「改动前旧实现」与「改动后新实现」；
-   - 深度拆解核心代码逻辑、参数语义与状态迁移，彻底告别空洞套话。
+### 2. 变更文件管理
 
-5. **🎛️ 100% 纯配置驱动与预设定制**
-   - 底层代码零死板模板，提供「极简直解」、「架构全景」、「性能/GC优化」、「边界测试用例」、「Clean Code」等 5 大常用预设，亦支持任意手写自定义 Prompt。
+- 汇总文件数、总新增行和总删除行。
+- 区分新增、修改、删除和重命名文件，并显示每个文件的增删统计。
+- 支持目录树与平铺列表两种展示方式。
+- 支持按文件名或目录过滤。
+- 切换提交或批次后自动选中首个变更文件。
+- 可从文件列表直接审查整个文件；在“学习此仓库”页面中可直接询问某个变更文件的业务角色。
+- 提交历史栏、文件栏和 AI 审查栏均可折叠、拖动调整宽度，双击分隔条恢复默认尺寸；布局偏好保存在浏览器本地。
 
-6. **🗂️ 沉浸式 Fork 风格 Git DAG 图谱与面板折叠收纳**
-   - 还原现代化 Git DAG 拓扑分支树，支持单提交审查、双提交多选对比（`Ctrl/Cmd` 单击对比）及未提交 Working Tree 实时审查；
-   - 一键收起左侧历史面板，释放 100% 全屏空间进行沉浸式双栏（Split Diff）代码阅读。
+### 3. Diff 与全文阅读
 
----
+- 支持双栏 `Split Diff` 和单栏 `Unified Diff`，保留旧/新行号及新增、删除高亮。
+- 双栏分隔比例可拖动调整并持久化。
+- 按标准 hunk 展示改动头、增删统计和块级操作。
+- 支持选择单个、多个或全部改动块，并对选中块执行联合解释。
+- 大型 Diff 使用延迟挂载，减少一次性 DOM 渲染开销。
+- **全文模式**会读取所选版本的真实完整文件，并把未修改上下文插入原有 Diff，红绿增删高亮和 hunk 操作仍然保留。
+- 全文来源会随审查对象变化：
+  - 单提交读取该提交后的文件；
+  - 批量提交读取批次最新提交后的文件；
+  - 工作区读取当前磁盘文件；
+  - 删除文件读取删除前版本；
+  - 比较接口读取目标版本，基准使用 merge-base。
+- 全文工具栏提供“上一处差异 / 下一处差异”和当前位置计数；手动滚动后会根据当前视口更新目标，首尾按钮自动禁用。
+- 全文标题显示来源版本、行数、大小与编码。
+- 文本读取先严格尝试 UTF-8，再尝试 GB18030；二进制文件不做文本预览。
+- 全文预览限制为 5 MiB、100,000 行，并校验仓库相对路径，阻止目录穿越。
 
-## 📸 核心界面预览
+### 4. 块内 AI 辅助阅读
 
-* **拓扑提交图谱 (DAG)**：支持任意提交分支拓扑可视化与多选对比；
-* **双模式审查切换**：`[ 🧠 关联解释 (Agent) ]` vs `[ ⚡ 直接 Diff 解释 ]` 毫秒级随意切换；
-* **探查轨迹实时 HUD**：探查节点数、耗时、动作记录动态可视化展示；
-* **左侧历史一键收纳**：支持折叠为紧凑收纳条，释放超大代码对比区域。
+- 每个改动块都可单独执行“直接解释”或“关联解释”。
+- “AI 伪代码”把新增/删除代码行原位替换为模型生成的概括性伪代码，支持单块或全部块开启、关闭和失败重试。
+- “块释义”在 Diff 内展开自然语言改动说明，不需要离开当前阅读位置。
+- 伪代码与自然语言结果按请求指纹缓存；同一输入再次打开可直接复用。
+- 切换文件时会清理当前文件的块选择和临时展示状态，避免串到另一个文件。
 
----
+### 5. 两种 AI 审查引擎
 
-## 🛠️ 技术栈架构
-
-```
-AI-Diff-Tool
-├── shared/types.ts ................ 前后端共用的唯一类型契约（Git 领域 + AI 配置 + SSE 事件）
-│
-├── src/ (React 19 + TypeScript + Vite + TailwindCSS v4)
-│   ├── hooks/
-│   │   ├── useRepository ............ 仓库元信息、提交列表、选区与 Diff 加载（含竞态防护）
-│   │   └── useDeferredMount ......... 视口驱动的延迟挂载，用于超大 Diff
-│   ├── services/
-│   │   ├── sseClient ................ 统一的 SSE 传输层（两个流式端点共用）
-│   │   ├── api ...................... REST + 流式接口封装与请求去重
-│   │   ├── aiCache .................. 惰性水合的多级持久化缓存
-│   │   └── aiLogger ................. 批量通知的 AI 调用记录中心
-│   └── components/
-│       ├── CommitGraph .............. 拓扑排序 Git DAG 与 SVG 分支连线
-│       ├── DiffViewer ............... 工具栏 / HunkBlock / HunkRows 分层，逐块记忆化
-│       ├── AIExplanation ............ 抽屉视图 + useReviewSessions 会话状态机
-│       └── SettingsModal ............ 配置驱动的引擎运行参数与提示词编辑器
-│
-└── server/ (Node.js + Express + Simple-Git)
-    ├── routes/ ...................... system / repo / ai 三组路由
-    ├── http/ ........................ SseStream（含客户端断连传播）与统一错误中间件
-    ├── config/providers ............. 各模型服务商的默认端点与模型解析
-    ├── prompts ...................... 全部提示词与 Diff 截断上限
-    ├── agentEngine .................. 自主 ReAct 循环与真实 SSE Token 流
-    ├── agentTools ................... Git 索引高速符号与文件检索沙箱
-    ├── aiService .................... 直接 Diff 快速审查流
-    ├── gitService ................... 仓库检视、提交 DAG 与带缓存的 Diff 计算
-    └── cache/lru .................... 不可变提交 Diff 的有界缓存
-```
-
----
-
-## 🚀 快速开始与安装指引
-
-### 0. 环境要求
-
-| 依赖 | 版本 | 校验命令 |
+| 模式 | 适用场景 | 行为 |
 | --- | --- | --- |
-| Node.js | **≥ 22.12**（`openai@7` 要求 ≥ 22，`vite@8` 要求 ≥ 22.12） | `node -v` |
-| Git | 任意近期版本，且 `git` 必须在 `PATH` 中 | `git --version` |
+| Codex 智能体 | 需要确认调用方、定义、继承、配置和跨文件影响 | 使用只读源码工具自主规划探查，完成后进入独立综合阶段输出最终报告 |
+| 直接 Diff | 需要快速理解当前增删代码 | 不检索外部文件，直接流式解释所选 Diff |
 
-> 后端的符号检索直接调用 `git grep` / `git ls-files`，**Git 不在 `PATH` 里智能体探查会失效**。
-> Windows 用户请安装 [Git for Windows](https://git-scm.com/download/win)，安装时选择「Git from the command line」。
+可审查范围包括：
 
-### 1. 克隆代码仓库
+- 单个提交或当前选区的整体变更；
+- 连续多提交的最终净变更；
+- 单个文件；
+- 单个改动块；
+- 同一文件内选中的多个改动块。
+
+Codex 智能体当前可调用的只读工具：
+
+- `read_file`：按行分页读取仓库文件；
+- `search_code`：优先使用 `git grep` 搜索符号和文本；
+- `find_files`：优先使用 `git ls-files` 搜索文件；
+- `repo_overview`：读取目录、语言、清单和入口候选；
+- `repo_graph`：在仓库学习任务中读取本地解析的代码关系图。
+
+### 6. AI 审查工作台
+
+- 真实 HTTP SSE Token 流式输出，报告、模型 reasoning、工具调用和阶段状态分别展示。
+- 支持多个审查标签页并行运行；关闭抽屉不会中止仍在执行的任务。
+- 可在同一会话中切换 Codex 智能体和直接 Diff 模式，并可强制绕过缓存重新审查。
+- 初始报告始终保留，之后可连续追问；智能体追问仍可继续读取和搜索代码。
+- 每条追问保存自己的 reasoning、工具轨迹和回复内容。
+- 审查异常中断且已经产生正文时，可点击“继续生成”，保留已有报告并从停止处续写。
+- 支持复制完整报告与追问记录。
+- 审查会话、活动标签页、聊天记录和面板开关状态持久化到浏览器本地。
+- AI 结果缓存最多保留 100 项，按模型、提示词、范围和输入内容生成指纹；可在设置页一键清空。
+- 流式更新按批次刷新，避免每个 Token 触发整页重绘。
+
+### 7. AI 实时调用控制台
+
+- 实时查看最近 50 次 AI 调用及运行、完成、异常、中止状态。
+- 查看模型、提供商、请求范围、输入 Diff、自定义提示词、reasoning、工具调用和原始输出。
+- 支持筛选调用记录、自动滚屏、复制当前完整输出和清空日志。
+- 顶部按钮显示是否存在正在运行的调用。
+
+### 8. “学习此仓库”工作台
+
+学习页把“本地源码结构”和“AI 核实的业务路线”分开呈现：进入页面只构建本地候选结构，不会自动消耗模型 Token；必须点击“开始 AI 分析”才会请求模型。
+
+已有能力：
+
+- 扫描 Git 跟踪文件与未忽略文件，提取语言、顶层目录、README/清单、入口候选和源码指纹。
+- 本地解析类、组件、函数、接口、枚举和模块节点，以及调用、导入、引用和继承关系。
+- 将结构节点聚合为社区，展示入口、枢纽节点、跨社区桥接和文件清单。
+- “代码结构”视图支持简化/丰富密度、节点搜索、路线聚焦、适应视图、滚轮缩放、左键/中键拖动、节点固定和连接详情。
+- “业务总线”只展示 AI 按源码证据核实的有向业务闭环，区分入口、处理、状态、外部边界和结果节点。
+- 业务节点展示所属路线/社区、源码位置、输入、输出、副作用、状态变化、失败路径和证据。
+- 可按业务路线过滤；共享节点会合并展示其在多条路线中的出现位置。
+- 双击单路线业务节点可递归钻取源码子图，面包屑支持返回任意层级；相同钻取路径可复用缓存。
+- 支持普通文字提问，也支持“提问并补充节点图”，把新核实的业务路线追加到顶层业务总线。
+- 支持从变更文件列表发起针对文件的业务角色询问。
+- 默认隐藏名称、路径或测试目录命中的测试节点及相关连线；该选项仅改变展示，不调用 AI、不改写缓存。
+- 图谱和讲解区域可分别折叠，上下区域的分隔比例可拖动并持久化。
+- 取消分析会中止当前请求，但保留已经可用的业务总线。
+- 学习结果按仓库路径、HEAD、源码指纹、模型和学习提示词缓存；来源变化时不会错误复用旧图。
+
+### 9. 模型、提示词与运行参数
+
+支持以下 OpenAI Chat Completions 兼容提供商：
+
+- DeepSeek；
+- OpenRouter，并提供 Claude、DeepSeek、GPT、Gemini、Llama 快捷模型名；
+- OpenAI；
+- Google Gemini 的 OpenAI 兼容接口；
+- Ollama 本地模型；
+- 自定义兼容端点。
+
+设置页可以配置：
+
+- API Key、Base URL、模型名和实际上下文窗口；
+- Codex 自动规划（默认最多 10 轮）或手动探查轮数；
+- 首包等待超时、流式静默超时和网络重试次数；
+- 单次文件读取行数与代码搜索分页上限；
+- 深度审查、仓库业务分析、直接 Diff、伪代码、自然语言五类独立提示词；
+- 架构深析、极简直解、游戏/实时系统、边界测试、Clean Code 五个深度审查预设。
+
+配置保存在当前浏览器的 `localStorage`。应用会根据填写的上下文窗口分别计算智能体和直接 Diff 的输入预算；正常持续输出不受固定总时长限制，但迟迟无首包或流式长时间无真实进度会被中止。
+
+## 典型使用流程
+
+1. 点击左上角仓库按钮，选择一个有效的本地 Git 仓库。
+2. 在提交图谱中选择单个提交，或点击“未提交变更”查看当前工作区。
+3. 如需合并审查多个提交，勾选首尾提交或用 `Shift` 选择区间；中间提交会自动补齐。
+4. 从文件树选择文件，在 `Diff / 全文件` 与 `Split / Unified` 之间切换。
+5. 全文模式用上下箭头快速跳到上一处或下一处差异。
+6. 对整个选区、文件、改动块或多个块发起 Codex 关联审查或直接 Diff 解释。
+7. 需要理解仓库业务全貌时，进入“学习此仓库”，手动启动 AI 分析并沿业务节点递归钻取。
+
+## 技术架构
+
+```text
+AI-Diff-Tool
+├─ shared/
+│  ├─ types.ts                 前后端 Git、AI、SSE、学习图谱类型契约
+│  └─ learnGraphSchema.ts      AI 业务路线严格校验
+├─ src/                        React 19 + TypeScript + Vite + Tailwind CSS
+│  ├─ hooks/useRepository.ts   仓库、提交选择与 Diff 请求状态
+│  ├─ components/CommitGraph   Git DAG 与连续批量选择
+│  ├─ components/DiffViewer    Diff、全文上下文、hunk 与块内 AI
+│  ├─ components/AIExplanation 多标签审查、续写与多轮追问
+│  ├─ components/Learn         代码结构图与 AI 业务总线
+│  └─ services/                REST/SSE、AI 缓存、调用日志
+└─ server/                     Node.js + Express + Simple-Git
+   ├─ routes/                  system、repo、ai 接口
+   ├─ gitService.ts            Git 历史、Diff、全文和仓库概览
+   ├─ learnGraphBuild.ts       本地源码关系图构建
+   ├─ agentTools.ts            智能体只读源码工具
+   ├─ agentEngine.ts           ReAct 探查、综合与流式输出
+   └─ aiService.ts             直接 Diff 流式解释
+```
+
+前端开发服务器把 `/api` 代理到本地 Express。后端默认只监听 `127.0.0.1`；AI 请求由后端转发到所配置的模型服务。
+
+## 环境要求
+
+| 依赖 | 要求 | 检查命令 |
+| --- | --- | --- |
+| Node.js | `>= 22.12.0` | `node -v` |
+| Git | 可在 `PATH` 中调用的近期版本 | `git --version` |
+
+Git 是仓库读取、提交图谱、Diff、`git grep` 和 `git ls-files` 的真实数据源。
+
+## 安装与启动
 
 ```bash
 git clone https://github.com/Jtsgxh/AI-Diff-tool.git
 cd AI-Diff-tool
-```
-
-### 2. 安装依赖
-
-```bash
 npm install
-```
-
-### 3. 启动开发服务
-
-```bash
 npm run dev
 ```
-> 该命令会使用 `concurrently` 同时启动前端开发服务器（`http://localhost:5173`）与后端 Express 引擎（`http://localhost:4000`）。
-> 浏览器只需打开 **`http://localhost:5173`**，`/api` 请求由 Vite 代理转发到后端，无需直接访问后端端口。
 
-若需分别启动（便于单独重启某一侧）：
+默认地址：
+
+- 前端：`http://localhost:5173`
+- 后端：`http://127.0.0.1:4000`
+
+`npm run dev` 会同时启动前后端。也可以分别运行：
 
 ```bash
-npm run server   # 仅后端
-npm run client   # 仅前端
+npm run server
+npm run client
 ```
 
-#### 🪟 Windows 启动说明
+### 端口配置
 
-上述命令在 **PowerShell、cmd 与 Git Bash** 下均可直接使用，无需额外适配。
-
-**修改端口**：不要用 `PORT=4001 npm run dev` —— 那是 POSIX 写法，在 cmd / PowerShell 下无效。
-请在项目根目录建 `.env` 文件（三种终端与三大平台行为一致，Vite 代理会自动跟随新端口）：
+在项目根目录创建 `.env`：
 
 ```ini
-PORT=4001          # 后端端口
-CLIENT_PORT=5273   # 前端端口（可选）
+PORT=4001
+CLIENT_PORT=5273
+HOST=127.0.0.1
 ```
 
-**Windows 常见启动问题**：
+Vite 代理会读取同一个 `PORT`，不需要再单独修改代理配置。
 
-| 现象 | 原因与处理 |
+Windows PowerShell 如果禁止执行 `npm.ps1`，可改用：
+
+```powershell
+npm.cmd run dev
+```
+
+### Windows 常见问题
+
+| 现象 | 处理 |
 | --- | --- |
-| `EADDRINUSE`，但用 `netstat` 查不到占用者 | Hyper-V / WSL / Docker 会预留端口段。用 `netsh interface ipv4 show excludedportrange protocol=tcp` 查看被保留的区间，然后在 `.env` 里换一个区间外的端口 |
-| PowerShell 报「无法加载文件 npm.ps1，禁止运行脚本」 | 执行策略限制。改用 `npm.cmd run dev`，或以管理员执行 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
-| 页面能开，但所有 `/api` 请求失败 | 后端没起来或端口不一致。先单独跑 `npm run server` 看报错；确认 `.env` 的 `PORT` 与后端日志里打印的端口一致 |
-| 仓库路径含空格或中文导致输入出错 | 点「打开仓库」使用**系统原生文件夹选择器**（该功能为 Windows 专属，底层调用 PowerShell 的 `FolderBrowserDialog`） |
-| 超长路径的仓库 `git` 报错 | 执行 `git config --system core.longpaths true` |
+| `EADDRINUSE` | 停止占用端口的进程，或在 `.env` 修改 `PORT` / `CLIENT_PORT` |
+| 端口未被进程占用但仍无法监听 | 检查 Hyper-V、WSL 或 Docker 的保留端口：`netsh interface ipv4 show excludedportrange protocol=tcp` |
+| 页面能打开但 `/api` 失败 | 确认 Express 已启动，且前后端读取的是同一个 `PORT` |
+| 路径含中文或空格时手动输入不便 | 使用“打开仓库”中的系统文件夹选择器（Windows） |
+| Git 超长路径失败 | 按本机权限和策略评估后启用 `git config --system core.longpaths true` |
 
-### 4. 生产打包
+## 构建与验证
+
+生产构建：
 
 ```bash
 npm run build
 ```
 
----
+当前自动化测试：
 
-## ⚙️ AI 模型与引擎配置
+```bash
+node --import tsx --test tests/*.test.ts
+```
 
-打开应用后，点击右上角 **「⚙️ AI 引擎配置」** 即可连接您的真实模型：
+测试覆盖连续提交选择、全文版本读取、GB18030 解码、全文 Diff 上下文合并、仓库校验、SSE 超时、中断续写、学习图谱布局/过滤/业务路线等关键逻辑。
 
-* **支持的模型提供商**：
-  * 🟢 **DeepSeek**（官方推荐，超强代码逻辑推理能力，模型名：`deepseek-chat`）
-  * 🔵 **OpenAI**（`gpt-4o`, `gpt-4o-mini`）
-  * 🔴 **Google Gemini**（`gemini-1.5-flash`, `gemini-1.5-pro`）
-  * 🟣 **Ollama 本地私有模型**（`qwen2.5-coder`, `deepseek-r1`，免 API Key）
-  * 🟡 **自定义 OpenAI 兼容中转站**
-* **Codex 智能体运行参数**：
-  * 自动规划使用 10 轮安全上限，也可手动设置最大探查轮数
-  * 模型首包等待与流式静默分别配置（正常持续输出不设总时长），支持断线自动重试
-  * 全局审查提示词与 5 大场景一键预设
+`tests/README.md` 还记录了学习图谱与学习会话的浏览器回归页面和手工检查步骤。
 
----
+## HTTP 接口
 
-## 🤝 贡献与开源协议
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/system/quick-paths` | 仓库选择器快捷目录与盘符 |
+| GET | `/api/system/browse` | 浏览目录并标识有效 Git 仓库 |
+| POST | `/api/system/pick-folder` | Windows 原生文件夹选择器 |
+| GET | `/api/repo/info` | 仓库、分支与工作区状态 |
+| GET | `/api/repo/commits` | Git DAG 所需提交和父节点 |
+| GET | `/api/repo/diff/commit` | 单提交 Diff |
+| GET | `/api/repo/diff/compare` | 两个版本的 merge-base 比较 |
+| POST | `/api/repo/diff/batch` | 连续多提交的最终净 Diff |
+| GET | `/api/repo/diff/working-tree` | 已暂存、未暂存和未跟踪变更 |
+| GET | `/api/repo/file-preview` | 指定工作区或提交版本的全文 |
+| GET | `/api/repo/overview` | 仓库目录、语言、清单和入口概览 |
+| GET | `/api/repo/learn-graph` | 本地解析的源码结构图 |
+| POST | `/api/ai/explain/stream` | 直接 Diff SSE 解释 |
+| POST | `/api/ai/agent/explain/stream` | Codex 智能体 SSE 审查与学习 |
 
-欢迎提交 Issue 与 Pull Request！本项目采用 [MIT License](LICENSE) 开源协议。
+## 数据与安全边界
+
+- 智能体提供的是仓库内只读工具，不包含写文件、提交或推送能力。
+- 仓库路径、最近记录、界面布局、AI 配置、会话和缓存保存在本地浏览器。
+- API Key 会提交给本机后端，并由后端用于访问所选模型提供商；请只在可信本机环境运行。
+- 全文读取要求仓库相对路径，拒绝绝对路径、`..`、空路径和 `/dev/null`。
+- 本工具的报告与图谱是代码审查辅助结果，不能替代编译、测试、运行时验证或人工确认。
+
+## 许可证
+
+当前 `package.json` 标记为 ISC。
