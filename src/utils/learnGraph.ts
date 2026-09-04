@@ -33,16 +33,22 @@ function hashCode(s: string): number {
   return h;
 }
 
+// Fences are structural only when both delimiters occupy their own lines.
+// Route evidence may legitimately quote source containing strings such as
+// `'```learn-graph\\n'`; a generic non-greedy matcher cuts the JSON at that
+// quoted text even though the server sent a complete, validated envelope.
 const FENCES = [
-  /```learn-graph\s*([\s\S]*?)```/i,
-  /```json\s*([\s\S]*?)```/i,
+  /^```learn-graph[^\S\r\n]*\r?\n[\s\S]*?\r?\n```[^\S\r\n]*(?=\r?\n|$)/gim,
+  /^```json[^\S\r\n]*\r?\n[\s\S]*?\r?\n```[^\S\r\n]*(?=\r?\n|$)/gim,
 ];
 
 export type LearnLabelOverlay = LearnAnalysisEnvelope;
 
 export function parseLearnOverlay(text: string): LearnLabelOverlay | null {
   let result: LearnLabelOverlay | null = null;
-  for (const match of text.matchAll(/```learn-graph\s*([\s\S]*?)```/gi)) {
+  for (const match of text.matchAll(
+    /^```learn-graph[^\S\r\n]*\r?\n([\s\S]*?)\r?\n```[^\S\r\n]*(?=\r?\n|$)/gim
+  )) {
     try {
       const parsed = parseLearnAnalysisEnvelope(JSON.parse(match[1].trim()));
       if (parsed) result = parsed;

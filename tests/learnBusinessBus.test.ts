@@ -13,6 +13,7 @@ import {
   mergeLearnGraphExpansion,
   parseLearnOverlay,
   serializeLearnGraphReport,
+  visibleLearnProse,
 } from '../src/utils/learnGraph';
 import { parseStructuredLearnGraphOutput } from '../server/agentEngine';
 
@@ -118,6 +119,18 @@ test('front-end parser only accepts closed strict learn-graph fences', () => {
   assert.ok(parseLearnOverlay(text));
   assert.equal(parseLearnOverlay(JSON.stringify(envelope())), null);
   assert.equal(parseLearnOverlay(`\`\`\`json\n${JSON.stringify(envelope())}\n\`\`\``), null);
+});
+
+test('learn-graph parser ignores triple backticks quoted inside route evidence', () => {
+  const tricky = envelope();
+  tricky.businessRoutes[0].steps[0].evidence =
+    "stream.send({ type: 'chunk', text: '```learn-graph\\\\n' + canonicalGraph + '```' });";
+  const text = `\`\`\`learn-graph\n${JSON.stringify(tricky)}\n\`\`\`\n\n讲解正文`;
+
+  const parsed = parseLearnOverlay(text);
+  assert.equal(parsed?.businessRoutes.length, tricky.businessRoutes.length);
+  assert.equal(parsed?.businessRoutes[0].steps[0].evidence, tricky.businessRoutes[0].steps[0].evidence);
+  assert.equal(visibleLearnProse(text), '讲解正文');
 });
 
 test('unmappable route is excluded from the current structural graph', () => {
