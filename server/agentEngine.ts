@@ -38,7 +38,7 @@ import type {
   LearnAnalysisEnvelope,
   PartialAIProviderConfig,
 } from '../shared/types';
-import { parseLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
+import { validateLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
 
 export type AgentExecutionConfig = PartialAIProviderConfig;
 export type AgentExplainOptions = AgentExplainRequest;
@@ -113,10 +113,11 @@ export function parseStructuredLearnGraphOutput(
     throw new Error('结构化业务路线不是合法 JSON；当前模型端点没有正确执行 JSON Output');
   }
 
-  const graph = parseLearnAnalysisEnvelope(decoded);
-  if (!graph) {
-    throw new Error('结构化业务路线 JSON 不符合 learn-graph v2 字段约束');
+  const validation = validateLearnAnalysisEnvelope(decoded);
+  if (!validation.graph) {
+    throw new Error(`结构化业务路线 JSON 不符合 learn-graph v2：${validation.error}`);
   }
+  const graph = validation.graph;
   if (requireBusinessRoute && graph.businessRoutes.length === 0) {
     throw new Error('整库业务分析没有生成任何证据闭环路线，已拒绝空业务总线');
   }
@@ -619,58 +620,96 @@ export class CodexAgentEngine {
 现在只输出结构化业务路线 JSON 对象。`,
         },
       ];
-      const structuredStream = await openaiClient.chat.completions.create(
-        {
-          model,
-          messages: structuredMessages,
-          stream: true,
-          response_format: { type: 'json_object' },
-        },
-        { signal: stream.signal }
-      );
-      let structuredText = '';
-      let structuredFinishReason: string | null = null;
-      let reportedChars = 0;
+      const collectStructuredText = async (
+        requestMessages: any[],
+        statusLabel: string
+      ): Promise<string> => {
+        const structuredStream = await openaiClient.chat.completions.create(
+          {
+            model,
+            messages: requestMessages,
+            stream: true,
+            response_format: { type: 'json_object' },
+          },
+          { signal: stream.signal }
+        );
+        let text = '';
+        let finishReason: string | null = null;
+        let reportedChars = 0;
 
-      for await (const chunk of structuredStream) {
-        if (stream.isClosed) return;
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta as any;
-        if (choice?.finish_reason) structuredFinishReason = choice.finish_reason;
+        for await (const chunk of structuredStream) {
+          if (stream.isClosed) throw new Error('客户端已断开结构化业务路线生成');
+          const choice = chunk.choices?.[0];
+          const delta = choice?.delta as any;
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
 
-        const reasoningChunk = extractReasoningDelta(delta);
-        if (reasoningChunk) {
-          params.onReasoning(reasoningChunk);
-          stream.send({ type: 'thought', text: reasoningChunk });
-        }
-        if (delta?.content) {
-          structuredText += delta.content;
-          if (reportedChars === 0 || structuredText.length - reportedChars >= 2000) {
-            reportedChars = structuredText.length;
-            stream.send({
-              type: 'status',
-              phase: 'reporting',
-              message: `正在接收结构化业务路线（1/2，已生成 ${reportedChars.toLocaleString()} 字符）...`,
-            });
+          const reasoningChunk = extractReasoningDelta(delta);
+          if (reasoningChunk) {
+            params.onReasoning(reasoningChunk);
+            stream.send({ type: 'thought', text: reasoningChunk });
+          }
+          if (delta?.content) {
+            text += delta.content;
+            if (reportedChars === 0 || text.length - reportedChars >= 2000) {
+              reportedChars = text.length;
+              stream.send({
+                type: 'status',
+                phase: 'reporting',
+                message: `${statusLabel}（已生成 ${reportedChars.toLocaleString()} 字符）...`,
+              });
+            }
           }
         }
-      }
 
-      if (structuredFinishReason === 'length') {
-        throw new Error('结构化业务路线达到模型单次输出长度上限，JSON 不完整');
-      }
-      if (structuredFinishReason !== 'stop') {
-        throw new Error(
-          structuredFinishReason
-            ? `结构化业务路线以非正常原因结束: ${structuredFinishReason}`
-            : '结构化业务路线生成流未返回结束原因'
-        );
-      }
+        if (finishReason === 'length') {
+          throw new Error('结构化业务路线达到模型单次输出长度上限，JSON 不完整');
+        }
+        if (finishReason !== 'stop') {
+          throw new Error(
+            finishReason
+              ? `结构化业务路线以非正常原因结束: ${finishReason}`
+              : '结构化业务路线生成流未返回结束原因'
+          );
+        }
+        return text;
+      };
 
-      const structuredGraph = parseStructuredLearnGraphOutput(
-        structuredText,
-        !params.isLearnExpansion && !params.isLearnDrilldown
+      const requireBusinessRoute = !params.isLearnExpansion && !params.isLearnDrilldown;
+      let structuredText = await collectStructuredText(
+        structuredMessages,
+        '正在接收结构化业务路线（1/2）'
       );
+      let structuredGraph: LearnAnalysisEnvelope;
+      try {
+        structuredGraph = parseStructuredLearnGraphOutput(structuredText, requireBusinessRoute);
+      } catch (firstError) {
+        const validationMessage = firstError instanceof Error
+          ? firstError.message
+          : String(firstError);
+        stream.send({
+          type: 'status',
+          phase: 'reporting',
+          message: `结构化数据未通过校验，正在根据字段错误重新生成一次：${validationMessage}`,
+        });
+        structuredText = await collectStructuredText(
+          [
+            ...structuredMessages,
+            {
+              role: 'user',
+              content: `上一次结构化 JSON 被服务端拒绝，具体原因：${validationMessage}\n\n请依据相同源码证据重新生成完整 JSON。必须修正该字段及同类字段，不得省略必填字段、改变已核实事实或用空业务路线规避校验。只输出 JSON 对象。`,
+            },
+          ],
+          '正在接收校正后的结构化业务路线（1/2）'
+        );
+        try {
+          structuredGraph = parseStructuredLearnGraphOutput(structuredText, requireBusinessRoute);
+        } catch (secondError) {
+          const secondMessage = secondError instanceof Error
+            ? secondError.message
+            : String(secondError);
+          throw new Error(`结构化业务路线校正后仍未通过：${secondMessage}`);
+        }
+      }
       const canonicalGraph = JSON.stringify(structuredGraph);
       stream.send({ type: 'chunk', text: `\`\`\`learn-graph\n${canonicalGraph}\n\`\`\`\n\n` });
       stream.send({

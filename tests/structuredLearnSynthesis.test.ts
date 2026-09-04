@@ -126,6 +126,63 @@ test('learn analysis uses JSON Output before streaming the prose stage', async (
   }
 });
 
+test('invalid structured data is regenerated once using the exact field error', async () => {
+  const repo = await mkdtemp(path.join(tmpdir(), 'structured-learn-repair-'));
+  const originalFetch = globalThis.fetch;
+  const requestBodies: any[] = [];
+  let structuredPass = 0;
+  try {
+    await writeFile(path.join(repo, 'Entry.ts'), 'export class Entry { run() { return true; } }\n');
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      requestBodies.push(body);
+      if (body.tools?.length) return completionStream('探查完成');
+      if (body.response_format?.type === 'json_object') {
+        structuredPass += 1;
+        if (structuredPass === 1) {
+          const invalid = structuredClone(graph);
+          delete (invalid.businessRoutes[0].steps[0] as Partial<typeof graph.businessRoutes[0]['steps'][0]>).inputs;
+          return completionStream(JSON.stringify(invalid));
+        }
+        return completionStream(JSON.stringify(graph));
+      }
+      return completionStream(
+        '## 业务全景\n\n校正后的结构化讲解已返回。\n\n' + LEARN_PROSE_COMPLETE_MARKER
+      );
+    }) as typeof fetch;
+
+    const response = new CapturedResponse();
+    await new CodexAgentEngine().streamAgentExplain({
+      repoPath: repo,
+      scopeType: 'repo',
+      task: 'learn',
+      diff: '',
+      config: {
+        provider: 'custom',
+        apiKey: 'fixture-key',
+        baseUrl: 'http://fixture.invalid/v1',
+        model: 'fixture-model',
+        maxExplorationTurns: 10,
+      },
+    }, response as unknown as ExpressResponse);
+
+    assert.equal(structuredPass, 2);
+    assert.equal(requestBodies.length, 4);
+    assert.match(
+      requestBodies[2].messages.at(-1).content,
+      /businessRoutes\[0\]\.steps\[0\]\.inputs 必须是字符串数组/
+    );
+    const wire = response.chunks.join('');
+    assert.match(wire, /正在根据字段错误重新生成一次/);
+    assert.match(wire, /校正后的结构化讲解已返回/);
+    assert.match(wire, /"type":"done"/);
+    assert.doesNotMatch(wire, /"type":"error"/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
 test('learn prose continues when provider reports stop before the completion marker', async () => {
   const repo = await mkdtemp(path.join(tmpdir(), 'structured-learn-stop-'));
   const originalFetch = globalThis.fetch;

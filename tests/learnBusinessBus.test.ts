@@ -119,7 +119,13 @@ test('structured learn stage accepts only a valid bare JSON envelope', () => {
   );
   assert.throws(
     () => parseStructuredLearnGraphOutput(JSON.stringify({ ...envelope(), runtimePath: ['missing'] })),
-    /不符合 learn-graph v2/
+    /runtimePath\[0\] 引用了不存在的社区 missing/
+  );
+  const missingInputs = envelope();
+  delete (missingInputs.businessRoutes[0].steps[0] as Partial<LearnBusinessRouteStep>).inputs;
+  assert.throws(
+    () => parseStructuredLearnGraphOutput(JSON.stringify(missingInputs)),
+    /businessRoutes\[0\]\.steps\[0\]\.inputs 必须是字符串数组/
   );
 });
 
