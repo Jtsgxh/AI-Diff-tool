@@ -6,6 +6,7 @@ interface FullFilePreviewProps {
   preview: FilePreview | null;
   isLoading: boolean;
   error: string | null;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
   children: React.ReactNode;
 }
 
@@ -16,7 +17,7 @@ const formatBytes = (bytes: number) => {
 };
 
 export const FullFilePreview = React.memo<FullFilePreviewProps>(
-  ({ preview, isLoading, error, children }) => {
+  ({ preview, isLoading, error, scrollRef, children }) => {
     if (isLoading) {
       return (
         <div className="h-full flex items-center justify-center text-sm text-zinc-600">
@@ -70,7 +71,9 @@ export const FullFilePreview = React.memo<FullFilePreviewProps>(
             </>
           )}
         </div>
-        <div className="flex-1 min-h-0 overflow-auto pb-16">{children}</div>
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto pb-16">
+          {children}
+        </div>
       </div>
     );
   }

@@ -50,6 +50,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
     return (
       <div
         ref={ref}
+        data-diff-hunk-index={hunk.index}
         className={`relative group transition-all duration-150 border-b border-black/15 ${
           isSelected
             ? 'bg-zinc-100/70 border-l-4 border-l-blue-500 shadow-sm'

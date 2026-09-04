@@ -1,6 +1,8 @@
 import React from 'react';
 import {
   AlignJustify,
+  ArrowDown,
+  ArrowUp,
   Brain,
   CheckSquare,
   Columns,
@@ -28,6 +30,11 @@ interface DiffToolbarProps {
   onExplainFile: () => void;
   onToggleViewMode: (mode: DiffViewMode) => void;
   onDisplayMode: (mode: 'diff' | 'file') => void;
+  currentHunkNumber: number;
+  canJumpToPreviousHunk: boolean;
+  canJumpToNextHunk: boolean;
+  onJumpToPreviousHunk: () => void;
+  onJumpToNextHunk: () => void;
 }
 
 /** Header strip above the diff. Memoized: it must not repaint per streamed token. */
@@ -47,6 +54,11 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
     onExplainFile,
     onToggleViewMode,
     onDisplayMode,
+    currentHunkNumber,
+    canJumpToPreviousHunk,
+    canJumpToNextHunk,
+    onJumpToPreviousHunk,
+    onJumpToNextHunk,
   }) => {
     const allSelected = selectedCount === hunkCount && hunkCount > 0;
 
@@ -95,6 +107,34 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               <span>全文件</span>
             </button>
           </div>
+
+          {displayMode === 'file' && hunkCount > 0 && (
+            <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
+              <button
+                type="button"
+                onClick={onJumpToPreviousHunk}
+                disabled={!canJumpToPreviousHunk}
+                aria-label="上一处差异"
+                className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-black/[0.06] transition disabled:opacity-35 disabled:cursor-not-allowed"
+                title="跳到上一处差异"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+              </button>
+              <span className="px-1.5 min-w-14 text-center font-mono text-[11px] text-zinc-700">
+                差异 {currentHunkNumber}/{hunkCount}
+              </span>
+              <button
+                type="button"
+                onClick={onJumpToNextHunk}
+                disabled={!canJumpToNextHunk}
+                aria-label="下一处差异"
+                className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-black/[0.06] transition disabled:opacity-35 disabled:cursor-not-allowed"
+                title="跳到下一处差异"
+              >
+                <ArrowDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {hunkCount > 1 && (
             <button

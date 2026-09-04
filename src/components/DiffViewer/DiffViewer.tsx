@@ -53,6 +53,12 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   const [filePreviewError, setFilePreviewError] = useState<string | null>(null);
   const [isFilePreviewLoading, setIsFilePreviewLoading] = useState(false);
   const previewRequestIdRef = useRef(0);
+  const fullFileScrollRef = useRef<HTMLDivElement>(null);
+  const [hunkNavigation, setHunkNavigation] = useState({
+    current: 0,
+    canPrevious: false,
+    canNext: false,
+  });
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
   const split = useResizableSplit(STORAGE_KEYS.diffSplitPct);
 
@@ -126,6 +132,85 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
     () => (hunks ? totalRenderedRows(hunks, viewMode) > DEFERRED_MOUNT_ROW_THRESHOLD : false),
     [hunks, viewMode]
   );
+
+  useEffect(() => {
+    if (displayMode !== 'file' || !expandedDiff.blocks) {
+      setHunkNavigation({ current: 0, canPrevious: false, canNext: false });
+      return;
+    }
+
+    const container = fullFileScrollRef.current;
+    if (!container) return;
+    let animationFrame = 0;
+
+    const updateNavigation = () => {
+      animationFrame = 0;
+      const viewportTop = container.getBoundingClientRect().top;
+      const elements = Array.from(
+        container.querySelectorAll<HTMLElement>('[data-diff-hunk-index]')
+      );
+      let current = 0;
+      let canPrevious = false;
+      let canNext = false;
+
+      for (let index = 0; index < elements.length; index++) {
+        const top = elements[index].getBoundingClientRect().top;
+        if (top <= viewportTop + 2) {
+          current = index + 1;
+          if (top < viewportTop - 2) canPrevious = true;
+        } else {
+          canNext = true;
+          break;
+        }
+      }
+
+      setHunkNavigation((previous) =>
+        previous.current === current &&
+        previous.canPrevious === canPrevious &&
+        previous.canNext === canNext
+          ? previous
+          : { current, canPrevious, canNext }
+      );
+    };
+
+    const scheduleUpdate = () => {
+      if (animationFrame) return;
+      animationFrame = requestAnimationFrame(updateNavigation);
+    };
+
+    updateNavigation();
+    container.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate);
+    return () => {
+      container.removeEventListener('scroll', scheduleUpdate);
+      window.removeEventListener('resize', scheduleUpdate);
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+    };
+  }, [displayMode, expandedDiff.blocks]);
+
+  const jumpToHunk = useCallback((direction: 'previous' | 'next') => {
+    const container = fullFileScrollRef.current;
+    if (!container) return;
+    const viewportTop = container.getBoundingClientRect().top;
+    const elements = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-diff-hunk-index]')
+    );
+    const target =
+      direction === 'next'
+        ? elements.find((element) => element.getBoundingClientRect().top > viewportTop + 2)
+        : elements
+            .slice()
+            .reverse()
+            .find((element) => element.getBoundingClientRect().top < viewportTop - 2);
+    if (!target) return;
+
+    const targetTop =
+      container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    container.scrollTo({ top: targetTop, behavior: 'smooth' });
+  }, []);
+
+  const jumpToPreviousHunk = useCallback(() => jumpToHunk('previous'), [jumpToHunk]);
+  const jumpToNextHunk = useCallback(() => jumpToHunk('next'), [jumpToHunk]);
 
   const toggleHunkSelection = useCallback((hunkId: string) => {
     setSelectedHunkIds((prev) => {
@@ -207,6 +292,11 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onExplainFile={handleExplainFile}
         onToggleViewMode={onToggleViewMode}
         onDisplayMode={setDisplayMode}
+        currentHunkNumber={hunkNavigation.current}
+        canJumpToPreviousHunk={hunkNavigation.canPrevious}
+        canJumpToNextHunk={hunkNavigation.canNext}
+        onJumpToPreviousHunk={jumpToPreviousHunk}
+        onJumpToNextHunk={jumpToNextHunk}
       />
 
       <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#ECECE8]">
@@ -215,6 +305,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
             preview={filePreview}
             isLoading={isFilePreviewLoading}
             error={filePreviewError || expandedDiff.error}
+            scrollRef={fullFileScrollRef}
           >
             <div style={{ ['--diff-split-left' as string]: `${split.pct}%` }}>
               {expandedDiff.blocks?.map((block) =>
