@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "description": "AI-Powered Semantic Git Diff & Multi-File Code Review Tool with Autonomous Agent Engine",
   "repository": "https://github.com/Jtsgxh/AI-Diff-tool.git",
-  "main": "index.js",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,green\" \"node --import tsx --watch --watch-path=./server --watch-path=./shared --watch-preserve-output server/index.ts\" \"vite\"",
     "build": "tsc && vite build",
+    "build:desktop": "npm run build && esbuild desktop/main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist-electron/main.cjs",
+    "desktop": "npm run build:desktop && electron .",
+    "dist:win": "npm run build:desktop && electron-builder --win nsis portable",
     "server": "tsx server/index.ts",
     "client": "vite"
   },
@@ -16,6 +19,41 @@
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
+  },
+  "build": {
+    "appId": "com.jtsgxh.aidifftool",
+    "productName": "AI Diff Tool",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -27,6 +65,9 @@
     "@vitejs/plugin-react": "^6.1.0",
     "autoprefixer": "^10.5.4",
     "concurrently": "^10.0.5",
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",

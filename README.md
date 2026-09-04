@@ -257,6 +257,24 @@ npm.cmd run dev
 npm run build
 ```
 
+### Windows 桌面版
+
+本地启动桌面版：
+
+```bash
+npm run desktop
+```
+
+生成 x64 Windows 安装版和免安装便携版：
+
+```bash
+npm run dist:win
+```
+
+产物位于 `release/`。桌面包内置 Electron 运行时，不要求目标机器安装
+Node.js 或 npm；读取本地仓库仍要求目标机器的 `PATH` 中存在 Git。在线 AI
+模型仍需要网络和对应 API Key，Ollama 模式则需要本机已启动 Ollama。
+
 当前自动化测试：
 
 ```bash
