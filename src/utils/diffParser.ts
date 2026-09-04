@@ -136,12 +136,14 @@ export function parseRawDiff(rawDiff: string): ParsedFileDiff {
         oldLineNumber: oldLine++,
         content: line.slice(1),
       });
-    } else if (line.startsWith(' ') || line === '') {
+    } else if (line.startsWith(' ')) {
+      // A real context row always has this prefix. A bare empty string is only
+      // the split artifact from the patch's terminal newline and stays ignored.
       currentHunk.lines.push({
         type: 'normal',
         oldLineNumber: oldLine++,
         newLineNumber: newLine++,
-        content: line.startsWith(' ') ? line.slice(1) : line,
+        content: line.slice(1),
       });
     }
   }

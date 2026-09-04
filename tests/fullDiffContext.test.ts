@@ -14,7 +14,8 @@ const rawDiff = `diff --git a/sample.txt b/sample.txt
  line 7
 -old 8
 +new 8
- line 9`;
+ line 9
+`;
 
 test('full context keeps change hunks and fills every omitted target line', () => {
   const hunks = parseRawDiff(rawDiff).hunks;
@@ -66,4 +67,24 @@ test('a rename-only diff expands to the complete unchanged file', () => {
   const blocks = expandDiffWithFullContext([], 'one\ntwo\nthree\n', 'new');
   assert.equal(blocks.length, 1);
   assert.deepEqual(blocks[0].hunk.lines.map((line) => line.content), ['one', 'two', 'three']);
+});
+
+test('a terminal diff newline does not create a phantom context row at file EOF', () => {
+  const diff = `diff --git a/tiny.txt b/tiny.txt
+--- a/tiny.txt
++++ b/tiny.txt
+@@ -0,0 +1 @@
++hello
+`;
+  const hunks = parseRawDiff(diff).hunks;
+
+  assert.deepEqual(hunks[0].lines.map((line) => line.type), ['hunk-header', 'add']);
+
+  const blocks = expandDiffWithFullContext(hunks, 'hello\n', 'new');
+  const renderedTarget = blocks.flatMap((block) =>
+    block.hunk.lines
+      .filter((line) => line.type === 'normal' || line.type === 'add')
+      .map((line) => line.content)
+  );
+  assert.deepEqual(renderedTarget, ['hello']);
 });
