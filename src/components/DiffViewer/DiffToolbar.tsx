@@ -89,14 +89,14 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
                   ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
-              title={file.previewSource ? '查看该变更对应版本的完整文件' : '该文件没有可预览的版本'}
+              title={file.previewSource ? '展开完整文件上下文，并保留 Diff 增删高亮' : '该文件没有可展开的版本'}
             >
               <FileText className="w-3 h-3" />
               <span>全文件</span>
             </button>
           </div>
 
-          {displayMode === 'diff' && hunkCount > 1 && (
+          {hunkCount > 1 && (
             <button
               onClick={onToggleSelectAll}
               className="text-xs text-zinc-700 hover:text-zinc-800 transition flex items-center gap-1 shrink-0 whitespace-nowrap px-1"
@@ -116,7 +116,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             </button>
           )}
 
-          {displayMode === 'diff' && <button
+          <button
             onClick={onToggleGlobalPseudocode}
             className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
               isPseudocodeActive
@@ -143,7 +143,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
                   : '🔤 伪代码 [开]'
                 : '🔤 伪代码'}
             </span>
-          </button>}
+          </button>
 
           {/* Default engine for per-hunk and per-file explanations */}
           <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
@@ -190,7 +190,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             <span>{defaultMode === 'agent' ? 'Codex 解释此文件' : '解释此文件'}</span>
           </button>
 
-          {displayMode === 'diff' && <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
             <button
               onClick={() => onToggleViewMode('split')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
@@ -215,7 +215,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               <AlignJustify className="w-3 h-3 shrink-0" />
               <span>Unified</span>
             </button>
-          </div>}
+          </div>
         </div>
       </div>
     );

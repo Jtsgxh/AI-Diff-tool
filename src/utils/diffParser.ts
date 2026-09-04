@@ -41,6 +41,12 @@ export interface ParsedFileDiff {
   hunks: DiffHunk[];
 }
 
+export type ExpandedDiffBlock =
+  | { type: 'context'; hunk: DiffHunk }
+  | { type: 'change'; hunk: DiffHunk };
+
+const FULL_CONTEXT_CHUNK_LINES = 250;
+
 export function parseRawDiff(rawDiff: string): ParsedFileDiff {
   const lines = rawDiff.split('\n');
   const hunks: DiffHunk[] = [];
@@ -158,6 +164,108 @@ export function serializeChangedLines(hunk: DiffHunk): string {
     else if (line.type === 'delete') rows.push(`-${line.content}`);
   }
   return rows.join('\n');
+}
+
+/**
+ * Inserts every omitted unchanged line around the original hunks. Change hunks
+ * stay untouched, so their selection, AI actions and add/delete highlighting
+ * keep the exact same semantics in full-file mode.
+ */
+export function expandDiffWithFullContext(
+  hunks: DiffHunk[],
+  content: string,
+  sourceSide: 'old' | 'new'
+): ExpandedDiffBlock[] {
+  const sourceLines = splitFileContent(content);
+  const blocks: ExpandedDiffBlock[] = [];
+  let oldCursor = 1;
+  let newCursor = 1;
+
+  const appendContext = (oldStart: number, newStart: number, count: number) => {
+    if (count <= 0) return;
+    const sourceStart = sourceSide === 'old' ? oldStart : newStart;
+    if (sourceStart < 1 || sourceStart + count - 1 > sourceLines.length) {
+      throw new Error('完整文件内容与当前 Diff 行号不一致，请刷新仓库后重试');
+    }
+
+    for (let offset = 0; offset < count; offset += FULL_CONTEXT_CHUNK_LINES) {
+      const chunkCount = Math.min(FULL_CONTEXT_CHUNK_LINES, count - offset);
+      const lines: DiffLine[] = [];
+      const splitRows: SplitDiffRow[] = [];
+
+      for (let index = 0; index < chunkCount; index++) {
+        const oldLineNumber = oldStart + offset + index;
+        const newLineNumber = newStart + offset + index;
+        const contentLine = sourceLines[sourceStart + offset + index - 1];
+        lines.push({
+          type: 'normal',
+          oldLineNumber,
+          newLineNumber,
+          content: contentLine,
+        });
+        splitRows.push({
+          left: { lineNumber: oldLineNumber, content: contentLine, type: 'normal' },
+          right: { lineNumber: newLineNumber, content: contentLine, type: 'normal' },
+        });
+      }
+
+      const chunkOldStart = oldStart + offset;
+      const chunkNewStart = newStart + offset;
+      blocks.push({
+        type: 'context',
+        hunk: {
+          id: `full-context-${chunkOldStart}-${chunkNewStart}`,
+          index: 0,
+          header: '',
+          lines,
+          splitRows,
+          oldStart: chunkOldStart,
+          newStart: chunkNewStart,
+          additions: 0,
+          deletions: 0,
+          text: '',
+        },
+      });
+    }
+  };
+
+  for (const hunk of hunks) {
+    const oldGap = hunk.oldStart - oldCursor;
+    const newGap = hunk.newStart - newCursor;
+    const sourceGap = sourceSide === 'old' ? oldGap : newGap;
+    if (sourceGap < 0 || (sourceGap > 0 && oldGap !== newGap)) {
+      throw new Error('当前 Diff 的改动块无法与完整文件对齐，请刷新仓库后重试');
+    }
+
+    appendContext(oldCursor, newCursor, sourceGap);
+    blocks.push({ type: 'change', hunk });
+
+    oldCursor = hunk.oldStart;
+    newCursor = hunk.newStart;
+    for (const line of hunk.lines) {
+      if (line.type === 'delete') oldCursor++;
+      else if (line.type === 'add') newCursor++;
+      else if (line.type === 'normal') {
+        oldCursor++;
+        newCursor++;
+      }
+    }
+  }
+
+  const sourceCursor = sourceSide === 'old' ? oldCursor : newCursor;
+  const trailingCount = sourceLines.length - sourceCursor + 1;
+  if (trailingCount < 0) {
+    throw new Error('完整文件内容比当前 Diff 记录的行数更短，请刷新仓库后重试');
+  }
+  appendContext(oldCursor, newCursor, trailingCount);
+  return blocks;
+}
+
+function splitFileContent(content: string): string[] {
+  if (content === '') return [];
+  const lines = content.split(/\r\n|\r|\n/);
+  if (/\r\n$|\r$|\n$/.test(content)) lines.pop();
+  return lines;
 }
 
 function computeSplitRows(lines: DiffLine[]): SplitDiffRow[] {

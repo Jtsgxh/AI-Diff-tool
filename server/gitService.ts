@@ -53,8 +53,14 @@ function countTextLines(content: string): number {
   if (content === '') return 0;
   let count = 1;
   for (let index = 0; index < content.length; index++) {
-    if (content[index] === '\n') count++;
-    else if (content[index] === '\r' && content[index + 1] !== '\n') count++;
+    if (content[index] === '\n' && index < content.length - 1) count++;
+    else if (
+      content[index] === '\r' &&
+      content[index + 1] !== '\n' &&
+      index < content.length - 1
+    ) {
+      count++;
+    }
   }
   return count;
 }

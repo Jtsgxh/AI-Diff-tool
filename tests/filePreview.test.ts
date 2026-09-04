@@ -44,7 +44,9 @@ test('full-file preview follows commit, deletion, and working-tree snapshots', a
     path: 'sample.txt',
     revision: updateHash,
   });
-  assert.equal((await service.getFilePreview(repo, 'sample.txt', updateHash)).content, 'after\n');
+  const updatePreview = await service.getFilePreview(repo, 'sample.txt', updateHash);
+  assert.equal(updatePreview.content, 'after\n');
+  assert.equal(updatePreview.lineCount, 1);
 
   fs.writeFileSync(file, 'after batch\n');
   commit(repo, 'update sample again', '2026-01-01T00:00:02Z', '-a');

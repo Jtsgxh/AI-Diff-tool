@@ -4,12 +4,17 @@ import { useResizableSplit } from '../../hooks/useResizableSplit';
 import { Brain, FileCode, Layers, Zap } from 'lucide-react';
 import type { AIProviderConfig, DiffFile, DiffViewMode, FilePreview } from '../../types';
 import { fetchFilePreview } from '../../services/api';
-import { parseRawDiff, type DiffHunk } from '../../utils/diffParser';
+import {
+  expandDiffWithFullContext,
+  parseRawDiff,
+  type DiffHunk,
+} from '../../utils/diffParser';
 import { DiffToolbar } from './DiffToolbar';
 import { HunkBlock } from './HunkBlock';
 import { useHunkAnnotations } from './hooks/useHunkAnnotations';
 import { DEFERRED_MOUNT_ROW_THRESHOLD, totalRenderedRows } from './hunkMetrics';
 import { FullFilePreview } from './FullFilePreview';
+import { FullDiffContextBlock } from './FullDiffContextBlock';
 
 interface DiffViewerProps {
   file: DiffFile | null;
@@ -84,6 +89,28 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   }, [file?.diff]);
 
   const hunks = parsedDiff?.hunks;
+
+  const expandedDiff = useMemo(() => {
+    if (displayMode !== 'file' || filePreview?.content === null || !hunks) {
+      return { blocks: null, error: null };
+    }
+    if (!filePreview) return { blocks: null, error: null };
+    try {
+      return {
+        blocks: expandDiffWithFullContext(
+          hunks,
+          filePreview.content,
+          file?.status === 'deleted' ? 'old' : 'new'
+        ),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        blocks: null,
+        error: error instanceof Error ? error.message : '无法展开完整 Diff',
+      };
+    }
+  }, [displayMode, file?.status, filePreview, hunks]);
 
   // Hunk ids are only unique within one parsed diff, so a stale selection must
   // not survive a new one. Adjusting during render (rather than in an effect)
@@ -182,37 +209,66 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onDisplayMode={setDisplayMode}
       />
 
-      {displayMode === 'file' ? (
-        <div className="flex-1 min-h-0 bg-[#ECECE8]">
+      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#ECECE8]">
+        {displayMode === 'file' ? (
           <FullFilePreview
             preview={filePreview}
             isLoading={isFilePreviewLoading}
-            error={filePreviewError}
-          />
-        </div>
-      ) : <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#ECECE8]">
-        <div
-          className="absolute inset-0 overflow-auto pb-16"
-          style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
-        >
-          {hunks.map((hunk) => (
-            <HunkBlock
-              key={hunk.id}
-              hunk={hunk}
-              viewMode={viewMode}
-              isSelected={selectedHunkIds.has(hunk.id)}
-              showPseudocode={annotations.pseudocodeHunkIds.has(hunk.id)}
-              pseudocode={annotations.pseudocodeLines[hunk.id]}
-              showNaturalLanguage={annotations.naturalHunkIds.has(hunk.id)}
-              naturalLanguage={annotations.naturalContent[hunk.id]}
-              deferMount={deferMount}
-              onToggleSelection={toggleHunkSelection}
-              onTogglePseudocode={annotations.togglePseudocode}
-              onToggleNaturalLanguage={annotations.toggleNaturalLanguage}
-              onExplain={handleExplainHunk}
-            />
-          ))}
-        </div>
+            error={filePreviewError || expandedDiff.error}
+          >
+            <div style={{ ['--diff-split-left' as string]: `${split.pct}%` }}>
+              {expandedDiff.blocks?.map((block) =>
+                block.type === 'context' ? (
+                  <FullDiffContextBlock
+                    key={block.hunk.id}
+                    hunk={block.hunk}
+                    viewMode={viewMode}
+                    deferMount={(filePreview?.lineCount || 0) > DEFERRED_MOUNT_ROW_THRESHOLD}
+                  />
+                ) : (
+                  <HunkBlock
+                    key={block.hunk.id}
+                    hunk={block.hunk}
+                    viewMode={viewMode}
+                    isSelected={selectedHunkIds.has(block.hunk.id)}
+                    showPseudocode={annotations.pseudocodeHunkIds.has(block.hunk.id)}
+                    pseudocode={annotations.pseudocodeLines[block.hunk.id]}
+                    showNaturalLanguage={annotations.naturalHunkIds.has(block.hunk.id)}
+                    naturalLanguage={annotations.naturalContent[block.hunk.id]}
+                    deferMount={deferMount}
+                    onToggleSelection={toggleHunkSelection}
+                    onTogglePseudocode={annotations.togglePseudocode}
+                    onToggleNaturalLanguage={annotations.toggleNaturalLanguage}
+                    onExplain={handleExplainHunk}
+                  />
+                )
+              )}
+            </div>
+          </FullFilePreview>
+        ) : (
+          <div
+            className="absolute inset-0 overflow-auto pb-16"
+            style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
+          >
+            {hunks.map((hunk) => (
+              <HunkBlock
+                key={hunk.id}
+                hunk={hunk}
+                viewMode={viewMode}
+                isSelected={selectedHunkIds.has(hunk.id)}
+                showPseudocode={annotations.pseudocodeHunkIds.has(hunk.id)}
+                pseudocode={annotations.pseudocodeLines[hunk.id]}
+                showNaturalLanguage={annotations.naturalHunkIds.has(hunk.id)}
+                naturalLanguage={annotations.naturalContent[hunk.id]}
+                deferMount={deferMount}
+                onToggleSelection={toggleHunkSelection}
+                onTogglePseudocode={annotations.togglePseudocode}
+                onToggleNaturalLanguage={annotations.toggleNaturalLanguage}
+                onExplain={handleExplainHunk}
+              />
+            ))}
+          </div>
+        )}
 
         {viewMode === 'split' && (
           <div
@@ -233,10 +289,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
             <div className="mx-auto h-full w-px bg-black/10 group-hover/split:w-0.5 group-hover/split:bg-blue-400 group-active/split:bg-blue-300 transition-[width,background-color]" />
           </div>
         )}
-      </div>}
+      </div>
 
       {/* Multi-selection action bar */}
-      {displayMode === 'diff' && selectedHunkIds.size > 0 && (
+      {selectedHunkIds.size > 0 && (
         <div className="absolute bottom-3 left-6 right-6 bg-[#F5F5F2]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
             <div className="flex items-center space-x-1.5 text-zinc-800 font-semibold font-mono">

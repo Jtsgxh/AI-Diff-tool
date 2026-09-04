@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { AlertCircle, FileQuestion, LoaderCircle } from 'lucide-react';
 import type { FilePreview } from '../../types';
 
@@ -6,6 +6,7 @@ interface FullFilePreviewProps {
   preview: FilePreview | null;
   isLoading: boolean;
   error: string | null;
+  children: React.ReactNode;
 }
 
 const formatBytes = (bytes: number) => {
@@ -15,13 +16,7 @@ const formatBytes = (bytes: number) => {
 };
 
 export const FullFilePreview = React.memo<FullFilePreviewProps>(
-  ({ preview, isLoading, error }) => {
-    const lineNumbers = useMemo(() => {
-      if (!preview?.content) return '';
-      const count = preview.lineCount || 1;
-      return Array.from({ length: count }, (_, index) => index + 1).join('\n');
-    }, [preview]);
-
+  ({ preview, isLoading, error, children }) => {
     if (isLoading) {
       return (
         <div className="h-full flex items-center justify-center text-sm text-zinc-600">
@@ -61,8 +56,8 @@ export const FullFilePreview = React.memo<FullFilePreviewProps>(
         : `提交 ${preview.revision?.slice(0, 7) || ''}`;
 
     return (
-      <div className="h-full flex flex-col bg-[#ECECE8] font-mono text-[12px] leading-5">
-        <div className="h-8 shrink-0 px-3 flex items-center gap-2 border-b border-black/10 bg-[#E7E7E3] text-[11px] text-zinc-600">
+      <div className="h-full flex flex-col bg-[#ECECE8]">
+        <div className="h-8 shrink-0 px-3 flex items-center gap-2 border-b border-black/10 bg-[#E7E7E3] text-[11px] text-zinc-600 font-mono sticky top-0 z-30">
           <span>{sourceLabel}</span>
           <span>·</span>
           <span>{preview.lineCount ?? 0} 行</span>
@@ -75,18 +70,7 @@ export const FullFilePreview = React.memo<FullFilePreviewProps>(
             </>
           )}
         </div>
-        <div className="flex-1 min-h-0 overflow-auto">
-          <div className="min-w-max flex items-start">
-            {lineNumbers && (
-              <pre className="sticky left-0 z-10 py-3 px-3 text-right text-zinc-500 bg-[#E2E2DE] border-r border-black/10 select-none">
-                {lineNumbers}
-              </pre>
-            )}
-            <pre className="py-3 px-4 text-zinc-900 whitespace-pre tab-size-4">
-              {preview.content || ''}
-            </pre>
-          </div>
-        </div>
+        <div className="flex-1 min-h-0 overflow-auto pb-16">{children}</div>
       </div>
     );
   }
