@@ -4,6 +4,10 @@ import readline from 'readline';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { formatRepoOverview, gitService } from './gitService';
 import { buildLearnGraph, formatLearnGraphDigest } from './learnGraphBuild';
+import {
+  DEFAULT_AGENT_MAX_READ_FILE_LINES,
+  DEFAULT_AGENT_MAX_SEARCH_RESULTS,
+} from '../shared/types';
 
 export interface AgentToolsOptions {
   /** Page size returned by `read_file`; subsequent pages remain available. */
@@ -13,8 +17,8 @@ export interface AgentToolsOptions {
 }
 
 const DEFAULTS = {
-  maxReadFileLines: 2000,
-  maxSearchResults: 200,
+  maxReadFileLines: DEFAULT_AGENT_MAX_READ_FILE_LINES,
+  maxSearchResults: DEFAULT_AGENT_MAX_SEARCH_RESULTS,
   /** Files above this size are skipped by the non-git fallback scanner. */
   maxScanBytes: 32 * 1024 * 1024,
   /** Recursion ceiling for the non-git fallback scanner. */

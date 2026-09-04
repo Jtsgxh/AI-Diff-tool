@@ -310,6 +310,8 @@ export function resolveStreamIdleTimeoutSeconds(value: number | undefined): numb
 }
 
 export const DEFAULT_AGENT_MAX_TURNS = 10;
+export const DEFAULT_AGENT_MAX_READ_FILE_LINES = 2000;
+export const DEFAULT_AGENT_MAX_SEARCH_RESULTS = 200;
 
 /** `null` deliberately disables the SDK turn ceiling; legacy 0/unset stays at 10. */
 export function resolveAgentMaxTurns(value: number | null | undefined): number | null {

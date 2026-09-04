@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, PanelLeftOpen } from 'lucide-react';
-import type { AIProviderConfig, DiffFile } from './types';
+import {
+  DEFAULT_AGENT_MAX_READ_FILE_LINES,
+  DEFAULT_AGENT_MAX_SEARCH_RESULTS,
+  type AIProviderConfig,
+  type DiffFile,
+} from './types';
 import { fetchBatchCommitsDiff, fetchCommitDiff } from './services/api';
 import { STORAGE_KEYS, storage } from './constants/storage';
 import { useRepository } from './hooks/useRepository';
@@ -29,6 +34,8 @@ const DEFAULT_AI_CONFIG: AIProviderConfig = {
   baseUrl: 'https://api.deepseek.com/v1',
   model: 'deepseek-chat',
   contextWindowTokens: 1_000_000,
+  maxReadFileLines: DEFAULT_AGENT_MAX_READ_FILE_LINES,
+  maxSearchResults: DEFAULT_AGENT_MAX_SEARCH_RESULTS,
 };
 
 /** Normalizes Windows separators before comparing repository-relative paths. */

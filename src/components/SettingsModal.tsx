@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import {
   CONTEXT_WINDOW_TOKENS,
+  DEFAULT_AGENT_MAX_READ_FILE_LINES,
+  DEFAULT_AGENT_MAX_SEARCH_RESULTS,
   DEFAULT_AGENT_MAX_TURNS,
   REQUEST_TIMEOUT_SECONDS,
   STREAM_IDLE_TIMEOUT_SECONDS,
@@ -134,8 +136,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     streamIdleTimeoutSeconds:
       config.streamIdleTimeoutSeconds || STREAM_IDLE_TIMEOUT_SECONDS.default,
     maxRetries: config.maxRetries !== undefined ? config.maxRetries : 2,
-    maxReadFileLines: config.maxReadFileLines || 2000,
-    maxSearchResults: config.maxSearchResults || 200,
+    maxReadFileLines: config.maxReadFileLines || DEFAULT_AGENT_MAX_READ_FILE_LINES,
+    maxSearchResults: config.maxSearchResults || DEFAULT_AGENT_MAX_SEARCH_RESULTS,
     contextWindowTokens: config.contextWindowTokens ?? CONTEXT_WINDOW_TOKENS.default,
   });
 
@@ -188,8 +190,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       timeoutSeconds: REQUEST_TIMEOUT_SECONDS.default,
       streamIdleTimeoutSeconds: STREAM_IDLE_TIMEOUT_SECONDS.default,
       maxRetries: 2,
-      maxReadFileLines: 2000,
-      maxSearchResults: 200,
+      maxReadFileLines: DEFAULT_AGENT_MAX_READ_FILE_LINES,
+      maxSearchResults: DEFAULT_AGENT_MAX_SEARCH_RESULTS,
     }));
   };
 
@@ -956,13 +958,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="number"
                     min={100}
                     step={1}
-                    value={form.maxReadFileLines || 2000}
+                    value={form.maxReadFileLines || DEFAULT_AGENT_MAX_READ_FILE_LINES}
                     onChange={(e) =>
-                      setForm({ ...form, maxReadFileLines: parseInt(e.target.value, 10) || 2000 })
+                      setForm({
+                        ...form,
+                        maxReadFileLines:
+                          parseInt(e.target.value, 10) || DEFAULT_AGENT_MAX_READ_FILE_LINES,
+                      })
                     }
                     className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                   />
-                  <p className="text-[10px] text-zinc-600">默认 2000 行；大文件会返回下一页行号，可继续读取</p>
+                  <p className="text-[10px] text-zinc-600">
+                    {form.maxReadFileLines === DEFAULT_AGENT_MAX_READ_FILE_LINES
+                      ? `当前使用默认值 ${DEFAULT_AGENT_MAX_READ_FILE_LINES} 行；大文件可按返回的下一页行号继续读取`
+                      : `当前配置为 ${form.maxReadFileLines} 行；恢复默认会改为 ${DEFAULT_AGENT_MAX_READ_FILE_LINES} 行`}
+                  </p>
                 </div>
 
                 {/* Max Search Results */}
@@ -975,13 +985,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="number"
                     min={10}
                     step={1}
-                    value={form.maxSearchResults || 200}
+                    value={form.maxSearchResults || DEFAULT_AGENT_MAX_SEARCH_RESULTS}
                     onChange={(e) =>
-                      setForm({ ...form, maxSearchResults: parseInt(e.target.value, 10) || 200 })
+                      setForm({
+                        ...form,
+                        maxSearchResults:
+                          parseInt(e.target.value, 10) || DEFAULT_AGENT_MAX_SEARCH_RESULTS,
+                      })
                     }
                     className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
                   />
-                  <p className="text-[10px] text-zinc-600">默认每页 200 条；可由 Agent 使用 offset 继续翻页</p>
+                  <p className="text-[10px] text-zinc-600">
+                    {form.maxSearchResults === DEFAULT_AGENT_MAX_SEARCH_RESULTS
+                      ? `当前使用默认值：每页 ${DEFAULT_AGENT_MAX_SEARCH_RESULTS} 条；Agent 可用 offset 继续翻页`
+                      : `当前配置为每页 ${form.maxSearchResults} 条；恢复默认会改为 ${DEFAULT_AGENT_MAX_SEARCH_RESULTS} 条`}
+                  </p>
                 </div>
               </div>
 
