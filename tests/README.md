@@ -3,12 +3,19 @@
 Run the scheduler and layout tests:
 
 ```sh
-node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts tests/learnGraphFilter.test.ts tests/learnBusinessBus.test.ts tests/sseClient.test.ts
+node --import tsx --test tests/graphFrameScheduler.test.ts tests/learnCommunityLayout.test.ts tests/learnGraphLabels.test.ts tests/learnGraphFilter.test.ts tests/learnBusinessBus.test.ts tests/structuredLearnSynthesis.test.ts tests/sseClient.test.ts
 ```
 
 `learnBusinessBus.test.ts` covers the strict v2 AI envelope, structural binding,
 shared cross-route nodes, repeated methods, deterministic layout, hidden-step gaps,
-manual supplements and recursive drill-down prompts.
+manual supplements and recursive drill-down prompts. It also checks that initial
+whole-repository prompts build an entry-coverage plan, target 4–8 verified routes for
+complex repositories, and do not apply that count target to supplements or drill-downs.
+
+`structuredLearnSynthesis.test.ts` covers the isolated JSON Output and prose stages,
+exact field-path validation, one full regeneration after malformed structured data,
+and continuation when a prose response stops before its completion marker. These use
+intercepted provider responses and do not make live model requests.
 
 For real canvas/React checks, run `npm run client` and open
 `http://localhost:5173/tests/learn-graph-performance.html` (use the configured client port if different).
