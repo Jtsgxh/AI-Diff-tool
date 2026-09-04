@@ -28,6 +28,7 @@ export interface LearnChatTurn {
 }
 
 const ELAPSED_TICK_MS = 500;
+const LEARN_ROUTE_POLICY_VERSION = 2;
 
 function rejectedRouteLabels(report: string, graph: LearnGraph | null): string[] {
   const overlay = parseLearnOverlay(report);
@@ -84,7 +85,7 @@ export function useLearnSession(
   const effectiveLearnPrompt = aiConfig.learnPrompt?.trim() || DEFAULT_LEARN_PROMPT;
   const cacheKeyForGraph = useCallback(
     (source: LearnGraph) => aiCache.generateKey({
-      type: `learn-v${LEARN_ANALYSIS_SCHEMA_VERSION}-business-bus`,
+      type: `learn-v${LEARN_ANALYSIS_SCHEMA_VERSION}-route-policy-v${LEARN_ROUTE_POLICY_VERSION}-business-bus`,
       filePath: repoPath,
       diff: `${headHash || ''}:${source.stats.sourceFingerprint}`,
       userPrompt: effectiveLearnPrompt,
@@ -95,7 +96,7 @@ export function useLearnSession(
   );
   const cacheKeyForDrill = useCallback(
     (source: LearnGraph, path: LearnDrillTargetContext[]) => aiCache.generateKey({
-      type: `learn-v${LEARN_ANALYSIS_SCHEMA_VERSION}-business-drilldown`,
+      type: `learn-v${LEARN_ANALYSIS_SCHEMA_VERSION}-route-policy-v${LEARN_ROUTE_POLICY_VERSION}-business-drilldown`,
       filePath: repoPath,
       diff: `${headHash || ''}:${source.stats.sourceFingerprint}:${JSON.stringify(path)}`,
       userPrompt: effectiveLearnPrompt,

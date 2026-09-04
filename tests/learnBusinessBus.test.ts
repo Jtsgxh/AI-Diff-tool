@@ -200,6 +200,17 @@ test('manual graph expansion rejects duplicate and unmappable routes without cha
 });
 
 test('graph-changing prompts distinguish supplemental routes, recursive drilldown, and prose-only questions', () => {
+  const initial = {
+    scopeType: 'repo' as const,
+    task: 'learn' as const,
+    graphDigest: 'EXTRACTED',
+  };
+  const initialStructuredPrompt = buildLearnSystemPrompt(initial, 'structured');
+  assert.match(initialStructuredPrompt, /触发入口 \+ 业务目标 \+ 结果或状态生命周期/);
+  assert.match(initialStructuredPrompt, /不能因为中间共用同一个服务、AI 引擎、数据库、队列或工具层而合并/);
+  assert.match(initialStructuredPrompt, /生成审查报告.*生成业务路线图/);
+  assert.match(initialStructuredPrompt, /禁止只用“AI 分析”/);
+
   const existingBusinessRoutes = [{
     id: 'a',
     label: '路线 A',
@@ -219,6 +230,8 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   assert.match(buildLearnSystemPrompt(expansion), /只能包含本轮新增路线/);
   assert.match(buildLearnSystemPrompt(expansion), /当前仅执行源码探查/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /启用 JSON Output/);
+  assert.match(buildLearnSystemPrompt(expansion, 'structured'), /补充功能线边界/);
+  assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /生成审查报告.*生成业务路线图/);
   assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /当前仅执行源码探查/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /探查已完成/);
   assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /【必须探查】/);
@@ -254,6 +267,8 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   };
   assert.match(buildLearnSystemPrompt(drilldown), /业务节点递归钻取/);
   assert.match(buildLearnSystemPrompt(drilldown), /内部更细的执行子路线/);
+  assert.match(buildLearnSystemPrompt(drilldown, 'structured'), /本轮只展开所选路线步骤/);
+  assert.doesNotMatch(buildLearnSystemPrompt(drilldown, 'structured'), /生成审查报告.*生成业务路线图/);
   assert.match(buildLearnUserMessage(drilldown), /路线 A \/ 第 2 步「鉴权」/);
   assert.match(buildLearnUserMessage(drilldown), /Auth\.authorize/);
   assert.match(buildLearnUserMessage(drilldown), /businessRoutes 输出空数组/);
