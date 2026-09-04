@@ -251,6 +251,14 @@ export function isLearnTask(ctx: PromptContext): boolean {
   return ctx.task === 'learn' || ctx.scopeType === 'repo';
 }
 
+/**
+ * The prose pass is streamed through OpenAI-compatible providers. Some of
+ * them occasionally report `finish_reason=stop` after ending mid-sentence,
+ * so the server needs an application-level completion acknowledgement before
+ * it can mark a learning report as complete.
+ */
+export const LEARN_PROSE_COMPLETE_MARKER = '<!-- AI_DIFF_TOOL_LEARN_REPORT_COMPLETE -->';
+
 export function buildLearnSystemPrompt(
   ctx: PromptContext,
   phase: 'exploration' | 'structured' | 'prose' = 'exploration'
@@ -315,7 +323,10 @@ businessRoutes 可以为空：只有不存在任何证据完整的路线时才�
 8. 待核实问题 — 明确列出源码证据尚未闭合的候选，不得把猜测写成结论
 9. 建议阅读顺序 — 按业务路线给出文件和符号顺序，并说明每一站要看懂什么
 
-禁止空话（「负责业务逻辑」），不得补写已验证机器数据之外的路线或节点。`;
+禁止空话（「负责业务逻辑」），不得补写已验证机器数据之外的路线或节点。
+
+正文九个章节全部写完后，最后另起一行原样输出唯一结束标记：${LEARN_PROSE_COMPLETE_MARKER}
+结束标记不得提前出现，标记后不得再输出任何非空白内容。`;
   const explorationStage = `【当前仅执行源码探查】本轮只调用工具收集入口、调用、数据、状态、失败路径和结果落点证据。证据足够后停止调用工具并简短回复“探查完成”；不要在本轮输出 JSON、learn-graph 围栏或讲解正文，服务端会在后续两个独立阶段生成结构化业务图和中文讲解。`;
   const system = `${baseSystem}
 

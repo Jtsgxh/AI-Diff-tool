@@ -19,6 +19,7 @@ import { SseStream } from './http/sse';
 import {
   buildAgentSystemPrompt,
   buildAgentUserMessage,
+  LEARN_PROSE_COMPLETE_MARKER,
   buildLearnSystemPrompt,
   buildSynthesisPrompt,
   isLearnTask,
@@ -688,11 +689,16 @@ ${canonicalGraph}
     }
 
     const continuationBaseLength = messages.length;
+    let hasSynthesisText = false;
+    let latestContinuationText = '';
 
     for (let pass = 1; pass <= MAX_SYNTHESIS_PASSES && !stream.isClosed; pass++) {
       let passText = '';
       let passReasoning = '';
       let finishReason: string | null = null;
+      let proseMarkerBuffer = '';
+      let proseMarkerSeen = false;
+      let proseAfterMarker = '';
 
       const synthesisStream = await openaiClient.chat.completions.create(
         {
@@ -718,21 +724,90 @@ ${canonicalGraph}
         }
         if (delta?.content) {
           passText += delta.content;
-          stream.send({ type: 'chunk', text: delta.content });
+          if (params.requiresLearnGraph) {
+            // Keep only the short suffix that could still be the beginning of
+            // the terminal marker. This preserves real-time streaming while
+            // ensuring the internal protocol marker never reaches the UI.
+            if (!proseMarkerSeen) {
+              proseMarkerBuffer += delta.content;
+              const markerAt = proseMarkerBuffer.indexOf(LEARN_PROSE_COMPLETE_MARKER);
+              if (markerAt >= 0) {
+                const visible = proseMarkerBuffer.slice(0, markerAt);
+                if (visible) stream.send({ type: 'chunk', text: visible });
+                proseAfterMarker = proseMarkerBuffer.slice(
+                  markerAt + LEARN_PROSE_COMPLETE_MARKER.length
+                );
+                proseMarkerBuffer = '';
+                proseMarkerSeen = true;
+              } else {
+                const safeLength = Math.max(
+                  0,
+                  proseMarkerBuffer.length - (LEARN_PROSE_COMPLETE_MARKER.length - 1)
+                );
+                if (safeLength > 0) {
+                  stream.send({ type: 'chunk', text: proseMarkerBuffer.slice(0, safeLength) });
+                  proseMarkerBuffer = proseMarkerBuffer.slice(safeLength);
+                }
+              }
+            } else {
+              proseAfterMarker += delta.content;
+            }
+          } else {
+            stream.send({ type: 'chunk', text: delta.content });
+          }
         }
       }
 
-      if (finishReason === 'length') {
-        if (!passText && !passReasoning) {
-          throw new Error('综合输出达到单次长度上限，但没有返回可继续的内容');
+      const proseMarkerComplete =
+        params.requiresLearnGraph && proseMarkerSeen && !proseAfterMarker.trim();
+      let visiblePassText = passText;
+      if (params.requiresLearnGraph) {
+        if (!proseMarkerSeen) {
+          if (proseMarkerBuffer) stream.send({ type: 'chunk', text: proseMarkerBuffer });
+        } else {
+          visiblePassText = passText.replace(LEARN_PROSE_COMPLETE_MARKER, '');
+          // A marker followed by non-whitespace violates the completion
+          // protocol. Preserve that visible content and request a clean end.
+          if (proseAfterMarker.trim()) {
+            stream.send({ type: 'chunk', text: proseAfterMarker });
+          }
+        }
+      }
+      if (visiblePassText.trim()) {
+        hasSynthesisText = true;
+        latestContinuationText = visiblePassText;
+      }
+
+      if (!finishReason) {
+        throw new Error('综合生成流未返回结束原因，无法确认报告是否完整');
+      }
+      if (finishReason !== 'stop' && finishReason !== 'length') {
+        throw new Error(`综合生成以非正常原因结束: ${finishReason}`);
+      }
+
+      const missingLearnCompletion = params.requiresLearnGraph && !proseMarkerComplete;
+      if (finishReason === 'length' || missingLearnCompletion) {
+        if (!hasSynthesisText && !passReasoning) {
+          throw new Error(
+            missingLearnCompletion
+              ? '中文讲解提前结束，且没有返回可继续的正文'
+              : '综合输出达到单次长度上限，但没有返回可继续的内容'
+          );
         }
         if (pass === MAX_SYNTHESIS_PASSES) {
-          throw new Error(`综合输出连续 ${MAX_SYNTHESIS_PASSES} 次达到长度上限，已停止自动续写`);
+          throw new Error(
+            missingLearnCompletion
+              ? `中文讲解连续 ${MAX_SYNTHESIS_PASSES} 次未返回完整性结束标记，已停止自动续写`
+              : `综合输出连续 ${MAX_SYNTHESIS_PASSES} 次达到长度上限，已停止自动续写`
+          );
         }
 
         const assistantMessage: any = {
           role: 'assistant',
-          content: clipCharsTail(passText, Math.max(1, Math.round(contextChars * 0.06))),
+          content: clipCharsTail(
+            latestContinuationText,
+            Math.max(1, Math.round(contextChars * 0.06))
+          ),
         };
         if (params.preserveReasoningOnAssistant) {
           assistantMessage.reasoning_content = clipCharsTail(
@@ -742,26 +817,24 @@ ${canonicalGraph}
         }
         messages.splice(continuationBaseLength, messages.length - continuationBaseLength, assistantMessage, {
           role: 'user',
-          content: passText
-            ? '上一条回复因单次输出长度限制被截断。只从中断处继续输出剩余正文，不要重复已经输出的内容。'
+          content: hasSynthesisText
+            ? missingLearnCompletion
+              ? `上一条回复在完整性结束标记之前提前停止。只从中断处继续补完剩余章节，不要重复已经输出的内容；全部完成后必须以 ${LEARN_PROSE_COMPLETE_MARKER} 作为最后一行。`
+              : '上一条回复因单次输出长度限制被截断。只从中断处继续输出剩余正文，不要重复已经输出的内容。'
             : '上一条只完成了推理但尚未输出正文。现在直接输出最终报告正文，不要重新展开推理过程。',
         });
 
         stream.send({
           type: 'status',
           phase: 'reporting',
-          message: '单次输出达到模型长度上限，正在从中断处自动续写...',
+          message: missingLearnCompletion
+            ? '模型提前结束但中文讲解尚未完整，正在从中断处自动续写...'
+            : '单次输出达到模型长度上限，正在从中断处自动续写...',
         });
         continue;
       }
 
-      if (!finishReason) {
-        throw new Error('综合生成流未返回结束原因，无法确认报告是否完整');
-      }
-      if (finishReason !== 'stop') {
-        throw new Error(`综合生成以非正常原因结束: ${finishReason}`);
-      }
-      if (!passText.trim()) {
+      if (!hasSynthesisText) {
         throw new Error('综合生成已结束，但没有输出报告正文');
       }
       return;
