@@ -99,7 +99,10 @@ function fitPairToBudget(first: string, second: string, budget: number): [string
   return [clipCharsBalanced(first, firstBudget), clipCharsBalanced(second, secondBudget)];
 }
 
-export function parseStructuredLearnGraphOutput(text: string): LearnAnalysisEnvelope {
+export function parseStructuredLearnGraphOutput(
+  text: string,
+  requireBusinessRoute = false
+): LearnAnalysisEnvelope {
   const content = text.trim();
   if (!content) throw new Error('结构化业务路线生成结束，但模型返回了空 JSON');
 
@@ -113,6 +116,9 @@ export function parseStructuredLearnGraphOutput(text: string): LearnAnalysisEnve
   const graph = parseLearnAnalysisEnvelope(decoded);
   if (!graph) {
     throw new Error('结构化业务路线 JSON 不符合 learn-graph v2 字段约束');
+  }
+  if (requireBusinessRoute && graph.businessRoutes.length === 0) {
+    throw new Error('整库业务分析没有生成任何证据闭环路线，已拒绝空业务总线');
   }
   return graph;
 }
@@ -661,7 +667,10 @@ export class CodexAgentEngine {
         );
       }
 
-      const structuredGraph = parseStructuredLearnGraphOutput(structuredText);
+      const structuredGraph = parseStructuredLearnGraphOutput(
+        structuredText,
+        !params.isLearnExpansion && !params.isLearnDrilldown
+      );
       const canonicalGraph = JSON.stringify(structuredGraph);
       stream.send({ type: 'chunk', text: `\`\`\`learn-graph\n${canonicalGraph}\n\`\`\`\n\n` });
       stream.send({

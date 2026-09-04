@@ -28,7 +28,7 @@ export interface LearnChatTurn {
 }
 
 const ELAPSED_TICK_MS = 500;
-const LEARN_ROUTE_POLICY_VERSION = 2;
+const LEARN_ROUTE_POLICY_VERSION = 3;
 
 function rejectedRouteLabels(report: string, graph: LearnGraph | null): string[] {
   const overlay = parseLearnOverlay(report);
@@ -400,7 +400,10 @@ export function useLearnSession(
               setBriefing(prose);
               const overlay = parseLearnOverlay(raw);
               const rejectedRoutes = rejectedRouteLabels(raw, next);
-              if (overlay && rejectedRoutes.length === 0) {
+              if (overlay && overlay.businessRoutes.length === 0) {
+                restoreInFlightGraph();
+                setError('AI 没有生成任何证据闭环路线，已拒绝空业务总线且不会缓存。请重新分析。');
+              } else if (overlay && rejectedRoutes.length === 0) {
                 graphRef.current = next;
                 setGraph(next);
                 acceptedReportRef.current = raw;
@@ -529,11 +532,12 @@ export function useLearnSession(
     const cached = aiCache.get(cacheKey);
     if (!cached?.report?.trim()) return;
     const { graph: next, prose } = humanizeLearnReport(cached.report, base);
+    const overlay = parseLearnOverlay(cached.report);
     const rejectedRoutes = rejectedRouteLabels(cached.report, next);
-    if (!parseLearnOverlay(cached.report) || rejectedRoutes.length > 0) {
+    if (!overlay || overlay.businessRoutes.length === 0 || rejectedRoutes.length > 0) {
       acceptedReportRef.current = '';
       aiCache.remove(cacheKey);
-      setError('已有分析结果无效或无法绑定到当前类图，请手动开始 AI 分析。');
+      setError('已有分析结果为空、无效或无法绑定到当前类图，请手动开始 AI 分析。');
       return;
     }
     graphRef.current = next;

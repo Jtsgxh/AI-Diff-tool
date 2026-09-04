@@ -104,6 +104,15 @@ test('v2 learn analysis accepts complete routes and rejects malformed or duplica
 test('structured learn stage accepts only a valid bare JSON envelope', () => {
   const valid = JSON.stringify(envelope());
   assert.deepEqual(parseStructuredLearnGraphOutput(valid), parseLearnAnalysisEnvelope(envelope()));
+  const emptyRoutes = JSON.stringify(envelope([]));
+  assert.deepEqual(
+    parseStructuredLearnGraphOutput(emptyRoutes),
+    parseLearnAnalysisEnvelope(envelope([]))
+  );
+  assert.throws(
+    () => parseStructuredLearnGraphOutput(emptyRoutes, true),
+    /没有生成任何证据闭环路线/
+  );
   assert.throws(
     () => parseStructuredLearnGraphOutput(`\`\`\`json\n${valid}\n\`\`\``),
     /不是合法 JSON/
@@ -223,6 +232,9 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   assert.match(initialStructuredPrompt, /不能因为中间共用同一个服务、AI 引擎、数据库、队列或工具层而合并/);
   assert.match(initialStructuredPrompt, /生成审查报告.*生成业务路线图/);
   assert.match(initialStructuredPrompt, /禁止只用“AI 分析”/);
+  assert.match(initialStructuredPrompt, /businessRoutes 禁止输出空数组/);
+  assert.match(initialStructuredPrompt, /路线可以只位于单个社区/);
+  assert.match(buildLearnSystemPrompt(initial), /至少闭合一条业务路线/);
 
   const existingBusinessRoutes = [{
     id: 'a',
@@ -244,6 +256,7 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   assert.match(buildLearnSystemPrompt(expansion), /当前仅执行源码探查/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /启用 JSON Output/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /补充功能线边界/);
+  assert.match(buildLearnSystemPrompt(expansion, 'structured'), /businessRoutes 可以输出空数组/);
   assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /生成审查报告.*生成业务路线图/);
   assert.doesNotMatch(buildLearnSystemPrompt(expansion, 'structured'), /当前仅执行源码探查/);
   assert.match(buildLearnSystemPrompt(expansion, 'structured'), /探查已完成/);
@@ -281,6 +294,7 @@ test('graph-changing prompts distinguish supplemental routes, recursive drilldow
   assert.match(buildLearnSystemPrompt(drilldown), /业务节点递归钻取/);
   assert.match(buildLearnSystemPrompt(drilldown), /内部更细的执行子路线/);
   assert.match(buildLearnSystemPrompt(drilldown, 'structured'), /本轮只展开所选路线步骤/);
+  assert.match(buildLearnSystemPrompt(drilldown, 'structured'), /businessRoutes 可以输出空数组/);
   assert.doesNotMatch(buildLearnSystemPrompt(drilldown, 'structured'), /生成审查报告.*生成业务路线图/);
   assert.match(buildLearnUserMessage(drilldown), /路线 A \/ 第 2 步「鉴权」/);
   assert.match(buildLearnUserMessage(drilldown), /Auth\.authorize/);

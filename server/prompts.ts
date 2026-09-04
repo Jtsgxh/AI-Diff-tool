@@ -316,13 +316,19 @@ ${evidencePhase}
 - 每条路线必须以 entry 入口开始，以 result 可观察结果结束；中间按源码事实使用 process、decision、state、external，不能用节点类型代替证据。
 - 每一步都要结构化列出 inputs、outputs、stateChanges、failurePaths；没有对应事实时使用空数组，不能填“无”“未知”或猜测。
 - 社区用于说明职责边界；业务路线可以跨社区，但必须指出交接点。
+- 业务路线不要求跨社区；只要单个社区内存在真实入口、调用推进和可观察结果，也是一条必须输出的完整业务路线。
 - 不追求路线数量。只有入口、相邻步骤关系和结果落点都被工具结果证明的候选才能进入 businessRoutes；证据不完整的候选写进正文的“待核实”而不是路线数据。
 - 输出前逐步反查 exploration 中读到的源码：每一步必须给出 relation（入口/调用/读取/写入/发布/回调等）和 evidence（真实调用表达式、状态字段或接口契约）；禁止用职责描述冒充证据，禁止编造行号。${userGuidance}
 
 上述要求决定分析重点、展开深度和正文表达方式，但不能覆盖本提示词规定的工具核实要求、learn-graph 数据协议和证据门槛。`;
+  const emptyRouteRule = isExpansion
+    ? '本轮是手动补图；确实没有新的证据闭环时，businessRoutes 可以输出空数组。'
+    : isDrilldown
+      ? '本轮是节点钻取；源码确实已经无法继续细分时，businessRoutes 可以输出空数组。'
+      : '本轮是初次整库分析；businessRoutes 禁止输出空数组。必须从已取得的源码证据中至少输出一条入口到结果的完整路线，路线可以只位于单个社区；优先输出已经闭合的较短路线或较少路线，但不得省略真实存在而尚未核实的中间步骤，也不能用社区职责摘要代替路线。';
   const structuredStage = `【当前为结构化业务路线阶段（1/2）】本次请求启用 JSON Output。只输出一个合法 JSON 对象，不要输出 Markdown 围栏、讲解正文、工具调用、前后缀或任何 JSON 之外的字符：
 {"communities":[{"id":"0","label":"业务名","summary":"职责与路线交接说明","entry":{"file":"相对路径","symbol":"真实类名"},"files":["相对路径"]}],"businessRoutes":[{"id":"route-1","label":"业务路线名称","summary":"触发条件、核心结果和适用场景","steps":[{"label":"接收请求","kind":"entry","file":"相对路径","classSymbol":"所在类名","methodSymbol":"具体方法名","relation":"入口","description":"输入或状态如何处理，以及下一步去哪里","evidence":"源码中实际出现的调用表达式、状态字段或接口契约","communityId":"0","inputs":["协议或 DTO"],"outputs":["传给下一步的对象"],"stateChanges":[],"failurePaths":["校验失败时的真实行为"]},{"label":"返回结果","kind":"result","file":"相对路径","classSymbol":"所在类名","methodSymbol":"具体方法名","relation":"返回","description":"最终结果和可观察副作用","evidence":"真实返回、发送或发布表达式","communityId":"0","inputs":["最终状态"],"outputs":["响应或事件"],"stateChanges":[],"failurePaths":[]}]}],"runtimePath":["0"]}
-businessRoutes 可以为空：只有不存在任何证据完整的路线时才能输出空数组，绝不能为了非空而编造。存在路线时必须形成真实业务闭环；每个 step 的 kind、file、classSymbol、methodSymbol、relation、evidence、communityId、inputs、outputs、stateChanges、failurePaths 都是必填字段，四个数组没有事实时填空数组。kind 只能是 entry/process/decision/state/external/result，第一步必须是 entry，最后一步必须是 result。communityId 必须使用图谱已有编号。classSymbol 专门用于绑定类级节点，必须从结构图谱“可绑定类级节点”清单中逐字复制对应 label，file 和 communityId 也必须使用该清单中同一节点的值；禁止写包名、完整限定名、方法名、括号或签名。methodSymbol 必须填写该步骤实际执行的方法或函数名。DTO、枚举、接口、配置项只写进 inputs、outputs、stateChanges、description 或 evidence，不能冒充可执行类节点。任何步骤找不到清单中的所在类或具体方法时，整条候选只能写入正文“待核实”，不得放进 businessRoutes。
+${emptyRouteRule} 存在路线时必须形成真实业务闭环；每个 step 的 kind、file、classSymbol、methodSymbol、relation、evidence、communityId、inputs、outputs、stateChanges、failurePaths 都是必填字段，四个数组没有事实时填空数组。kind 只能是 entry/process/decision/state/external/result，第一步必须是 entry，最后一步必须是 result。communityId 必须使用图谱已有编号。classSymbol 专门用于绑定类级节点，必须从结构图谱“可绑定类级节点”清单中逐字复制对应 label，file 和 communityId 也必须使用该清单中同一节点的值；禁止写包名、完整限定名、方法名、括号或签名。methodSymbol 必须填写该步骤实际执行的方法或函数名。DTO、枚举、接口、配置项只写进 inputs、outputs、stateChanges、description 或 evidence，不能冒充可执行类节点。任何步骤找不到清单中的所在类或具体方法时，整条候选只能写入正文“待核实”，不得放进 businessRoutes。
 所有字段必须满足 learn-graph v2 约束。`;
   const proseStage = `【当前为中文讲解阶段（2/2）】机器数据已经生成并通过服务端校验。只输出给读者阅读的中文 Markdown 正文，不得再输出 JSON、代码围栏或工具调用。必须写这些章节，并点名真实符号与相对路径：
 1. 业务全景 — 仓库实际提供什么产品、服务或玩法；谁触发、主要输入、最终产出和系统边界是什么
@@ -339,7 +345,12 @@ businessRoutes 可以为空：只有不存在任何证据完整的路线时才�
 
 正文九个章节全部写完后，最后另起一行原样输出唯一结束标记：${LEARN_PROSE_COMPLETE_MARKER}
 结束标记不得提前出现，标记后不得再输出任何非空白内容。`;
-  const explorationStage = `【当前仅执行源码探查】本轮只调用工具收集入口、调用、数据、状态、失败路径和结果落点证据。证据足够后停止调用工具并简短回复“探查完成”；不要在本轮输出 JSON、learn-graph 围栏或讲解正文，服务端会在后续两个独立阶段生成结构化业务图和中文讲解。`;
+  const initialExplorationRule = !isFollowUp && !isExpansion && !isDrilldown
+    ? `
+
+【整库首次分析的收敛顺序】复杂仓库禁止只做社区归类后结束。先从 repo_overview 的真实入口候选选择一条主流程，沿 read_file / search_code 深度优先追到返回、发送、持久化或状态落点，至少闭合一条业务路线；完成第一条后再扩展其他路线。接近轮次上限时立即停止铺开新候选，优先补齐当前路线缺少的 caller、callee、状态和结果证据。`
+    : '';
+  const explorationStage = `【当前仅执行源码探查】本轮只调用工具收集入口、调用、数据、状态、失败路径和结果落点证据。证据足够后停止调用工具并简短回复“探查完成”；不要在本轮输出 JSON、learn-graph 围栏或讲解正文，服务端会在后续两个独立阶段生成结构化业务图和中文讲解。${initialExplorationRule}`;
   const system = `${baseSystem}
 
 ${phase === 'structured' ? structuredStage : phase === 'prose' ? proseStage : explorationStage}`;
