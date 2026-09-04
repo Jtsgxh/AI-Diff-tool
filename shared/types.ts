@@ -309,8 +309,20 @@ export function resolveStreamIdleTimeoutSeconds(value: number | undefined): numb
   );
 }
 
+export const DEFAULT_AGENT_MAX_TURNS = 10;
+
+/** `null` deliberately disables the SDK turn ceiling; legacy 0/unset stays at 10. */
+export function resolveAgentMaxTurns(value: number | null | undefined): number | null {
+  if (value === null) return null;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.max(1, Math.trunc(value));
+  }
+  return DEFAULT_AGENT_MAX_TURNS;
+}
+
 export interface AIRuntimeConfig {
-  maxExplorationTurns?: number;
+  /** Positive integer for a finite ceiling; `null` means no turn ceiling. */
+  maxExplorationTurns?: number | null;
   timeoutSeconds?: number;
   streamIdleTimeoutSeconds?: number;
   maxRetries?: number;

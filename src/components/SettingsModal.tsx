@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import {
   CONTEXT_WINDOW_TOKENS,
+  DEFAULT_AGENT_MAX_TURNS,
   REQUEST_TIMEOUT_SECONDS,
   STREAM_IDLE_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
+  resolveAgentMaxTurns,
   type AIProviderConfig,
 } from '../types';
 import { DEFAULT_PROMPTS } from '../constants/defaultPrompts';
@@ -43,6 +45,17 @@ const CONTEXT_WINDOW_PRESETS = [
   { value: 2_000_000, label: '2M', hint: '超长上下文' },
   { value: 4_000_000, label: '4M', hint: '新一代长上下文' },
 ] as const;
+
+const EXPLORATION_TURN_PRESETS: Array<{
+  value: number | null;
+  title: string;
+  description: string;
+}> = [
+  { value: 10, title: '10 轮 · 单文件 / 小改动', description: '常规审查，兼顾速度与成本' },
+  { value: 20, title: '20 轮 · 跨模块调用链', description: '适合调用方、配置链和跨文件影响' },
+  { value: 30, title: '30 轮 · 仓库学习', description: '适合大型业务闭环和递归源码钻取' },
+  { value: null, title: '∞ 无上限自主规划', description: '由模型自行收敛，仍可手动取消或触发超时' },
+];
 import { aiCache } from '../services/aiCache';
 
 interface SettingsModalProps {
@@ -116,8 +129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       config.naturalLanguagePrompt || DEFAULT_PROMPTS.naturalLanguagePrompt,
     customSystemPrompt:
       config.reviewPrompt || config.customSystemPrompt || DEFAULT_PROMPTS.reviewPrompt,
-    maxExplorationTurns:
-      config.maxExplorationTurns !== undefined ? config.maxExplorationTurns : 0,
+    maxExplorationTurns: resolveAgentMaxTurns(config.maxExplorationTurns),
     timeoutSeconds: config.timeoutSeconds || REQUEST_TIMEOUT_SECONDS.default,
     streamIdleTimeoutSeconds:
       config.streamIdleTimeoutSeconds || STREAM_IDLE_TIMEOUT_SECONDS.default,
@@ -136,6 +148,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   if (!isOpen) return null;
 
   const windowTokens = form.contextWindowTokens ?? CONTEXT_WINDOW_TOKENS.default;
+  const effectiveExplorationTurns = resolveAgentMaxTurns(form.maxExplorationTurns);
   const agentChars = diffCharBudgetFromWindow(windowTokens, 'agent');
   const fastChars = diffCharBudgetFromWindow(windowTokens, 'fast');
 
@@ -171,7 +184,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleResetAgentDefaults = () => {
     setForm((prev) => ({
       ...prev,
-      maxExplorationTurns: 0,
+      maxExplorationTurns: DEFAULT_AGENT_MAX_TURNS,
       timeoutSeconds: REQUEST_TIMEOUT_SECONDS.default,
       streamIdleTimeoutSeconds: STREAM_IDLE_TIMEOUT_SECONDS.default,
       maxRetries: 2,
@@ -793,88 +806,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
 
-              {/* 1. Autonomous Planning vs Fixed Turns */}
+              {/* 1. Autonomous planning presets and optional custom ceiling */}
               <div className="p-3 bg-[#F5F5F2] border border-black/10 rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="font-semibold text-zinc-900 flex items-center gap-1.5">
                     <Brain className="w-3.5 h-3.5 text-zinc-700" />
-                    <span>探查模式与轮数上限 (Autonomous Planning)</span>
+                    <span>自主规划与轮数上限</span>
                   </label>
                   <span
                     className={`font-mono font-bold text-xs px-2 py-0.5 rounded border ${
-                      !form.maxExplorationTurns || form.maxExplorationTurns === 0
-                        ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                        : 'bg-zinc-100 text-zinc-800 border-zinc-400'
+                      effectiveExplorationTurns === null
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : 'bg-emerald-100 text-emerald-700 border-emerald-200'
                     }`}
                   >
-                    {!form.maxExplorationTurns || form.maxExplorationTurns === 0
-                      ? '✨ 自动规划（最多 10 轮）'
-                      : `${form.maxExplorationTurns} 轮限制`}
+                    {effectiveExplorationTurns === null
+                      ? '∞ 无上限'
+                      : `${effectiveExplorationTurns} 轮上限`}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, maxExplorationTurns: 0 })}
-                    className={`p-2.5 rounded-lg border text-left transition ${
-                      !form.maxExplorationTurns || form.maxExplorationTurns === 0
-                        ? 'bg-zinc-100 border-zinc-400 text-zinc-950 shadow-sm'
-                        : 'bg-[#FFFFFF] border-black/10 text-zinc-700 hover:text-zinc-900'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between font-semibold text-xs">
-                      <span>🤖 自动规划 (推荐)</span>
-                      {(!form.maxExplorationTurns || form.maxExplorationTurns === 0) && (
-                        <Check className="w-3.5 h-3.5 text-emerald-700" />
-                      )}
-                    </div>
-                    <p className="text-[10px] text-zinc-700 mt-1">
-                      由 Codex 自主决定何时收敛；安全上限使用 Agents SDK 默认的 10 轮，达到后自动进入综合阶段。
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, maxExplorationTurns: form.maxExplorationTurns || 5 })}
-                    className={`p-2.5 rounded-lg border text-left transition ${
-                      form.maxExplorationTurns && form.maxExplorationTurns > 0
-                        ? 'bg-zinc-100 border-zinc-400 text-zinc-950 shadow-sm'
-                        : 'bg-[#FFFFFF] border-black/10 text-zinc-700 hover:text-zinc-900'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between font-semibold text-xs">
-                      <span>⚙️ 手动设定步数上限</span>
-                      {form.maxExplorationTurns && form.maxExplorationTurns > 0 ? (
-                        <Check className="w-3.5 h-3.5 text-zinc-700" />
-                      ) : null}
-                    </div>
-                    <p className="text-[10px] text-zinc-700 mt-1">
-                      设定明确的探查轮数阈值，适合严苛控制 API 消耗。
-                    </p>
-                  </button>
+                  {EXPLORATION_TURN_PRESETS.map((preset) => {
+                    const active = effectiveExplorationTurns === preset.value;
+                    return (
+                      <button
+                        key={preset.value === null ? 'unlimited' : preset.value}
+                        type="button"
+                        onClick={() => setForm({ ...form, maxExplorationTurns: preset.value })}
+                        className={`p-2.5 rounded-lg border text-left transition ${
+                          active
+                            ? 'bg-zinc-100 border-zinc-400 text-zinc-950 shadow-sm'
+                            : 'bg-[#FFFFFF] border-black/10 text-zinc-700 hover:text-zinc-900'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 font-semibold text-xs">
+                          <span>{preset.title}</span>
+                          {active && <Check className="w-3.5 h-3.5 text-emerald-700 shrink-0" />}
+                        </div>
+                        <p className="text-[10px] text-zinc-700 mt-1">{preset.description}</p>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                {form.maxExplorationTurns && form.maxExplorationTurns > 0 ? (
-                  <div className="space-y-1.5 pt-2 border-t border-black/10">
-                    <div className="flex justify-between text-[11px] text-zinc-800">
-                      <span>手动步数上限滑块：</span>
-                      <span className="font-mono font-bold text-zinc-800">
-                        {form.maxExplorationTurns} 轮
-                      </span>
-                    </div>
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={form.maxExplorationTurns}
-                      onChange={(e) =>
-                        setForm({ ...form, maxExplorationTurns: parseInt(e.target.value, 10) })
-                      }
-                      className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400"
-                    />
+                <div className="space-y-1.5 pt-2 border-t border-black/10">
+                  <div className="flex justify-between text-[11px] text-zinc-800">
+                    <span>自定义轮数上限：</span>
+                    <span className="font-mono font-bold text-zinc-800">
+                      {effectiveExplorationTurns === null ? '无上限' : `${effectiveExplorationTurns} 轮`}
+                    </span>
                   </div>
-                ) : null}
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    disabled={effectiveExplorationTurns === null}
+                    placeholder={effectiveExplorationTurns === null ? '已启用无上限自主规划' : undefined}
+                    value={effectiveExplorationTurns ?? ''}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        maxExplorationTurns: Number.isFinite(e.currentTarget.valueAsNumber)
+                          ? Math.max(1, Math.trunc(e.currentTarget.valueAsNumber))
+                          : DEFAULT_AGENT_MAX_TURNS,
+                      })
+                    }
+                    className="w-full bg-[#FFFFFF] border border-black/15 rounded-lg px-2.5 py-1.5 text-zinc-900 font-mono text-xs focus:outline-none focus:border-zinc-400 disabled:bg-black/[0.04] disabled:text-zinc-500 disabled:cursor-not-allowed"
+                  />
+                  <p className="text-[10px] text-zinc-600">
+                    有限档位达到上限后会自动进入最终综合；无上限模式持续到模型主动收敛、用户取消或超时。
+                  </p>
+                </div>
               </div>
 
               {/* 2. Timeout & Retries */}

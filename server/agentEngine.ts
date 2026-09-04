@@ -27,6 +27,7 @@ import {
 import { buildLearnGraph, formatLearnGraphDigest } from './learnGraphBuild';
 import {
   inferContextWindowTokens,
+  resolveAgentMaxTurns,
   resolveRequestTimeoutSeconds,
   totalContextChars,
 } from '../shared/types';
@@ -323,11 +324,9 @@ export class CodexAgentEngine {
           : [repoOverviewTool, readFileTool, searchCodeTool, findFilesTool],
       });
 
-      // 0 or unset delegates to the SDK's finite default (currently 10 turns).
-      const configuredTurns = config?.maxExplorationTurns;
-      const maxTurns = typeof configuredTurns === 'number' && Number.isFinite(configuredTurns) && configuredTurns > 0
-        ? Math.trunc(configuredTurns)
-        : undefined;
+      // Legacy 0/unset resolves to the product default; null explicitly opts
+      // into the SDK's supported no-ceiling mode.
+      const maxTurns = resolveAgentMaxTurns(config?.maxExplorationTurns);
 
       const runner = new Runner({ tracingDisabled: true });
 

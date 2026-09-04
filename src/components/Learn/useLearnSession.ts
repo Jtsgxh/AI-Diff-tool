@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LEARN_ANALYSIS_SCHEMA_VERSION,
+  resolveAgentMaxTurns,
   type AgentStatusEvent,
   type AgentToolEvent,
   type AIProviderConfig,
@@ -88,8 +89,9 @@ export function useLearnSession(
       diff: `${headHash || ''}:${source.stats.sourceFingerprint}`,
       userPrompt: effectiveLearnPrompt,
       model: aiConfig.model,
+      agentMaxTurns: resolveAgentMaxTurns(aiConfig.maxExplorationTurns),
     }),
-    [aiConfig.model, effectiveLearnPrompt, headHash, repoPath]
+    [aiConfig.maxExplorationTurns, aiConfig.model, effectiveLearnPrompt, headHash, repoPath]
   );
   const cacheKeyForDrill = useCallback(
     (source: LearnGraph, path: LearnDrillTargetContext[]) => aiCache.generateKey({
@@ -98,8 +100,9 @@ export function useLearnSession(
       diff: `${headHash || ''}:${source.stats.sourceFingerprint}:${JSON.stringify(path)}`,
       userPrompt: effectiveLearnPrompt,
       model: aiConfig.model,
+      agentMaxTurns: resolveAgentMaxTurns(aiConfig.maxExplorationTurns),
     }),
-    [aiConfig.model, effectiveLearnPrompt, headHash, repoPath]
+    [aiConfig.maxExplorationTurns, aiConfig.model, effectiveLearnPrompt, headHash, repoPath]
   );
 
   useEffect(() => {

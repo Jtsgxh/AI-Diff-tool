@@ -43,12 +43,14 @@ export type {
 
 export {
   CONTEXT_WINDOW_TOKENS,
+  DEFAULT_AGENT_MAX_TURNS,
   LEARN_ANALYSIS_SCHEMA_VERSION,
   LEARN_BUSINESS_STEP_KINDS,
   REQUEST_TIMEOUT_SECONDS,
   STREAM_IDLE_TIMEOUT_SECONDS,
   diffCharBudgetFromWindow,
   inferContextWindowTokens,
+  resolveAgentMaxTurns,
   resolveRequestTimeoutSeconds,
   resolveStreamIdleTimeoutSeconds,
 } from '../../shared/types';

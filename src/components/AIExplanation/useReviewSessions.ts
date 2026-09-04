@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { resolveAgentMaxTurns } from '../../types';
 import type { AgentToolEvent, AIProviderConfig } from '../../types';
 import { streamAgentExplainDiff, streamExplainDiff } from '../../services/api';
 import { aiCache } from '../../services/aiCache';
@@ -176,6 +177,10 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
         targetLine: scope.targetLine?.lineNumber,
         engineMode: mode,
         model: configRef.current.model,
+        agentMaxTurns:
+          mode === 'agent'
+            ? resolveAgentMaxTurns(configRef.current.maxExplorationTurns)
+            : undefined,
       }),
     []
   );

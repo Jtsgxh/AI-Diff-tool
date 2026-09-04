@@ -50,10 +50,15 @@ class AICacheService {
     userPrompt?: string;
     engineMode?: string;
     model?: string;
+    agentMaxTurns?: number | null;
   }): string {
+    const agentTurns =
+      params.agentMaxTurns === undefined
+        ? ''
+        : `::agent-turns=${params.agentMaxTurns === null ? 'unlimited' : params.agentMaxTurns}`;
     const raw = `${params.engineMode || ''}::${params.type || ''}::${params.filePath || ''}::${
       params.targetLine || ''
-    }::${params.userPrompt || ''}::${params.diff || ''}::${params.model || ''}`;
+    }::${params.userPrompt || ''}::${params.diff || ''}::${params.model || ''}${agentTurns}`;
 
     let hash = 0;
     for (let i = 0; i < raw.length; i++) {
