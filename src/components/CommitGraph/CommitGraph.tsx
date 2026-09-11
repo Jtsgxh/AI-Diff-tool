@@ -371,12 +371,36 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                   )}
                 </div>
 
-                {/* Commit Content */}
-                <div className="flex-1 flex items-center justify-between min-w-0 pr-2 gap-2 overflow-hidden">
-                  <div className="flex-1 flex items-center space-x-1.5 min-w-0 overflow-hidden">
+                {/* Commit Content: reserve the first line for the message. */}
+                <div className="flex-1 flex flex-col justify-center min-w-0 gap-0.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`text-xs leading-4 font-medium truncate flex-1 min-w-0 ${
+                        isCurrSelected ? 'text-zinc-950 font-semibold' : 'text-zinc-900 group-hover:text-zinc-950'
+                      }`}
+                      title={node.message}
+                    >
+                      {node.message}
+                    </span>
+
+                    {/* Quick AI Explain Button on Hover */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onExplainCommit(node.hash, node.message);
+                      }}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-0.5 hover:bg-zinc-100 text-zinc-800 rounded transition"
+                      title="使用 AI 语义分析该提交"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {/* Secondary metadata cannot take width from the message. */}
+                  <div className="flex items-center gap-2 min-w-0 text-[10px] font-mono text-zinc-600">
                     {/* Refs / Branch / Tag badges */}
                     {node.refs.length > 0 && (
-                      <div className="flex items-center space-x-1 shrink-0 max-w-[50%] overflow-hidden">
+                      <div className="flex items-center gap-1 min-w-0 max-w-[40%] overflow-hidden">
                         {node.refs.slice(0, 2).map((ref) => {
                           const isHeadRef = ref.includes('HEAD');
                           const isTagRef = ref.startsWith('tag:');
@@ -384,7 +408,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                           return (
                             <span
                               key={ref}
-                              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium flex items-center space-x-0.5 max-w-[130px] shrink-0 ${
+                              className={`text-[10px] leading-3 px-1.5 py-0.5 rounded font-mono font-medium flex items-center space-x-0.5 min-w-0 max-w-[130px] ${
                                 isHeadRef
                                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                                   : isTagRef
@@ -404,7 +428,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                         })}
                         {node.refs.length > 2 && (
                           <span
-                            className="text-[10px] px-1 py-0.5 rounded bg-black/[0.12] text-zinc-700 font-mono"
+                            className="shrink-0 text-[10px] px-1 py-0.5 rounded bg-black/[0.12] text-zinc-700 font-mono"
                             title={node.refs.slice(2).join(', ')}
                           >
                             +{node.refs.length - 2}
@@ -412,41 +436,15 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                         )}
                       </div>
                     )}
-
-                    {/* Commit Message */}
-                    <span
-                      className={`text-xs font-medium truncate flex-1 min-w-[50px] ${
-                        isCurrSelected ? 'text-zinc-950 font-semibold' : 'text-zinc-900 group-hover:text-zinc-950'
-                      }`}
-                      title={node.message}
-                    >
-                      {node.message}
-                    </span>
-                  </div>
-
-                  {/* Metadata: Author, Date, SHA */}
-                  <div className="flex items-center space-x-2.5 shrink-0 text-[11px] font-mono ml-auto text-zinc-700">
-                    <span className="hidden xl:inline truncate max-w-[80px] font-sans">
+                    <span className="min-w-0 truncate max-w-[80px] font-sans" title={node.author}>
                       {node.author}
                     </span>
-                    <span className="whitespace-nowrap text-[10px]">{node.date.slice(5, 16)}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+                    <span className="shrink-0 whitespace-nowrap" title={node.date}>{node.date.slice(5, 16)}</span>
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded leading-3 ${
                       isCurrSelected ? 'bg-black/[0.08] text-zinc-800' : 'bg-black/[0.06] text-zinc-700'
                     }`}>
                       {node.shortHash}
                     </span>
-
-                    {/* Quick AI Explain Button on Hover */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onExplainCommit(node.hash, node.message);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-100 text-zinc-800 rounded transition"
-                      title="使用 AI 语义分析该提交"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                    </button>
                   </div>
                 </div>
               </div>
