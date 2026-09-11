@@ -51,9 +51,9 @@ export const HunkBlock = React.memo<HunkBlockProps>(
       <div
         ref={ref}
         data-diff-hunk-index={hunk.index}
-        className={`relative group transition-all duration-150 border-b border-black/15 ${
+        className={`relative group transition-all duration-150 border-b border-[var(--border-subtle)] ${
           isSelected
-            ? 'bg-zinc-100/70 border-l-4 border-l-blue-500 shadow-sm'
+            ? 'bg-zinc-100/70 border-l-4 border-l-blue-500 shadow-none'
             : 'hover:bg-black/[0.015]'
         }`}
       >
@@ -71,15 +71,15 @@ export const HunkBlock = React.memo<HunkBlockProps>(
               e.stopPropagation();
               onToggleSelection(hunk.id);
             }}
-            className={`px-2 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border shadow-sm transition ${
+            className={`px-2 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border shadow-none transition ${
               isSelected
-                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
-                : 'bg-[#E5E5E1]/90 text-zinc-800 border-black/15 hover:border-zinc-400 hover:text-zinc-950'
+                ? 'bg-[var(--surface-selected)] text-zinc-950 border-[var(--border-subtle)]'
+                : 'bg-[var(--surface-panel)] text-zinc-800 border-[var(--border-subtle)] hover:border-[var(--border-subtle)] hover:text-zinc-950'
             }`}
           >
             <div
               className={`w-3 h-3 rounded flex items-center justify-center border ${
-                isSelected ? 'bg-white border-white text-zinc-950' : 'border-zinc-400'
+                isSelected ? 'bg-white border-white text-zinc-950' : 'border-[var(--border-subtle)]'
               }`}
             >
               {isSelected && <Check className="w-2.5 h-2.5 stroke-[4]" />}
@@ -90,10 +90,10 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           <button
             type="button"
             onClick={() => onTogglePseudocode(hunk)}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border shadow-sm transition ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border shadow-none transition ${
               showPseudocode
-                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
-                : 'bg-[#E5E5E1]/90 hover:bg-zinc-400 text-zinc-800 hover:text-zinc-950 border-zinc-400'
+                ? 'bg-[var(--surface-selected)] text-zinc-950 border-[var(--border-subtle)]'
+                : 'bg-[var(--surface-panel)] hover:bg-[var(--surface-hover)] text-zinc-800 hover:text-zinc-950 border-[var(--border-subtle)]'
             }`}
             title={
               showPseudocode
@@ -120,10 +120,10 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           <button
             type="button"
             onClick={() => onToggleNaturalLanguage(hunk)}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-semibold flex items-center space-x-1 border shadow-sm transition ${
+            className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border shadow-none transition ${
               showNaturalLanguage
-                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400'
-                : 'bg-[#E5E5E1]/90 hover:bg-zinc-400 text-zinc-800 hover:text-zinc-950 border-zinc-400'
+                ? 'bg-[var(--surface-selected)] text-zinc-950 border-[var(--border-subtle)]'
+                : 'bg-[var(--surface-panel)] hover:bg-[var(--surface-hover)] text-zinc-800 hover:text-zinc-950 border-[var(--border-subtle)]'
             }`}
             title="点击在此 Diff 块内直接展开/折叠自然语言直读释义"
           >
@@ -144,7 +144,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           <button
             type="button"
             onClick={() => onExplain(hunk, 'agent')}
-            className="px-2.5 py-1 rounded-md bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950 text-[11px] font-sans font-semibold flex items-center space-x-1 shadow-sm border border-zinc-400 transition"
+            className="px-2.5 py-1 rounded-md bg-[var(--surface-selected)] hover:bg-[var(--surface-hover)] text-zinc-950 text-[11px] font-sans font-medium flex items-center space-x-1 shadow-none border border-[var(--border-subtle)] transition"
             title="【文件关联解释】Codex 智能体将自主检索全库关联文件与下游调用"
           >
             <Brain className="w-3.5 h-3.5" />
@@ -154,11 +154,11 @@ export const HunkBlock = React.memo<HunkBlockProps>(
 
         {/* Split mode carries its own header; unified renders it inline with the rows. */}
         {viewMode === 'split' && (
-          <div className="bg-zinc-200/80 border-y border-zinc-400 px-3 py-1 text-xs text-zinc-900 font-mono select-none flex items-center justify-between">
+          <div className="bg-[var(--surface-canvas)] border-y border-[var(--border-subtle)] px-3 py-1 text-xs text-zinc-900 font-mono select-none flex items-center justify-between">
             <span>{hunk.header}</span>
             <div className="flex items-center space-x-2">
               {showPseudocode && (
-                <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-zinc-400 font-sans font-medium">
+                <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-[var(--border-subtle)] font-sans font-medium">
                   ✨ 概括性伪代码模式
                 </span>
               )}
@@ -192,8 +192,8 @@ export const HunkBlock = React.memo<HunkBlockProps>(
         )}
 
         {showNaturalLanguage && (
-          <div className="bg-zinc-100/80 border-y border-zinc-400 px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150">
-            <div className="p-1.5 rounded-lg bg-zinc-100 text-zinc-800 shrink-0 mt-0.5 border border-zinc-400">
+          <div className="bg-zinc-100/80 border-y border-[var(--border-subtle)] px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150">
+            <div className="p-1.5 rounded-md bg-zinc-100 text-zinc-800 shrink-0 mt-0.5 border border-[var(--border-subtle)]">
               <BookOpen className="w-4 h-4 text-zinc-700" />
             </div>
             <div className="flex-1 min-w-0">

@@ -191,7 +191,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
           <div
             onClick={() => toggleFolder(node.path)}
             style={{ paddingLeft: `${Math.max(6, depth * 14)}px` }}
-            className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-black/[0.10] text-xs text-zinc-800 hover:text-zinc-950 cursor-pointer select-none group transition"
+            className="flex items-center justify-between py-1 px-2 rounded-md hover:bg-[var(--surface-hover)] text-xs text-zinc-800 hover:text-zinc-950 cursor-pointer select-none group transition"
           >
             <div className="flex items-center space-x-1.5 min-w-0">
               {isCollapsed ? (
@@ -204,7 +204,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
               ) : (
                 <FolderOpen className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
               )}
-              <span className="font-semibold truncate text-[11px] text-zinc-900 group-hover:text-zinc-950">
+              <span className="font-medium truncate text-[11px] text-zinc-900 group-hover:text-zinc-950">
                 {node.name}
               </span>
             </div>
@@ -233,10 +233,10 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         key={`file-${node.path}`}
         onClick={() => onSelectFile(file.newPath || file.oldPath)}
         style={{ paddingLeft: `${Math.max(8, depth * 14)}px` }}
-        className={`flex items-center justify-between py-1.5 px-2 rounded-lg cursor-pointer transition select-none group text-xs ${
+        className={`flex items-center justify-between py-1.5 px-2 rounded-md cursor-pointer transition select-none group text-xs ${
           isSelected
-            ? 'bg-[#C4C4C8] text-zinc-950 border border-zinc-400 shadow-sm'
-            : 'text-zinc-800 hover:bg-black/[0.07]'
+            ? 'bg-[var(--surface-selected)] text-zinc-950 border border-[var(--border-subtle)] shadow-none'
+            : 'text-zinc-800 hover:bg-[var(--surface-hover)]'
         }`}
       >
         <div className="flex items-center space-x-1.5 min-w-0 mr-1.5">
@@ -283,11 +283,11 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[var(--surface-panel)] border-r border-black/15 text-zinc-900">
+    <div className="flex flex-col h-full bg-[var(--surface-panel)] border-r border-[var(--border-subtle)] text-zinc-900">
       {/* Header & Stats */}
-      <div className="p-3 border-b border-black/15 flex flex-col space-y-2.5 bg-[#F5F5F2]">
+      <div className="p-3 border-b border-[var(--border-subtle)] flex flex-col space-y-2.5 bg-[var(--surface-canvas)]">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2 text-xs font-semibold text-zinc-800">
+          <div className="flex items-center space-x-2 text-xs font-medium text-zinc-800">
             <FileDiff className="w-4 h-4 text-sky-700" />
             <span>变更文件</span>
             <span className="text-[11px] bg-black/[0.06] text-zinc-700 px-1.5 py-0.2 rounded font-mono">
@@ -310,11 +310,11 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
             )}
 
             {/* Tree vs List View Toggle */}
-            <div className="flex items-center bg-[#E5E5E1] border border-black/15 rounded-md p-0.5 text-xs">
+            <div className="flex items-center bg-[var(--surface-raised)] border border-[var(--border-subtle)] rounded-md p-0.5 text-xs">
               <button
                 onClick={() => setViewMode('tree')}
                 className={`p-1 rounded transition ${
-                  viewMode === 'tree' ? 'bg-[#C4C4C8] text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
+                  viewMode === 'tree' ? 'bg-[var(--surface-selected)] text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
                 }`}
                 title="树状目录层级视图"
               >
@@ -323,7 +323,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
               <button
                 onClick={() => setViewMode('list')}
                 className={`p-1 rounded transition ${
-                  viewMode === 'list' ? 'bg-[#C4C4C8] text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
+                  viewMode === 'list' ? 'bg-[var(--surface-selected)] text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
                 }`}
                 title="平铺文件列表视图"
               >
@@ -334,7 +334,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
             {onCollapse && (
               <button
                 onClick={onCollapse}
-                className="p-1 text-zinc-700 hover:text-zinc-900 hover:bg-black/[0.06] rounded transition flex items-center gap-1 text-[11px]"
+                className="p-1 text-zinc-700 hover:text-zinc-900 hover:bg-[var(--surface-hover)] rounded transition flex items-center gap-1 text-[11px]"
                 title="收起变更文件列表"
               >
                 <PanelLeftClose className="w-3.5 h-3.5" />
@@ -348,7 +348,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         <button
           onClick={onExplainAll}
           disabled={files.length === 0 || isLoading}
-          className="w-full flex items-center justify-center space-x-2 bg-[#C4C4C8] hover:bg-zinc-400 disabled:opacity-50 text-zinc-950 text-xs font-semibold py-1.5 px-3 rounded-lg transition shadow-sm"
+          className="w-full flex items-center justify-center space-x-2 bg-[var(--surface-selected)] hover:bg-[var(--surface-hover)] disabled:opacity-50 text-zinc-950 text-xs font-medium py-1.5 px-3 rounded-md transition shadow-none"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>AI 语义解析整体改动</span>
@@ -362,7 +362,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="筛选改动文件 / 目录..."
-            className="w-full bg-[var(--surface-raised)] text-xs text-zinc-900 pl-8 pr-3 py-1.5 rounded-lg border border-black/10 focus:outline-none focus:border-zinc-400 transition placeholder:text-zinc-600"
+            className="w-full bg-[var(--surface-panel)] text-xs text-zinc-900 pl-8 pr-3 py-1.5 rounded-md border border-[var(--border-subtle)] focus:outline-none focus:border-[var(--accent)] transition placeholder:text-zinc-600"
           />
         </div>
       </div>
@@ -390,10 +390,10 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
               <div
                 key={file.newPath || file.oldPath}
                 onClick={() => onSelectFile(file.newPath || file.oldPath)}
-                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition select-none group text-xs ${
+                className={`flex items-center justify-between px-2.5 py-1.5 rounded-md cursor-pointer transition select-none group text-xs ${
                   isSelected
-                    ? 'bg-[#C4C4C8] text-zinc-950 border border-zinc-400 shadow-sm'
-                    : 'text-zinc-800 hover:bg-black/[0.07]'
+                    ? 'bg-[var(--surface-selected)] text-zinc-950 border border-[var(--border-subtle)] shadow-none'
+                    : 'text-zinc-800 hover:bg-[var(--surface-hover)]'
                 }`}
               >
                 <div className="flex items-center space-x-2 min-w-0 mr-2">

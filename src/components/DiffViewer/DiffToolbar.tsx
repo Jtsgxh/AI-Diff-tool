@@ -63,11 +63,11 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
     const allSelected = selectedCount === hunkCount && hunkCount > 0;
 
     return (
-      <div className="h-11 bg-[var(--surface-panel)] border-b border-black/15 px-3 flex items-center justify-between select-none shrink-0 gap-2 overflow-x-auto">
+      <div className="h-11 bg-[var(--surface-panel)] border-b border-[var(--border-subtle)] px-3 flex items-center justify-between select-none shrink-0 gap-2 overflow-x-auto">
         <div className="flex items-center space-x-2 min-w-0 shrink">
           <FileCode className="w-4 h-4 text-zinc-700 shrink-0" />
           <span
-            className="font-mono text-xs font-semibold text-zinc-900 truncate max-w-[160px] md:max-w-[260px] lg:max-w-[360px]"
+            className="font-mono text-xs font-medium text-zinc-900 truncate max-w-[160px] md:max-w-[260px] lg:max-w-[360px]"
             title={file.newPath}
           >
             {file.newPath}
@@ -80,12 +80,12 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
         </div>
 
         <div className="flex items-center space-x-2 shrink-0">
-          <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-[var(--border-subtle)] rounded-md p-0.5 text-xs shrink-0 whitespace-nowrap">
             <button
               onClick={() => onDisplayMode('diff')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium ${
                 displayMode === 'diff'
-                  ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
+                  ? 'bg-[var(--surface-selected)] text-zinc-950 shadow-none'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="查看代码差异"
@@ -98,7 +98,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               disabled={!file.previewSource}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium disabled:opacity-40 disabled:cursor-not-allowed ${
                 displayMode === 'file'
-                  ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
+                  ? 'bg-[var(--surface-selected)] text-zinc-950 shadow-none'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title={file.previewSource ? '展开完整文件上下文，并保留 Diff 增删高亮' : '该文件没有可展开的版本'}
@@ -109,13 +109,13 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           </div>
 
           {displayMode === 'file' && hunkCount > 0 && (
-            <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
+            <div className="flex items-center bg-[var(--surface-raised)] border border-[var(--border-subtle)] rounded-md p-0.5 text-xs shrink-0 whitespace-nowrap">
               <button
                 type="button"
                 onClick={onJumpToPreviousHunk}
                 disabled={!canJumpToPreviousHunk}
                 aria-label="上一处差异"
-                className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-black/[0.06] transition disabled:opacity-35 disabled:cursor-not-allowed"
+                className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-[var(--surface-hover)] transition disabled:opacity-35 disabled:cursor-not-allowed"
                 title="跳到上一处差异"
               >
                 <ArrowUp className="w-3.5 h-3.5" />
@@ -128,7 +128,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
                 onClick={onJumpToNextHunk}
                 disabled={!canJumpToNextHunk}
                 aria-label="下一处差异"
-                className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-black/[0.06] transition disabled:opacity-35 disabled:cursor-not-allowed"
+                className="p-1 rounded-md text-zinc-700 hover:text-zinc-950 hover:bg-[var(--surface-hover)] transition disabled:opacity-35 disabled:cursor-not-allowed"
                 title="跳到下一处差异"
               >
                 <ArrowDown className="w-3.5 h-3.5" />
@@ -158,10 +158,10 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
 
           <button
             onClick={onToggleGlobalPseudocode}
-            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition border shrink-0 whitespace-nowrap ${
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition border shrink-0 whitespace-nowrap ${
               isPseudocodeActive
-                ? 'bg-[#C4C4C8] text-zinc-950 border-zinc-400 shadow-sm'
-                : 'bg-[var(--surface-raised)] hover:bg-[#DCDCD7] text-zinc-800 border-black/15 hover:text-zinc-950'
+                ? 'bg-[var(--surface-selected)] text-zinc-950 border-[var(--border-subtle)] shadow-none'
+                : 'bg-[var(--surface-raised)] hover:bg-[var(--surface-hover)] text-zinc-800 border-[var(--border-subtle)] hover:text-zinc-950'
             }`}
             title={
               isPseudocodeActive
@@ -186,12 +186,12 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           </button>
 
           {/* Default engine for per-hunk and per-file explanations */}
-          <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 text-xs shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-[var(--border-subtle)] rounded-md p-0.5 text-xs shrink-0 whitespace-nowrap">
             <button
               onClick={() => onSetDefaultMode('agent')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'agent'
-                  ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
+                  ? 'bg-[var(--surface-selected)] text-zinc-950 shadow-none'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="默认模式：关联解释（Codex Agent 自主全库探查）"
@@ -203,7 +203,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               onClick={() => onSetDefaultMode('fast')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md transition font-medium whitespace-nowrap shrink-0 ${
                 defaultMode === 'fast'
-                  ? 'bg-amber-600 text-white shadow-sm'
+                  ? 'bg-amber-600 text-white shadow-none'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="默认模式：直接 Diff 解释（仅看增删改动）"
@@ -215,9 +215,9 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
 
           <button
             onClick={onExplainFile}
-            className={`flex items-center space-x-1.5 text-xs font-medium px-2.5 py-1 rounded-lg shadow transition shrink-0 whitespace-nowrap ${
+            className={`flex items-center space-x-1.5 text-xs font-medium px-2.5 py-1 rounded-md shadow transition shrink-0 whitespace-nowrap ${
               defaultMode === 'agent'
-                ? 'bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950'
+                ? 'bg-[var(--surface-selected)] hover:bg-[var(--surface-hover)] text-zinc-950'
                 : 'bg-amber-600 hover:bg-amber-500 text-white'
             }`}
             title={`使用当前「${defaultMode === 'agent' ? '文件关联模式' : '直接 Diff 模式'}」审查整个文件`}
@@ -230,12 +230,12 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
             <span>{defaultMode === 'agent' ? 'Codex 解释此文件' : '解释此文件'}</span>
           </button>
 
-          <div className="flex items-center bg-[var(--surface-raised)] border border-black/15 rounded-lg p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
+          <div className="flex items-center bg-[var(--surface-raised)] border border-[var(--border-subtle)] rounded-md p-0.5 space-x-0.5 shrink-0 whitespace-nowrap">
             <button
               onClick={() => onToggleViewMode('split')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'split'
-                  ? 'bg-[#C4C4C8] text-zinc-950 font-medium shadow-sm'
+                  ? 'bg-[var(--surface-selected)] text-zinc-950 font-medium shadow-none'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="双栏代码对比 (Side-by-Side Split Diff)"
@@ -247,7 +247,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
               onClick={() => onToggleViewMode('unified')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${
                 viewMode === 'unified'
-                  ? 'bg-[#C4C4C8] text-zinc-950 font-medium shadow-sm'
+                  ? 'bg-[var(--surface-selected)] text-zinc-950 font-medium shadow-none'
                   : 'text-zinc-700 hover:text-zinc-900'
               }`}
               title="单栏内联代码对比 (Inline Unified Diff)"

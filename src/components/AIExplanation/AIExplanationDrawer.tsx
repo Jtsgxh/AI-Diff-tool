@@ -150,20 +150,20 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
   return (
     <div
-      className={`h-full w-full min-w-0 min-h-0 bg-[var(--surface-canvas)] border-l border-black/15 flex flex-col font-sans ${
+      className={`h-full w-full min-w-0 min-h-0 bg-[var(--surface-canvas)] border-l border-[var(--border-subtle)] flex flex-col font-sans ${
         isOpen ? '' : 'pointer-events-none'
       }`}
     >
       {/* 1. Header & session tabs */}
-      <div className="border-b border-black/15 bg-[#FFFFFF] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-black/10">
+      <div className="border-b border-[var(--border-subtle)] bg-[var(--surface-panel)] flex flex-col">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-subtle)]">
           <div className="flex items-center space-x-2.5">
-            <div className="flex items-center space-x-2 text-sm font-semibold text-zinc-950">
+            <div className="flex items-center space-x-2 text-sm font-medium text-zinc-950">
               <Sparkles className="w-4 h-4 text-zinc-700" />
               <span>AI 深度审查工作台</span>
             </div>
 
-            <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-zinc-100/80 border border-zinc-300 text-[11px] text-zinc-800 font-mono">
+            <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-zinc-100/80 border border-[var(--border-subtle)] text-[11px] text-zinc-800 font-mono">
               <Layers className="w-3 h-3 text-zinc-700" />
               {streamingCount > 0 ? (
                 <span className="text-emerald-700 font-bold">{streamingCount} 个并行运行中</span>
@@ -186,7 +186,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
             <button
               onClick={onClose}
-              className="p-1 hover:bg-black/[0.12] text-zinc-700 hover:text-zinc-950 rounded-lg transition"
+              className="p-1 hover:bg-[var(--surface-hover)] text-zinc-700 hover:text-zinc-950 rounded-md transition"
               title="关闭抽屉"
             >
               <X className="w-4 h-4" />
@@ -202,13 +202,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         />
 
         {activeSession && (
-          <div className="flex items-center justify-between px-4 py-2 bg-[#EFEFEC] text-xs">
-            <div className="flex items-center bg-[var(--surface-raised)] p-0.5 rounded-lg border border-black/10">
+          <div className="flex items-center justify-between px-4 py-2 bg-[var(--surface-canvas)] text-xs">
+            <div className="flex items-center bg-[var(--surface-raised)] p-0.5 rounded-md border border-[var(--border-subtle)]">
               <button
                 onClick={() => handleSwitchMode('agent')}
                 className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                   activeSession.engineMode === 'agent'
-                    ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
+                    ? 'bg-[var(--surface-selected)] text-zinc-950 shadow-none'
                     : 'text-zinc-700 hover:text-zinc-900'
                 }`}
               >
@@ -219,7 +219,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 onClick={() => handleSwitchMode('fast')}
                 className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                   activeSession.engineMode === 'fast'
-                    ? 'bg-[#C4C4C8] text-zinc-950 shadow-sm'
+                    ? 'bg-[var(--surface-selected)] text-zinc-950 shadow-none'
                     : 'text-zinc-700 hover:text-zinc-900'
                 }`}
               >
@@ -246,7 +246,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               <button
                 onClick={handleRerun}
                 disabled={activeSession.isStreaming}
-                className="p-1 hover:bg-black/[0.12] text-zinc-700 hover:text-zinc-950 rounded-md transition disabled:opacity-50"
+                className="p-1 hover:bg-[var(--surface-hover)] text-zinc-700 hover:text-zinc-950 rounded-md transition disabled:opacity-50"
                 title="重新审查（强制绕过缓存刷新）"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -254,7 +254,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
 
               <button
                 onClick={handleCopy}
-                className="p-1 hover:bg-black/[0.12] text-zinc-700 hover:text-zinc-950 rounded-md transition"
+                className="p-1 hover:bg-[var(--surface-hover)] text-zinc-700 hover:text-zinc-950 rounded-md transition"
                 title="复制审查报告"
               >
                 {copied ? (
@@ -282,7 +282,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
           <>
             {/* Live Progress Banner during Streaming */}
             {activeSession.isStreaming && activeSession.agentStatus?.message && (
-              <div className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-zinc-100 border border-zinc-400 text-zinc-800 text-xs font-mono shadow-sm">
+              <div className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-zinc-100 border border-[var(--border-subtle)] text-zinc-800 text-xs font-mono shadow-none">
                 <Activity className="w-3.5 h-3.5 text-zinc-700 animate-spin shrink-0" />
                 <span className="truncate">{activeSession.agentStatus.message}</span>
               </div>
@@ -299,17 +299,17 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 isOpen={isBatchExpanded}
                 onToggle={() => setIsBatchExpanded((v) => !v)}
                 tone={{
-                  shell: 'border border-zinc-400 bg-[#F5F5F2] shadow-sm',
+                  shell: 'border border-[var(--border-subtle)] bg-[var(--surface-canvas)] shadow-none',
                   header:
                     'bg-zinc-100/80 hover:bg-zinc-200',
-                  body: 'p-3 bg-[#EFEFEC] space-y-1.5 max-h-52 overflow-y-auto text-xs font-mono',
+                  body: 'p-3 bg-[var(--surface-canvas)] space-y-1.5 max-h-52 overflow-y-auto text-xs font-mono',
                   text: 'text-zinc-800',
                 }}
               >
                 {batchInfo.messages.map((msg, i) => (
                   <div
                     key={i}
-                    className="flex items-start space-x-2 p-2 rounded-lg bg-black/[0.05] border border-black/10 text-zinc-900 hover:border-zinc-400 transition leading-snug"
+                    className="flex items-start space-x-2 p-2 rounded-md bg-black/[0.05] border border-[var(--border-subtle)] text-zinc-900 hover:border-[var(--border-subtle)] transition leading-snug"
                   >
                     <span className="text-zinc-700 font-bold shrink-0">#{i + 1}</span>
                     <span className="text-zinc-900 select-text whitespace-pre-wrap">{msg}</span>
@@ -341,10 +341,10 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                 isOpen={isThinkingExpanded}
                 onToggle={() => setIsThinkingExpanded((v) => !v)}
                 tone={{
-                  shell: 'border border-zinc-400 bg-[#F5F5F2] shadow-sm',
+                  shell: 'border border-[var(--border-subtle)] bg-[var(--surface-canvas)] shadow-none',
                   header:
                     'bg-zinc-100/80 hover:bg-zinc-200',
-                  body: 'p-3.5 max-h-72 overflow-y-auto bg-[#EFEFEC] text-xs text-zinc-800 font-mono leading-relaxed whitespace-pre-wrap selection:bg-zinc-200',
+                  body: 'p-3.5 max-h-72 overflow-y-auto bg-[var(--surface-canvas)] text-xs text-zinc-800 font-mono leading-relaxed whitespace-pre-wrap selection:bg-zinc-200',
                   text: 'text-zinc-800',
                 }}
               >
@@ -364,14 +364,14 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
               <div className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs">
                 <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <div className="font-semibold">审查异常中断</div>
+                  <div className="font-medium">审查异常中断</div>
                   <div className="text-[11px] opacity-80 mt-0.5">{activeSession.error}</div>
                 </div>
                 {activeSession.initialReport.trim() && (
                   <button
                     type="button"
                     onClick={continueInterruptedSession}
-                    className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 font-semibold transition"
+                    className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-800 font-medium transition"
                     title="保留已输出报告，从中断位置继续生成"
                   >
                     <StepForward className="w-3.5 h-3.5" />
@@ -389,8 +389,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
             )}
 
             {hasFollowUpActivity && (
-              <div className="space-y-3.5 pt-4 border-t border-black/15">
-                <div className="flex items-center space-x-2 text-xs font-semibold text-zinc-800">
+              <div className="space-y-3.5 pt-4 border-t border-[var(--border-subtle)]">
+                <div className="flex items-center space-x-2 text-xs font-medium text-zinc-800">
                   <Bot className="w-4 h-4 text-zinc-700" />
                   <span>💬 追问与延伸讨论记录</span>
                 </div>
@@ -404,13 +404,13 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                     activeSession.currentFollowUpReasoning ||
                     (activeSession.currentFollowUpToolEvents?.length ?? 0) > 0) && (
                     <div className="flex items-start space-x-2.5 justify-start">
-                      <div className="w-6 h-6 rounded-full bg-[#C4C4C8] border border-zinc-400 flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
+                      <div className="w-6 h-6 rounded-full bg-[var(--surface-selected)] border border-[var(--border-subtle)] flex items-center justify-center shrink-0 mt-0.5 animate-pulse">
                         <Bot className="w-3.5 h-3.5 text-zinc-700" />
                       </div>
-                      <div className="p-3 rounded-xl text-xs max-w-[85%] leading-relaxed bg-[#FFFFFF] border border-zinc-400 text-zinc-900 shadow-sm flex-1">
+                      <div className="p-3 rounded-xl text-xs max-w-[85%] leading-relaxed bg-[var(--surface-panel)] border border-[var(--border-subtle)] text-zinc-900 shadow-none flex-1">
                         {activeSession.currentFollowUpReasoning && (
-                          <div className="mb-2.5 rounded-lg border border-zinc-400 bg-[#FFFFFF] overflow-hidden text-xs shadow-inner">
-                            <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-100 text-zinc-800 border-b border-black/10">
+                          <div className="mb-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-panel)] overflow-hidden text-xs shadow-inner">
+                            <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-100 text-zinc-800 border-b border-[var(--border-subtle)]">
                               <div className="flex items-center space-x-1.5 font-medium text-[11px]">
                                 <Brain className="w-3.5 h-3.5 text-amber-700 animate-pulse shrink-0" />
                                 <span>
@@ -418,21 +418,21 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
                                 </span>
                               </div>
                             </div>
-                            <div className="p-2.5 max-h-48 overflow-y-auto bg-[#EFEFEC] text-[11px] font-mono text-zinc-800 whitespace-pre-wrap border-t border-black/10 leading-relaxed select-text">
+                            <div className="p-2.5 max-h-48 overflow-y-auto bg-[var(--surface-canvas)] text-[11px] font-mono text-zinc-800 whitespace-pre-wrap border-t border-[var(--border-subtle)] leading-relaxed select-text">
                               {followUpReasoningDisplay.text}
                             </div>
                           </div>
                         )}
 
                         {(activeSession.currentFollowUpToolEvents?.length ?? 0) > 0 && (
-                          <div className="mb-2.5 rounded-lg border border-zinc-400 bg-[#FFFFFF] overflow-hidden text-xs shadow-inner">
-                            <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-zinc-100 text-zinc-800 font-medium text-[11px] border-b border-black/10">
+                          <div className="mb-2.5 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-panel)] overflow-hidden text-xs shadow-inner">
+                            <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-zinc-100 text-zinc-800 font-medium text-[11px] border-b border-[var(--border-subtle)]">
                               <Terminal className="w-3.5 h-3.5 text-zinc-700 animate-spin shrink-0" />
                               <span>
                                 正在自主探查代码库... ({activeSession.currentFollowUpToolEvents!.length} 次动作)
                               </span>
                             </div>
-                            <div className="p-2 space-y-1 bg-[#EFEFEC] text-[11px] font-mono max-h-36 overflow-y-auto">
+                            <div className="p-2 space-y-1 bg-[var(--surface-canvas)] text-[11px] font-mono max-h-36 overflow-y-auto">
                               {activeSession.currentFollowUpToolEvents!.map((evt, idx) => (
                                 <div key={idx} className="flex items-center space-x-1.5 text-zinc-800">
                                   <span className="text-zinc-700 font-bold">•</span>

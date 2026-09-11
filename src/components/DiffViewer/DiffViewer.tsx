@@ -299,7 +299,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
         onJumpToNextHunk={jumpToNextHunk}
       />
 
-      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[#ECECE8]">
+      <div ref={split.containerRef} className="flex-1 relative min-h-0 bg-[var(--surface-canvas)]">
         {displayMode === 'file' ? (
           <FullFilePreview
             preview={filePreview}
@@ -384,9 +384,9 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
       {/* Multi-selection action bar */}
       {selectedHunkIds.size > 0 && (
-        <div className="absolute bottom-3 left-6 right-6 bg-[#F5F5F2]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
+        <div className="absolute bottom-3 left-6 right-6 bg-[var(--surface-canvas)]/95 border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
-            <div className="flex items-center space-x-1.5 text-zinc-800 font-semibold font-mono">
+            <div className="flex items-center space-x-1.5 text-zinc-800 font-medium font-mono">
               <Layers className="w-4 h-4 text-zinc-700" />
               <span>
                 已选中 {selectedHunkIds.size} / {hunks.length} 个改动块
@@ -402,7 +402,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
               )}
             </div>
 
-            <div className="flex items-center space-x-2 text-[11px] text-zinc-700 pl-2 border-l border-black/15">
+            <div className="flex items-center space-x-2 text-[11px] text-zinc-700 pl-2 border-l border-[var(--border-subtle)]">
               <button onClick={selectAllHunks} className="hover:text-zinc-950 underline transition">
                 全选
               </button>
@@ -418,7 +418,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
           <div className="flex items-center space-x-2">
             <button
               onClick={() => onExplainMultipleHunks(selection.hunks, file, 'fast')}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-800 border border-amber-300 font-medium text-xs rounded-lg transition"
+              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-800 border border-amber-300 font-medium text-xs rounded-md transition"
               title="仅针对选中的改动块进行直接快速对比解释"
             >
               <Zap className="w-3.5 h-3.5 text-amber-700" />
@@ -427,7 +427,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
             <button
               onClick={() => onExplainMultipleHunks(selection.hunks, file, 'agent')}
-              className="flex items-center space-x-2 px-4 py-1.5 bg-[#C4C4C8] hover:bg-zinc-400 text-zinc-950 font-bold text-xs rounded-lg shadow-sm transition"
+              className="flex items-center space-x-2 px-4 py-1.5 bg-[var(--surface-selected)] hover:bg-[var(--surface-hover)] text-zinc-950 font-bold text-xs rounded-md shadow-none transition"
               title="Codex 智能体将探查代码库，联合分析所选改动块的跨文件影响"
             >
               <Brain className="w-4 h-4" />
