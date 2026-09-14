@@ -14,9 +14,12 @@ import {
   Zap,
 } from 'lucide-react';
 import type { DiffFile, DiffViewMode } from '../../types';
+import { ActionMenu } from '../common/ActionMenu';
 
 interface DiffToolbarProps {
   compact?: boolean;
+  wrapLines?: boolean;
+  onToggleWrapLines?: () => void;
   file: DiffFile;
   hunkCount: number;
   selectedCount: number;
@@ -42,6 +45,8 @@ interface DiffToolbarProps {
 export const DiffToolbar = React.memo<DiffToolbarProps>(
   ({
     compact = false,
+    wrapLines = false,
+    onToggleWrapLines,
     file,
     hunkCount,
     selectedCount,
@@ -65,10 +70,6 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
     const allSelected = selectedCount === hunkCount && hunkCount > 0;
 
     if (compact) return <div className="mobile-diff-toolbar shrink-0 border-b border-black/15 bg-white text-xs">
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2">
-        <span className="min-w-0 flex-1 truncate font-mono font-semibold" title={file.newPath}>{file.newPath}</span>
-        <span className="text-emerald-700">+{file.additions}</span><span className="text-rose-700">-{file.deletions}</span>
-      </div>
       <div className="flex items-center justify-between gap-1 px-2">
         <button onClick={() => onDisplayMode(displayMode === 'diff' ? 'file' : 'diff')} disabled={displayMode === 'diff' && !file.previewSource} className="px-2">{displayMode === 'diff' ? '看全文' : '看差异'}</button>
         <div className="flex items-center">
@@ -77,9 +78,12 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
           <button aria-label="下一处差异" disabled={!canJumpToNextHunk} onClick={onJumpToNextHunk}><ArrowDown className="h-4 w-4" /></button>
         </div>
         <button className="px-2 font-semibold text-sky-800" onClick={onExplainFile}>AI 解释</button>
-        <details className="relative">
-          <summary className="cursor-pointer list-none px-2">更多</summary>
-          <div className="absolute right-0 z-30 mt-1 flex w-56 flex-col rounded-xl border border-black/15 bg-white p-2 shadow-xl">
+        <ActionMenu label="文件的更多操作">
+            <div className="border-b border-[var(--border-subtle)] px-2 py-2">
+              <p className="break-all font-mono text-[11px]">{file.newPath}</p>
+              <p className="mt-1"><span className="text-emerald-700">+{file.additions}</span> <span className="text-rose-700">-{file.deletions}</span></p>
+            </div>
+            <button className="px-2 text-left" aria-label="代码自动换行" aria-pressed={wrapLines} onClick={onToggleWrapLines}>{wrapLines ? '自动换行 ✓' : '自动换行'}</button>
             <button onClick={onToggleSelectAll} className="px-2 text-left">{allSelected ? '取消全选改动块' : '选择全部改动块'}</button>
             <button onClick={onToggleGlobalPseudocode} className="px-2 text-left">{isPseudocodeActive ? '关闭 AI 伪代码' : '开启 AI 伪代码'}{isPseudocodeLoading ? '（生成中）' : ''}</button>
             <label className="px-2 py-2">解释模式
@@ -87,8 +91,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
                 <option value="agent">关联解释（Codex）</option><option value="fast">直接 Diff</option>
               </select>
             </label>
-          </div>
-        </details>
+        </ActionMenu>
       </div>
     </div>;
 

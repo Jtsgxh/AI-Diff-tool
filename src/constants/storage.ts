@@ -6,6 +6,7 @@
 export const STORAGE_KEYS = {
   lastRepoPath: 'git_last_repo_path',
   recentRepos: 'git_recent_repos',
+  workspaceState: 'git_workspace_state_v1',
   aiConfig: 'git_ai_config',
   sidebarCollapsed: 'git_sidebar_collapsed',
   filesPanelCollapsed: 'git_files_panel_collapsed',

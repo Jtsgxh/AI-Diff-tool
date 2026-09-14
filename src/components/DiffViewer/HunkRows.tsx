@@ -28,7 +28,7 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
             return (
               <div
                 key={`hunk-hdr-${lineIdx}`}
-                className="bg-zinc-200/80 border-y border-zinc-400 px-3 py-1 text-xs text-zinc-900 font-mono select-none flex items-center justify-between"
+                className="diff-unified-header bg-zinc-200/80 border-y border-zinc-400 px-3 py-1 text-xs text-zinc-900 font-mono select-none flex items-center justify-between"
               >
                 <span>{line.content}</span>
                 {showPseudocode && (
@@ -59,7 +59,7 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
           return (
             <div
               key={`line-${lineIdx}`}
-              className={`flex items-stretch font-mono text-xs leading-5 min-w-max w-full hover:brightness-[0.97] transition ${
+              className={`diff-unified-row flex items-stretch font-mono text-xs leading-5 min-w-max w-full hover:brightness-[0.97] transition ${
                 isAdd
                   ? 'bg-emerald-100/80 text-emerald-950'
                   : isDelete
@@ -67,10 +67,10 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
                   : 'bg-white text-zinc-950'
               }`}
             >
-              <div className="w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
+              <div className="diff-line-number w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
                 {line.oldLineNumber || ''}
               </div>
-              <div className="w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
+              <div className="diff-line-number w-12 shrink-0 text-right pr-2 text-zinc-700 bg-black/[0.06] select-none border-r border-black/15">
                 {line.newLineNumber || ''}
               </div>
               <div
@@ -80,7 +80,7 @@ export const HunkUnifiedRows = React.memo<HunkRowsProps>(
               >
                 {isAdd ? '+' : isDelete ? '-' : ' '}
               </div>
-              <div className="whitespace-pre pl-1 pr-4">{displayContent}</div>
+              <div className="diff-line-content whitespace-pre pl-1 pr-4">{displayContent}</div>
             </div>
           );
         })}

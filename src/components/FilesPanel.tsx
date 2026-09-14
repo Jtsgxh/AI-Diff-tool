@@ -285,7 +285,7 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
   return (
     <div className="flex flex-col h-full bg-[var(--surface-panel)] border-r border-[var(--border-subtle)] text-zinc-900">
       {/* Header & Stats */}
-      <div className="p-3 border-b border-[var(--border-subtle)] flex flex-col space-y-2.5 bg-[var(--surface-canvas)]">
+      <div className="files-panel-header p-3 border-b border-[var(--border-subtle)] flex flex-col space-y-2.5 bg-[var(--surface-canvas)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 text-xs font-medium text-zinc-800">
             <FileDiff className="w-4 h-4 text-sky-700" />
@@ -347,15 +347,17 @@ export const FilesPanel = React.memo<FilesPanelProps>(({
         {/* AI Explain All Button */}
         <button
           onClick={onExplainAll}
+          aria-label="AI 语义解析整体改动"
+          title="AI 语义解析整体改动"
           disabled={files.length === 0 || isLoading}
-          className="w-full flex items-center justify-center space-x-2 bg-[var(--surface-selected)] hover:bg-[var(--surface-hover)] disabled:opacity-50 text-zinc-950 text-xs font-medium py-1.5 px-3 rounded-md transition shadow-none"
+          className="files-panel-explain w-full flex items-center justify-center space-x-2 bg-[var(--surface-selected)] hover:bg-[var(--surface-hover)] disabled:opacity-50 text-zinc-950 text-xs font-medium py-1.5 px-3 rounded-md transition shadow-none"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>AI 语义解析整体改动</span>
         </button>
 
         {/* Filter Input */}
-        <div className="relative">
+        <div className="files-panel-filter relative">
           <Search className="w-3.5 h-3.5 text-zinc-600 absolute left-2.5 top-2.5" />
           <input
             type="text"

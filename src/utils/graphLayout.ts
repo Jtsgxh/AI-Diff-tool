@@ -27,19 +27,20 @@ export function computeGraphLayout(commits: CommitNode[]): ComputedGraph {
 
   // Active branches tracking: activeTracks[col] = nextExpectedParentHash
   const activeTracks: (string | null)[] = [];
+  const remainingHashes = new Set(commits.map((commit) => commit.hash));
   const nodes: GraphNode[] = [];
   let maxColReached = 0;
 
   for (let i = 0; i < commits.length; i++) {
     const commit = commits[i];
+    remainingHashes.delete(commit.hash);
     let col = -1;
 
     // 1. Check if an active track is waiting for this commit
     for (let c = 0; c < activeTracks.length; c++) {
       if (activeTracks[c] === commit.hash) {
-        col = c;
+        if (col === -1) col = c;
         activeTracks[c] = null; // consume track
-        break;
       }
     }
 
@@ -54,20 +55,20 @@ export function computeGraphLayout(commits: CommitNode[]): ComputedGraph {
 
     maxColReached = Math.max(maxColReached, col);
 
-    // 3. Assign first parent to the same column
-    if (commit.parents && commit.parents.length > 0) {
-      activeTracks[col] = commit.parents[0];
-
-      // Other parents (merge parents) get allocated into other tracks
-      for (let p = 1; p < commit.parents.length; p++) {
-        const parentHash = commit.parents[p];
+    // A shared ancestor needs only one pending lane. Re-reserving it leaves a
+    // ghost track after a merge, progressively pushing later commits rightward.
+    // Parents outside this page have no rendered edge and need no reservation.
+    for (const [parentIndex, parentHash] of (commit.parents || []).entries()) {
+      if (!remainingHashes.has(parentHash) || activeTracks.includes(parentHash)) continue;
+      if (parentIndex === 0) {
+        activeTracks[col] = parentHash;
+      } else {
         let mergeCol = activeTracks.indexOf(null);
         if (mergeCol === -1) {
           mergeCol = activeTracks.length;
           activeTracks.push(null);
         }
         activeTracks[mergeCol] = parentHash;
-        maxColReached = Math.max(maxColReached, mergeCol);
       }
     }
 

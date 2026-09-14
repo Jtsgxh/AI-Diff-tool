@@ -58,7 +58,7 @@ export const FullFilePreview = React.memo<FullFilePreviewProps>(
 
     return (
       <div className="h-full flex flex-col bg-[#ECECE8]">
-        <div className="h-8 shrink-0 px-3 flex items-center gap-2 border-b border-black/10 bg-[#E7E7E3] text-[11px] text-zinc-600 font-mono sticky top-0 z-30">
+        <div className="diff-file-metadata h-8 shrink-0 px-3 flex items-center gap-2 border-b border-black/10 bg-[#E7E7E3] text-[11px] text-zinc-600 font-mono sticky top-0 z-30">
           <span>{sourceLabel}</span>
           <span>·</span>
           <span>{preview.lineCount ?? 0} 行</span>

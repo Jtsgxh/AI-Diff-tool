@@ -57,20 +57,21 @@ const panes = [
 
 export function MobileReviewNavigation({ pane, onChange }: { pane: MobileReviewPane; onChange: (pane: MobileReviewPane) => void }) {
   return <nav aria-label="手机审查导航" className="mobile-review-nav grid shrink-0 grid-cols-4 border-t border-black/15 bg-white">
-    {panes.map(({ id, label, icon: Icon }) => <button key={id} aria-current={pane === id ? 'page' : undefined} onClick={() => onChange(id)} className={`flex flex-col items-center justify-center gap-1 py-2 text-[11px] ${pane === id ? 'bg-sky-50 font-semibold text-sky-800' : 'text-zinc-600'}`}>
-      <Icon className="h-5 w-5" />{label}
+    {panes.map(({ id, label, icon: Icon }) => <button key={id} aria-current={pane === id ? 'page' : undefined} onClick={() => onChange(id)} className={`flex items-center justify-center gap-1 text-[11px] ${pane === id ? 'bg-sky-50 font-semibold text-sky-800' : 'text-zinc-600'}`}>
+      <Icon className="h-4 w-4" />{label}
     </button>)}
   </nav>;
 }
 
-export function MobileFileNavigation({ index, count, onBack, onPrevious, onNext }: {
-  index: number; count: number; onBack: () => void; onPrevious: () => void; onNext: () => void;
+export function MobileFileNavigation({ index, count, filePath, onBack, onPrevious, onNext }: {
+  index: number; count: number; filePath: string | null; onBack: () => void; onPrevious: () => void; onNext: () => void;
 }) {
-  return <div className="flex shrink-0 items-center justify-between border-b border-black/10 bg-white px-2 text-xs">
-    <button onClick={onBack} className="flex items-center gap-1"><ArrowLeft className="h-4 w-4" />文件列表</button>
-    <div className="flex items-center gap-2">
+  return <div className="mobile-file-navigation flex min-w-0 shrink-0 items-center border-b border-black/10 bg-white px-1 text-xs">
+    <button aria-label="文件列表" onClick={onBack} className="flex shrink-0 items-center justify-center"><ArrowLeft className="h-4 w-4" /></button>
+    <span className="min-w-0 flex-1 truncate font-mono font-medium" title={filePath || undefined}>{filePath || '选择文件'}</span>
+    <div className="flex shrink-0 items-center">
       <button aria-label="上一个文件" disabled={index <= 0} onClick={onPrevious}><ChevronLeft className="h-4 w-4" /></button>
-      <span className="font-mono">{index + 1} / {count}</span>
+      <span className="font-mono text-[11px]">{index + 1}/{count}</span>
       <button aria-label="下一个文件" disabled={index < 0 || index >= count - 1} onClick={onNext}><ChevronRight className="h-4 w-4" /></button>
     </div>
   </div>;

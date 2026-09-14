@@ -10,6 +10,30 @@
   width: 100cqi;
   max-width: 100%;
 }
+.diff-line-content { user-select: text; -webkit-user-select: text; }
+.diff-wrap-lines .diff-unified-canvas { width: 100%; min-width: 0; }
+.diff-wrap-lines .diff-unified-row { min-width: 0; }
+.diff-wrap-lines .diff-line-content { min-width: 0; flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-wrap-lines .diff-unified-header { overflow-wrap: anywhere; }
+.diff-wrap-lines .diff-unified-header > span { min-width: 0; }
+.diff-wrap-lines .diff-line-number { width: 3.8em; font-size: 10px; padding-right: .4em; }
+
+.hunk-explanation-pages { position: sticky; left: 0; width: 100cqi; max-width: 100%; overflow-x: auto; scroll-snap-type: x mandatory; }
+.hunk-explanation-track { position: relative; width: 200%; min-height: 120px; }
+.hunk-code-page { width: 50%; overflow-x: auto; scroll-snap-align: start; }
+.hunk-code-content { width: max-content; min-width: 100%; }
+.diff-wrap-lines .hunk-code-content { width: 100%; min-width: 0; }
+.hunk-explanation-page { position: absolute; left: 50%; top: 0; bottom: 0; width: 50%; overflow: auto; scroll-snap-align: start; border-left: 1px solid var(--border-subtle); background: var(--surface-canvas); }
+.hunk-explanation-page .markdown-content { overflow-wrap: anywhere; }
+.hunk-explanation-page .markdown-content pre { max-width: 100%; }
+.mobile-hunk-actions:has(details[open]) { z-index: 40; }
+
+/* Landscape focus changes visibility only, preserving the selected file and reader. */
+.app-shell--reading :is(.mobile-header, .mobile-file-navigation, .mobile-review-nav,
+  .mobile-diff-toolbar, .mobile-hunk-actions, .diff-file-metadata, .diff-selection-bar) { display: none; }
+.app-shell--reading { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+.app-shell--reading .diff-code-scroll { padding-bottom: 0; }
+.diff-reading-toggle { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); }
 
 /* Phone review uses one mounted panel at a time; desktop sizing remains in App. */
 @media (max-width: 767px), (max-width: 1023px) and (max-height: 500px) and (pointer: coarse) {
@@ -23,6 +47,15 @@
   .mobile-diff-toolbar summary { display: flex; align-items: center; }
   .app-shell [data-review-pane] { min-height: 0; }
   [data-review-pane="files"] button { opacity: 1; }
+  .files-panel-header { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 4px; padding: 6px 8px; }
+  .files-panel-header > * { margin: 0; }
+  .files-panel-header > div:first-child { grid-column: 1 / -1; }
+  .files-panel-filter { grid-column: 1; grid-row: 2; }
+  .files-panel-filter input { height: 44px; }
+  .files-panel-filter > svg { top: 15px; }
+  .files-panel-explain { grid-column: 2; grid-row: 2; padding: 0; }
+  .files-panel-explain span { display: none; }
+  .files-panel-explain svg { margin: 0; }
   .app-shell .diff-selection-bar { left: 8px; right: 8px; padding: 8px; flex-wrap: wrap; gap: 4px; max-height: 45%; overflow-y: auto; }
   .app-shell .diff-selection-bar > div { flex-wrap: wrap; gap: 4px; }
   .ai-review-heading, .ai-review-controls { padding: 4px 8px; gap: 4px; }

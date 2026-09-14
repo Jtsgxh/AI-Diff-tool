@@ -2,6 +2,8 @@
 import { CommitNode, SelectionState } from '../../types';
 import { computeGraphLayout } from '../../utils/graphLayout';
 import { fillContiguousCommitSelection } from '../../utils/commitSelection';
+import { MobileCommitList } from './MobileCommitList';
+import { useCommitRangeSelection } from '../../hooks/useCommitRangeSelection';
 import {
   GitCommit,
   GitBranch,
@@ -54,6 +56,13 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
   const lastClickedHashRef = useRef<string | null>(null);
 
   const commitOrder = useMemo(() => commits.map((commit) => commit.hash), [commits]);
+  const rangeSelection = useCommitRangeSelection(commitOrder);
+
+  React.useEffect(() => {
+    const hashes = selection.type === 'batch' ? selection.commitHashes ?? [] : selection.type === 'commit' && selection.commitHash ? [selection.commitHash] : [];
+    setSelectedBatchSet(new Set(hashes));
+    if (!lastClickedHashRef.current) lastClickedHashRef.current = hashes.at(-1) ?? null;
+  }, [selection]);
 
   // Filter commits
   const filteredCommits = useMemo(() => {
@@ -108,6 +117,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
 
   const handleRowClick = (hash: string, e: React.MouseEvent) => {
     if (e.shiftKey && lastClickedHashRef.current) {
+      rangeSelection.reset();
       const candidate = new Set(selectedBatchSet);
       candidate.add(lastClickedHashRef.current);
       candidate.add(hash);
@@ -117,7 +127,13 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
     }
 
     if (e.ctrlKey || e.metaKey) {
+      rangeSelection.reset();
       toggleBatchCommit(hash);
+      return;
+    }
+
+    if (rangeSelection.active) {
+      rangeSelection.pick(hash);
       return;
     }
 
@@ -130,6 +146,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
 
   const handleToggleCheckbox = (hash: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (rangeSelection.active) { rangeSelection.pick(hash); return; }
     toggleBatchCommit(hash);
   };
 
@@ -153,6 +170,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
   };
 
   const isSelected = (hash: string) => {
+    if (rangeSelection.active) return rangeSelection.hashes.includes(hash);
     if (selectedBatchSet.has(hash)) return true;
     if (selection.type === 'commit' && selection.commitHash === hash) return true;
     if (selection.type === 'compare' && (selection.baseHash === hash || selection.targetHash === hash))
@@ -162,23 +180,14 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
     return false;
   };
 
-  const svgWidth = Math.max(LANE_WIDTH * (maxColumns + 1), 32);
+  // Fit the rightmost marker and its selection ring, then leave a small text gap.
+  const graphWidth = (maxColumns - 1 + 0.8) * LANE_WIDTH + 24 + DOT_RADIUS + 5;
 
   if (compact) {
-    return <section className="flex h-full min-h-0 flex-col bg-white" aria-label="提交历史">
-      <div className="shrink-0 border-b border-black/10 p-3">
-        <h2 className="mb-2 text-sm font-semibold">提交历史 <span className="text-zinc-500">{commits.length}</span></h2>
-        <input aria-label="搜索提交" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="搜索提交、作者或 SHA" className="w-full rounded-lg border border-black/15 bg-zinc-50 px-3 py-2 text-sm" />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {filteredCommits.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">{commits.length ? '没有匹配的提交' : '暂无提交，可从菜单查看未提交变更'}</p>}
-        {filteredCommits.map((commit) => <button key={commit.hash} onClick={() => onSelectCommit(commit.hash)} aria-current={selection.type === 'commit' && selection.commitHash === commit.hash ? 'true' : undefined} className={`block w-full border-b border-black/10 px-4 py-3 text-left ${selection.type === 'commit' && selection.commitHash === commit.hash ? 'bg-sky-50' : ''}`}>
-          <span className="block break-words text-sm font-medium leading-6">{commit.message}</span>
-          <span className="mt-1 flex items-center justify-between gap-3 text-xs text-zinc-500"><span className="truncate">{commit.author}</span><span className="font-mono">{commit.shortHash}</span></span>
-          {commit.refs.length > 0 && <span className="mt-1 block truncate text-xs text-emerald-700">{commit.refs.join(' · ')}</span>}
-        </button>)}
-      </div>
-    </section>;
+    return <MobileCommitList commits={filteredCommits} commitOrder={commitOrder} selection={selection}
+      searchTerm={searchTerm} onSearch={setSearchTerm}
+      onSelectCommit={(hash) => { setSelectedHashA(null); lastClickedHashRef.current = hash; applyBatchSelection([hash]); }}
+      onSelectBatchCommits={(hashes) => { setSelectedHashA(null); applyBatchSelection(hashes); }} />;
   }
 
   return (
@@ -195,7 +204,12 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
           </div>
 
           <div className="flex items-center space-x-2">
-            <span className="text-[11px] text-zinc-600 hidden xl:inline">多选自动补齐连续区间</span>
+            <button type="button" aria-label={rangeSelection.active ? '取消范围选择' : '选范围'}
+              aria-pressed={rangeSelection.active} onClick={rangeSelection.toggle}
+              title="点击起点和终点选择提交区间；也支持 Shift 点击"
+              className="flex shrink-0 items-center gap-1 rounded border border-[var(--border-subtle)] bg-[var(--surface-panel)] px-2 py-1 text-[11px] text-zinc-700 hover:bg-[var(--surface-hover)]">
+              <ArrowRightLeft className="h-3 w-3" />{rangeSelection.active ? '取消' : '选范围'}
+            </button>
             {onCollapse && (
               <button
                 onClick={onCollapse}
@@ -221,8 +235,22 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
           />
         </div>
 
+        {rangeSelection.active && <div className="rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
+          <p aria-live="polite">{rangeSelection.endpoints.length === 0 ? '点击一个提交作为起点，再点击终点。' : rangeSelection.endpoints.length === 1 ? '已选起点，请点击终点。' : `已选 ${rangeSelection.hashes.length} 个连续提交，包含起点和终点。`}</p>
+          {searchTerm && <p className="mt-1 text-[11px]">区间包含被搜索隐藏的中间提交。</p>}
+          <button type="button" disabled={rangeSelection.endpoints.length !== 2} onClick={() => {
+            if (rangeSelection.endpoints.length !== 2) return;
+            setSelectedHashA(null);
+            lastClickedHashRef.current = rangeSelection.endpoints[1];
+            applyBatchSelection(rangeSelection.hashes);
+            rangeSelection.reset();
+          }} className="mt-2 w-full rounded bg-[var(--accent)] px-2 py-1.5 text-white disabled:opacity-40">
+            查看选中 {rangeSelection.hashes.length} 个提交
+          </button>
+        </div>}
+
         {/* Batch Selection Action Banner (Prominent Top Banner) */}
-        {selectedBatchSet.size >= 2 && (
+        {!rangeSelection.active && selectedBatchSet.size >= 2 && (
           <div className="flex flex-col space-y-2 bg-zinc-100/80 border border-[var(--border-subtle)] rounded-xl p-2.5 shadow-none">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-1.5 text-xs font-medium text-zinc-800">
@@ -277,7 +305,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
           {/* SVG Overlay for drawing branch lanes and bezier curves */}
           <svg
             className="absolute left-0 top-0 pointer-events-none z-10"
-            style={{ width: svgWidth + 24, height: nodes.length * ROW_HEIGHT }}
+            style={{ width: graphWidth, height: nodes.length * ROW_HEIGHT }}
           >
             {nodes.map((node, i) => {
               const currentX = (node.column + 0.8) * LANE_WIDTH + 24;
@@ -359,7 +387,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
           {/* Rows */}
           {nodes.map((node, i) => {
             const isCurrSelected = isSelected(node.hash);
-            const isBatchChecked = selectedBatchSet.has(node.hash);
+            const isBatchChecked = rangeSelection.active ? rangeSelection.hashes.includes(node.hash) : selectedBatchSet.has(node.hash);
 
             return (
               <div
@@ -368,7 +396,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                 style={{
                   top: i * ROW_HEIGHT,
                   height: ROW_HEIGHT,
-                  paddingLeft: svgWidth + 30,
+                  paddingLeft: graphWidth + 8,
                 }}
                 className={`absolute left-0 right-0 flex items-center pr-3 cursor-pointer select-none transition border-b border-[var(--border-subtle)] group ${
                   isCurrSelected
@@ -393,6 +421,7 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
                 {/* Commit Content: reserve the first line for the message. */}
                 <div className="flex-1 flex flex-col justify-center min-w-0 gap-0.5">
                   <div className="flex items-center gap-2 min-w-0">
+                    {rangeSelection.active && rangeSelection.endpoints.includes(node.hash) && <span className="shrink-0 text-[10px] text-sky-800">{rangeSelection.endpoints[0] === node.hash ? '起点' : '终点'}</span>}
                     <span
                       className={`text-xs leading-4 font-medium truncate flex-1 min-w-0 ${
                         isCurrSelected ? 'text-zinc-950 font-medium' : 'text-zinc-900 group-hover:text-zinc-950'

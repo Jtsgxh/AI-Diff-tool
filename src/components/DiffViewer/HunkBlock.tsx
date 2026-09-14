@@ -6,6 +6,8 @@ import { MarkdownRenderer } from '../common/MarkdownRenderer';
 import { useDeferredMount } from '../../hooks/useDeferredMount';
 import { HunkSplitRows, HunkUnifiedRows } from './HunkRows';
 import { estimateHunkHeight } from './hunkMetrics';
+import { ActionMenu } from '../common/ActionMenu';
+import { HunkExplanationPages } from './HunkExplanationPages';
 import type { NaturalLanguageEntry, PseudocodeLines } from './hooks/useHunkAnnotations';
 
 export interface HunkBlockProps {
@@ -48,6 +50,52 @@ export const HunkBlock = React.memo<HunkBlockProps>(
     onExplain,
   }) => {
     const { ref, isMounted } = useDeferredMount(deferMount);
+    const sideScrollRef = React.useRef<HTMLDivElement>(null);
+    const [sidePage, setSidePage] = React.useState(0);
+    const toggleSidePage = () => {
+      const element = sideScrollRef.current;
+      if (element) element.scrollTo({ left: sidePage ? 0 : element.clientWidth, behavior: 'smooth' });
+    };
+    const explanation = showNaturalLanguage ? (
+          <div className={`${compact ? '' : 'diff-viewport-content'} bg-zinc-100/80 border-y border-[var(--border-subtle)] px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150`}>
+            <div className="p-1.5 rounded-md bg-zinc-100 text-zinc-800 shrink-0 mt-0.5 border border-[var(--border-subtle)]">
+              <BookOpen className="w-4 h-4 text-zinc-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-1 mb-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-zinc-800 text-xs">
+                    改动块 #{hunk.index} 自然语言直读
+                  </span>
+                  {naturalLanguage?.loading && (
+                    <span className="text-[10px] text-zinc-700 animate-pulse font-mono font-normal">
+                      (AI 正在实时转译中...)
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => onToggleNaturalLanguage(hunk)}
+                  className="text-[10px] text-zinc-700 hover:text-zinc-900 transition"
+                >
+                  收起
+                </button>
+              </div>
+              <div className="text-zinc-800 leading-relaxed font-sans text-xs">
+                {naturalLanguage?.text ? (
+                  <MarkdownRenderer
+                    content={naturalLanguage.text}
+                    className="prose prose-sm max-w-none text-zinc-900 text-xs leading-relaxed"
+                  />
+                ) : (
+                  <span className="text-zinc-700 animate-pulse text-[11px]">
+                    正在调用 AI 将该块代码改动转译为自然语言叙述...
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+    ) : null;
+
 
     return (
       <div
@@ -59,19 +107,16 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             : 'hover:bg-black/[0.015]'
         }`}
       >
-        {compact ? <div className="diff-viewport-content border-b border-black/10 bg-[#F5F5F2] px-2 text-xs">
+        {compact ? <div className="mobile-hunk-actions diff-viewport-content border-b border-black/10 bg-[#F5F5F2] px-2 text-xs">
           <div className="flex items-center justify-between gap-1">
-            <span className="text-zinc-500">块 #{hunk.index}</span>
+            {showNaturalLanguage ? <button className="px-1 text-sky-800" aria-label={sidePage ? '返回此块代码' : '查看右侧块释义'} onClick={toggleSidePage}>{sidePage ? '← 代码' : '释义 →'}</button> : <span className="text-zinc-500">块 #{hunk.index}</span>}
             <button className="px-2 text-amber-800" onClick={() => onExplain(hunk, 'fast')}>直接解释</button>
             <button className="px-2 text-sky-800" onClick={() => onExplain(hunk, 'agent')}>关联解释</button>
-            <details>
-              <summary className="flex cursor-pointer list-none items-center px-2">更多</summary>
-              <div className="absolute right-2 z-30 flex w-52 flex-col rounded-lg border border-black/15 bg-white p-2 shadow-xl">
+            <ActionMenu label={`改动块 ${hunk.index} 的更多操作`}>
                 <button className="px-2 text-left" onClick={() => onToggleSelection(hunk.id)}>{isSelected ? '取消选择此块' : '选择此块'}</button>
                 <button className="px-2 text-left" onClick={() => onTogglePseudocode(hunk)}>{pseudocode?.error || pseudocode?.warning ? '重试 AI 伪代码' : showPseudocode ? '关闭 AI 伪代码' : '开启 AI 伪代码'}</button>
                 <button className="px-2 text-left" onClick={() => onToggleNaturalLanguage(hunk)}>{showNaturalLanguage ? '收起块释义' : '展开块释义'}</button>
-              </div>
-            </details>
+            </ActionMenu>
           </div>
         </div> : <div
           className={`hunk-actions absolute right-4 top-2 z-20 flex items-center space-x-1.5 transition-opacity duration-150 ${
@@ -206,45 +251,10 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           </div>
         )}
 
-        {showNaturalLanguage && (
-          <div className="diff-viewport-content bg-zinc-100/80 border-y border-[var(--border-subtle)] px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150">
-            <div className="p-1.5 rounded-md bg-zinc-100 text-zinc-800 shrink-0 mt-0.5 border border-[var(--border-subtle)]">
-              <BookOpen className="w-4 h-4 text-zinc-700" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center space-x-2">
-                  <span className="font-bold text-zinc-800 text-xs">
-                    改动块 #{hunk.index} 自然语言直读
-                  </span>
-                  {naturalLanguage?.loading && (
-                    <span className="text-[10px] text-zinc-700 animate-pulse font-mono font-normal">
-                      (AI 正在实时转译中...)
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => onToggleNaturalLanguage(hunk)}
-                  className="text-[10px] text-zinc-700 hover:text-zinc-900 transition"
-                >
-                  收起
-                </button>
-              </div>
-              <div className="text-zinc-800 leading-relaxed font-sans text-xs">
-                {naturalLanguage?.text ? (
-                  <MarkdownRenderer
-                    content={naturalLanguage.text}
-                    className="prose prose-sm max-w-none text-zinc-900 text-xs leading-relaxed"
-                  />
-                ) : (
-                  <span className="text-zinc-700 animate-pulse text-[11px]">
-                    正在调用 AI 将该块代码改动转译为自然语言叙述...
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {!compact && explanation}
+
+        <HunkExplanationPages enabled={compact && showNaturalLanguage} index={hunk.index}
+          scrollRef={sideScrollRef} onPageChange={setSidePage} explanation={explanation}>
 
         {isMounted ? (
           viewMode === 'unified' ? (
@@ -257,6 +267,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
           // stays stable as blocks mount.
           <div style={{ height: estimateHunkHeight(hunk, viewMode) }} aria-hidden />
         )}
+        </HunkExplanationPages>
       </div>
     );
   }

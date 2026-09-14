@@ -8,8 +8,14 @@ external runtime, set `NODE_PATH` to its `node_modules` directory.
 
 The isolated touch browser context intercepts all API calls. It verifies commit →
 file → unified Diff → AI navigation, file and hunk navigation, full-file mode,
-long code scrolling, background review completion without duplicate requests,
-draft/scroll preservation, widths 320/390/430/767, phone landscape, a short viewport, and restoration
+long code wrapping and horizontal background coverage, touch commit range selection
+(including reverse endpoints, hidden intermediate commits and cancellation), background review completion without duplicate requests,
+action-menu dismissal after selection, mode changes, inline/external explanations, outside taps and Escape,
+per-hunk code/explanation pages with native touch swiping, width changes, closing and full-file mode,
+workspace restoration after reload and tab recreation (commit range, selected file,
+Diff/full-file mode, wrapping and scroll position), per-repository isolation and invalid-selection fallback,
+draft/scroll preservation, widths 320/390/430/767, phone landscape focus with controls
+hidden/revealed for Diff and full-file reading, portrait restoration, a short viewport, and restoration
 of desktop panel sizes and split view. It generates screenshots in the system temp
 directory by default. No live model calls or repository writes are made.
 

@@ -15,10 +15,13 @@ import { useHunkAnnotations } from './hooks/useHunkAnnotations';
 import { DEFERRED_MOUNT_ROW_THRESHOLD, totalRenderedRows } from './hunkMetrics';
 import { FullFilePreview } from './FullFilePreview';
 import { FullDiffContextBlock } from './FullDiffContextBlock';
+import { readWorkspace, updateWorkspace } from '../../services/workspaceState';
+import { usePersistentDiffScroll } from '../../hooks/usePersistentDiffScroll';
 
 interface DiffViewerProps {
   compact?: boolean;
   active?: boolean;
+  readingScope?: string;
   file: DiffFile | null;
   repoPath: string;
   viewMode: DiffViewMode;
@@ -41,6 +44,7 @@ interface DiffViewerProps {
 export const DiffViewer = React.memo<DiffViewerProps>(({
   compact = false,
   active = true,
+  readingScope = '',
   file,
   repoPath,
   viewMode,
@@ -52,7 +56,9 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 }) => {
   /** Engine used by the per-hunk and per-file explain buttons. */
   const [defaultMode, setDefaultMode] = useState<'agent' | 'fast'>('agent');
-  const [displayMode, setDisplayMode] = useState<'diff' | 'file'>('diff');
+  const [displayMode, setDisplayMode] = useState<'diff' | 'file'>(() => readWorkspace(repoPath).displayMode);
+  const [mobileWrapLines, setMobileWrapLines] = useState(() => readWorkspace(repoPath).wrapLines);
+  const wrapLines = compact && mobileWrapLines;
   const [filePreview, setFilePreview] = useState<FilePreview | null>(null);
   const [filePreviewError, setFilePreviewError] = useState<string | null>(null);
   const [isFilePreviewLoading, setIsFilePreviewLoading] = useState(false);
@@ -67,6 +73,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   const split = useResizableSplit(STORAGE_KEYS.diffSplitPct);
 
   const annotations = useHunkAnnotations(file, aiConfig);
+
+  useEffect(() => {
+    updateWorkspace(repoPath, { displayMode, wrapLines: mobileWrapLines });
+  }, [repoPath, displayMode, mobileWrapLines]);
 
   useEffect(() => {
     const source = file?.previewSource;
@@ -121,6 +131,9 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
       };
     }
   }, [displayMode, file?.status, filePreview, hunks]);
+
+  usePersistentDiffScroll(fullFileScrollRef, repoPath, JSON.stringify([readingScope, file?.newPath, displayMode]),
+    active && !!file && !!hunks && (displayMode === 'diff' || !!expandedDiff.blocks));
 
   // Hunk ids are only unique within one parsed diff, so a stale selection must
   // not survive a new one. Adjusting during render (rather than in an effect)
@@ -185,14 +198,18 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
     };
 
     updateNavigation();
+    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    resizeObserver.observe(container);
+    if (container.firstElementChild) resizeObserver.observe(container.firstElementChild);
     container.addEventListener('scroll', scheduleUpdate, { passive: true });
     window.addEventListener('resize', scheduleUpdate);
     return () => {
+      resizeObserver.disconnect();
       container.removeEventListener('scroll', scheduleUpdate);
       window.removeEventListener('resize', scheduleUpdate);
       if (animationFrame) cancelAnimationFrame(animationFrame);
     };
-  }, [active, displayMode, expandedDiff.blocks, hunks]);
+  }, [active, displayMode, expandedDiff.blocks, hunks, wrapLines]);
 
   const jumpToHunk = useCallback((direction: 'previous' | 'next') => {
     const container = fullFileScrollRef.current;
@@ -282,8 +299,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[var(--surface-panel)] overflow-hidden relative">
+    <div className={`flex-1 flex flex-col h-full bg-[var(--surface-panel)] overflow-hidden relative ${wrapLines ? 'diff-wrap-lines' : ''}`}>
       <DiffToolbar
+        wrapLines={wrapLines}
+        onToggleWrapLines={() => setMobileWrapLines((value) => !value)}
         compact={compact}
         file={file}
         hunkCount={hunks.length}

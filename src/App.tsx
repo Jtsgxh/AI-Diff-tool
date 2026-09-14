@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, PanelLeftOpen } from 'lucide-react';
+import { AlertCircle, Menu, PanelLeftOpen, X } from 'lucide-react';
 import {
   DEFAULT_AGENT_MAX_READ_FILE_LINES,
   DEFAULT_AGENT_MAX_SEARCH_RESULTS,
@@ -23,8 +23,9 @@ import { OpenRepoModal } from './components/OpenRepoModal';
 import { AICallInspectorModal } from './components/AICallInspector/AICallInspectorModal';
 import { readPersistedWidth, ResizeGutter } from './components/common/ResizeGutter';
 import type { DiffHunk } from './utils/diffParser';
-import { useMobileLayout } from './hooks/useMobileLayout';
+import { useMobileLayout, usePhoneLandscape } from './hooks/useMobileLayout';
 import { MobileFileNavigation, MobileReviewHeader, MobileReviewNavigation, type MobileReviewPane } from './components/MobileReviewNavigation';
+import { readWorkspace, selectionKey, updateWorkspace } from './services/workspaceState';
 
 const HISTORY_PANE = { defaultWidth: 380, min: 260, max: 960 };
 const FILES_PANE = { defaultWidth: 240, min: 176, max: 560 };
@@ -44,8 +45,13 @@ const DEFAULT_AI_CONFIG: AIProviderConfig = {
 const normalizePath = (p?: string | null) => (p || '').replace(/\\/g, '/');
 
 export const App: React.FC = () => {
+  const [initialRepoPath] = useState(() => storage.get(STORAGE_KEYS.lastRepoPath) || 'current');
+  const [initialWorkspace] = useState(() => readWorkspace(initialRepoPath));
+  const [uiRepoKey, setUiRepoKey] = useState(initialRepoPath);
   const isMobile = useMobileLayout();
-  const [mobilePane, setMobilePane] = useState<MobileReviewPane>('history');
+  const isPhoneLandscape = usePhoneLandscape();
+  const [readingControlsOpen, setReadingControlsOpen] = useState(false);
+  const [mobilePane, setMobilePane] = useState<MobileReviewPane>(initialWorkspace.mobilePane);
   const mobileReturnPane = useRef<MobileReviewPane>('code');
   const {
     repoPath,
@@ -61,12 +67,14 @@ export const App: React.FC = () => {
     isLoadingRepo,
     isLoadingDiff,
     repoError,
+    isRepositoryReady,
     refresh,
   } = useRepository();
 
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'split' | 'unified' | 'natural'>('split');
-  const [workspaceMode, setWorkspaceMode] = useState<'diff' | 'learn'>('diff');
+  const workspaceKey = repoInfo?.path || repoPath;
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(initialWorkspace.selectedFilePath);
+  const [viewMode, setViewMode] = useState<'split' | 'unified' | 'natural'>(initialWorkspace.viewMode);
+  const [workspaceMode, setWorkspaceMode] = useState<'diff' | 'learn'>(initialWorkspace.workspaceMode);
   const [learnAskFile, setLearnAskFile] = useState<string | null>(null);
 
   const [isOpenRepoModal, setIsOpenRepoModal] = useState(false);
@@ -152,10 +160,38 @@ export const App: React.FC = () => {
     storage.setJson(STORAGE_KEYS.aiConfig, newConfig);
   }, []);
 
-  // Auto-select the first changed file whenever a new diff arrives.
+  // Restore each repository independently; never write initial defaults over its saved state.
   useEffect(() => {
-    setSelectedFilePath(diffResult?.files.length ? diffResult.files[0].newPath : null);
-  }, [diffResult]);
+    if (!isRepositoryReady || uiRepoKey === workspaceKey) return;
+    const saved = readWorkspace(workspaceKey);
+    setMobilePane(saved.mobilePane);
+    setWorkspaceMode(saved.workspaceMode);
+    setViewMode(saved.viewMode);
+    setSelectedFilePath(saved.selectedFilePath);
+    setUiRepoKey(workspaceKey);
+  }, [isRepositoryReady, uiRepoKey, workspaceKey]);
+
+  useEffect(() => {
+    if (!isRepositoryReady || uiRepoKey !== workspaceKey) return;
+    updateWorkspace(workspaceKey, { mobilePane, workspaceMode, viewMode });
+  }, [isRepositoryReady, uiRepoKey, workspaceKey, mobilePane, workspaceMode, viewMode]);
+
+  // Keep the last selected file if it still belongs to this diff; otherwise use its first file.
+  useEffect(() => {
+    if (!diffResult || !isRepositoryReady || uiRepoKey !== workspaceKey) return;
+    setSelectedFilePath((previous) => {
+      const savedPath = previous ?? readWorkspace(workspaceKey).selectedFilePath;
+      const match = diffResult.files.find((file) => normalizePath(file.newPath) === normalizePath(savedPath) || normalizePath(file.oldPath) === normalizePath(savedPath));
+      return match?.newPath ?? diffResult.files[0]?.newPath ?? null;
+    });
+  }, [diffResult, isRepositoryReady, uiRepoKey, workspaceKey]);
+
+  useEffect(() => {
+    if (!isRepositoryReady || uiRepoKey !== workspaceKey || !diffResult) return;
+    if (selectedFilePath && diffResult.files.some((file) => file.newPath === selectedFilePath)) {
+      updateWorkspace(workspaceKey, { selectedFilePath });
+    }
+  }, [isRepositoryReady, uiRepoKey, workspaceKey, diffResult, selectedFilePath]);
 
   // ---------------------------- selection handlers ----------------------------
 
@@ -303,6 +339,12 @@ export const App: React.FC = () => {
     );
   }, [diffResult, selectedFilePath]);
 
+  const canFocusDiff = isMobile && isPhoneLandscape && workspaceMode === 'diff' && mobilePane === 'code' && !!selectedFile && !repoError;
+  const isReadingOnly = canFocusDiff && !readingControlsOpen;
+  useEffect(() => {
+    setReadingControlsOpen(false);
+  }, [isPhoneLandscape, mobilePane, selectedFilePath, workspaceMode]);
+
   const selectMobilePane = (pane: MobileReviewPane) => {
     if (pane === 'ai' && mobilePane !== 'ai') mobileReturnPane.current = mobilePane;
     setMobilePane(pane);
@@ -322,7 +364,7 @@ export const App: React.FC = () => {
   });
 
   return (
-    <div className="app-shell flex flex-col h-screen w-screen bg-[var(--surface-panel)] text-zinc-950 overflow-hidden font-sans">
+    <div className={`app-shell flex flex-col h-screen w-screen bg-[var(--surface-panel)] text-zinc-950 overflow-hidden font-sans ${isReadingOnly ? 'app-shell--reading' : ''}`}>
       {isMobile ? <MobileReviewHeader
         repoInfo={repoInfo} repoPath={repoPath} isLoading={isLoadingRepo || isLoadingDiff}
         workspaceMode={workspaceMode} onOpenRepo={() => setIsOpenRepoModal(true)}
@@ -389,7 +431,7 @@ export const App: React.FC = () => {
               onSelectCommit={(hash) => { handleSelectCommit(hash); if (isMobile) setMobilePane('files'); }}
               onCompareCommits={handleCompareCommits}
               onExplainCommit={handleExplainCommit}
-              onSelectBatchCommits={handleSelectBatchCommits}
+              onSelectBatchCommits={(hashes) => { handleSelectBatchCommits(hashes); if (isMobile) setMobilePane('files'); }}
               onExplainBatchCommits={handleExplainBatchCommits}
               onCollapse={isMobile ? undefined : handleToggleSidebar}
             />
@@ -491,6 +533,7 @@ export const App: React.FC = () => {
 
         <div data-review-pane="code" className="flex-1 h-full flex flex-col min-w-0 min-h-0" style={isMobile ? mobilePaneStyle('code') : undefined}>
           {isMobile && workspaceMode === 'diff' && <MobileFileNavigation
+            filePath={selectedFile?.newPath ?? null}
             index={selectedFileIndex} count={diffResult?.files.length ?? 0}
             onBack={() => setMobilePane('files')} onPrevious={() => moveFile(-1)} onNext={() => moveFile(1)}
           />}
@@ -506,6 +549,8 @@ export const App: React.FC = () => {
             />
           ) : (
             <DiffViewer
+              key={workspaceKey}
+              readingScope={selectionKey(selection)}
               active={!isMobile || mobilePane === 'code'}
               file={selectedFile}
               repoPath={repoInfo?.path || repoPath}
@@ -551,6 +596,15 @@ export const App: React.FC = () => {
       </div>
 
       {isMobile && workspaceMode === 'diff' && <MobileReviewNavigation pane={mobilePane} onChange={selectMobilePane} />}
+
+      {canFocusDiff && <button
+        type="button"
+        aria-label={readingControlsOpen ? '收起操作栏' : '展开操作栏'}
+        aria-expanded={readingControlsOpen}
+        onClick={() => setReadingControlsOpen((open) => !open)}
+        style={readingControlsOpen ? { bottom: 'calc(72px + env(safe-area-inset-bottom))' } : undefined}
+        className="diff-reading-toggle fixed z-40 flex items-center justify-center rounded-full border border-[var(--border-subtle)] bg-white/95 text-zinc-700 shadow-sm"
+      >{readingControlsOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}</button>}
 
       <OpenRepoModal
         isOpen={isOpenRepoModal}

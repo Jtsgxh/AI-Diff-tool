@@ -10,6 +10,7 @@ import {
 } from '../services/api';
 import type { CommitNode } from '../types';
 import { STORAGE_KEYS, storage } from '../constants/storage';
+import { readWorkspace, updateWorkspace } from '../services/workspaceState';
 
 const MAX_RECENT_REPOS = 10;
 
@@ -88,6 +89,9 @@ export function useRepository() {
   const [isLoadingRepo, setIsLoadingRepo] = useState(false);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
+  const [readyRepoPath, setReadyRepoPath] = useState<string | null>(null);
+  const loadedRepoPathRef = useRef<string | null>(null);
+  const repoRequestIdRef = useRef(0);
 
   /** Monotonic token; only the newest in-flight diff request may set state. */
   const diffRequestIdRef = useRef(0);
@@ -114,34 +118,46 @@ export function useRepository() {
 
   const loadRepo = useCallback(
     async (path: string) => {
+      const requestId = ++repoRequestIdRef.current;
+      ++diffRequestIdRef.current;
+      setReadyRepoPath(null);
+      setDiffResult(null);
+      setIsLoadingDiff(false);
+      if (loadedRepoPathRef.current !== path) setRepoInfo(null);
       setIsLoadingRepo(true);
       setRepoError(null);
       try {
         const [info, commitData] = await Promise.all([fetchRepoInfo(path), fetchCommits(path)]);
+        if (requestId !== repoRequestIdRef.current) return;
+        const sameRepo = loadedRepoPathRef.current === path;
+        loadedRepoPathRef.current = path;
         setRepoInfo(info);
         setRepositoryRevision((value) => value + 1);
         setCommits(commitData.commits);
 
-        storage.set(STORAGE_KEYS.lastRepoPath, path);
+        storage.set(STORAGE_KEYS.lastRepoPath, info.path || path);
         if (info.path && info.path !== 'demo') {
           addRecentRepo(info.path);
         }
 
         setSelection((prev) => {
-          if (shouldKeepSelection(prev, commitData.commits)) {
+          const candidate = sameRepo ? prev : readWorkspace(info.path || path).selection ?? readWorkspace(path).selection;
+          if (candidate && shouldKeepSelection(candidate, commitData.commits)) {
             // New object so the diff effect re-runs (the working tree is live).
-            return { ...prev };
+            return { ...candidate };
           }
           if (info.modifiedFilesCount > 0) return { type: 'working-tree' };
           return commitData.commits.length > 0
             ? { type: 'commit', commitHash: commitData.commits[0].hash }
             : { type: 'working-tree' };
         });
+        setReadyRepoPath(path);
       } catch (err: any) {
+        if (requestId !== repoRequestIdRef.current) return;
         console.error(err);
         setRepoError(err.message || '无法加载该 Git 仓库');
       } finally {
-        setIsLoadingRepo(false);
+        if (requestId === repoRequestIdRef.current) setIsLoadingRepo(false);
       }
     },
     [addRecentRepo]
@@ -149,10 +165,11 @@ export function useRepository() {
 
   useEffect(() => {
     loadRepo(repoPath);
+    return () => { ++repoRequestIdRef.current; ++diffRequestIdRef.current; };
   }, [repoPath, loadRepo]);
 
   useEffect(() => {
-    if (!isResolvable(selection)) return;
+    if (readyRepoPath !== repoPath || !isResolvable(selection)) return;
 
     const requestId = ++diffRequestIdRef.current;
     setIsLoadingDiff(true);
@@ -173,7 +190,14 @@ export function useRepository() {
         if (requestId !== diffRequestIdRef.current) return;
         setIsLoadingDiff(false);
       });
-  }, [selection, repoPath]);
+    return () => { ++diffRequestIdRef.current; };
+  }, [selection, repoPath, readyRepoPath]);
+
+  useEffect(() => {
+    if (readyRepoPath === repoPath && isResolvable(selection)) {
+      updateWorkspace(repoInfo?.path || repoPath, { selection });
+    }
+  }, [selection, repoPath, repoInfo?.path, readyRepoPath]);
 
   const refresh = useCallback(() => loadRepo(repoPath), [loadRepo, repoPath]);
 
@@ -191,6 +215,7 @@ export function useRepository() {
     isLoadingRepo,
     isLoadingDiff,
     repoError,
+    isRepositoryReady: readyRepoPath === repoPath,
     refresh,
   };
 }
