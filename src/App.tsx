@@ -23,6 +23,8 @@ import { OpenRepoModal } from './components/OpenRepoModal';
 import { AICallInspectorModal } from './components/AICallInspector/AICallInspectorModal';
 import { readPersistedWidth, ResizeGutter } from './components/common/ResizeGutter';
 import type { DiffHunk } from './utils/diffParser';
+import { useMobileLayout } from './hooks/useMobileLayout';
+import { MobileFileNavigation, MobileReviewHeader, MobileReviewNavigation, type MobileReviewPane } from './components/MobileReviewNavigation';
 
 const HISTORY_PANE = { defaultWidth: 380, min: 260, max: 960 };
 const FILES_PANE = { defaultWidth: 240, min: 176, max: 560 };
@@ -42,6 +44,9 @@ const DEFAULT_AI_CONFIG: AIProviderConfig = {
 const normalizePath = (p?: string | null) => (p || '').replace(/\\/g, '/');
 
 export const App: React.FC = () => {
+  const isMobile = useMobileLayout();
+  const [mobilePane, setMobilePane] = useState<MobileReviewPane>('history');
+  const mobileReturnPane = useRef<MobileReviewPane>('code');
   const {
     repoPath,
     setRepoPath,
@@ -184,8 +189,12 @@ export const App: React.FC = () => {
 
   const openExplanation = useCallback((scope: ExplanationScope) => {
     setExplanationScope(scope);
-    setIsExplanationOpen(true);
-  }, []);
+    if (!isMobile) setIsExplanationOpen(true);
+    if (isMobile) {
+      if (mobilePane !== 'ai') mobileReturnPane.current = mobilePane;
+      setMobilePane('ai');
+    }
+  }, [isMobile, mobilePane]);
 
   const handleExplainBatchCommits = useCallback(
     (hashes: string[]) => {
@@ -294,9 +303,33 @@ export const App: React.FC = () => {
     );
   }, [diffResult, selectedFilePath]);
 
+  const selectMobilePane = (pane: MobileReviewPane) => {
+    if (pane === 'ai' && mobilePane !== 'ai') mobileReturnPane.current = mobilePane;
+    setMobilePane(pane);
+  };
+  const selectFile = (path: string) => {
+    setSelectedFilePath(path);
+    if (isMobile) setMobilePane('code');
+  };
+  const selectedFileIndex = diffResult?.files.findIndex((file) => file === selectedFile) ?? -1;
+  const moveFile = (offset: number) => {
+    const file = diffResult?.files[selectedFileIndex + offset];
+    if (file) selectFile(file.newPath);
+  };
+  // Hidden panels stay mounted: drafts, reviews, hunk selections and scroll positions survive navigation.
+  const mobilePaneStyle = (pane: MobileReviewPane): React.CSSProperties => ({
+    display: mobilePane === pane ? undefined : 'none', width: '100%',
+  });
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-[var(--surface-panel)] text-zinc-950 overflow-hidden font-sans">
-      <Header
+    <div className="app-shell flex flex-col h-screen w-screen bg-[var(--surface-panel)] text-zinc-950 overflow-hidden font-sans">
+      {isMobile ? <MobileReviewHeader
+        repoInfo={repoInfo} repoPath={repoPath} isLoading={isLoadingRepo || isLoadingDiff}
+        workspaceMode={workspaceMode} onOpenRepo={() => setIsOpenRepoModal(true)}
+        onWorkingTree={() => { handleSelectWorkingTree(); setWorkspaceMode('diff'); setMobilePane('files'); }}
+        onRefresh={refresh} onSettings={() => setIsSettingsOpen(true)}
+        onWorkspaceMode={(mode) => { setWorkspaceMode(mode); setMobilePane('code'); }}
+      /> : <Header
         repoInfo={repoInfo}
         repoPath={repoPath}
         onRepoChange={setRepoPath}
@@ -321,7 +354,7 @@ export const App: React.FC = () => {
             storage.set(STORAGE_KEYS.sidebarCollapsed, 'true');
           }
         }}
-      />
+      />}
 
       {repoError && (
         <div className="bg-rose-50 border-b border-rose-200 px-4 py-2 text-xs text-rose-700 flex items-center justify-between">
@@ -341,27 +374,29 @@ export const App: React.FC = () => {
       {/* Workspace: history · files · diff · AI dock. Side panes are pixel-sized
           and draggable so a maximized window actually gives the extra width to
           the diff (and to the review, instead of overlaying it). */}
-      <div className="flex-1 flex overflow-hidden min-w-0">
-        {!isSidebarCollapsed && (
+      <div className="flex-1 flex overflow-hidden min-w-0 min-h-0">
+        {(isMobile || !isSidebarCollapsed) && (
           <div
             ref={historyPaneRef}
             className="h-full flex flex-col shrink-0 min-w-0 overflow-hidden"
-            style={{ width: historyWidth }}
+            data-review-pane="history"
+            style={isMobile ? mobilePaneStyle('history') : { width: historyWidth }}
           >
             <CommitGraph
               commits={commits}
               selection={selection}
-              onSelectCommit={handleSelectCommit}
+              compact={isMobile}
+              onSelectCommit={(hash) => { handleSelectCommit(hash); if (isMobile) setMobilePane('files'); }}
               onCompareCommits={handleCompareCommits}
               onExplainCommit={handleExplainCommit}
               onSelectBatchCommits={handleSelectBatchCommits}
               onExplainBatchCommits={handleExplainBatchCommits}
-              onCollapse={handleToggleSidebar}
+              onCollapse={isMobile ? undefined : handleToggleSidebar}
             />
           </div>
         )}
 
-        {!isSidebarCollapsed && (
+        {!isMobile && !isSidebarCollapsed && (
           <ResizeGutter
             panelRef={historyPaneRef}
             min={HISTORY_PANE.min}
@@ -374,7 +409,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {isSidebarCollapsed && (
+        {!isMobile && isSidebarCollapsed && (
           <div
             onClick={handleToggleSidebar}
             className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/15 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
@@ -394,16 +429,17 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {!isFilesPanelCollapsed && (
+        {(isMobile || !isFilesPanelCollapsed) && (
           <div
             ref={filesPaneRef}
             className="h-full flex flex-col shrink-0 min-w-0 overflow-hidden"
-            style={{ width: filesWidth }}
+            data-review-pane="files"
+            style={isMobile ? mobilePaneStyle('files') : { width: filesWidth }}
           >
             <FilesPanel
               diffResult={diffResult}
               selectedFilePath={selectedFilePath}
-              onSelectFile={setSelectedFilePath}
+              onSelectFile={selectFile}
               onExplainAll={handleExplainAll}
               onExplainFile={handleExplainFile}
               onAskFile={
@@ -412,12 +448,12 @@ export const App: React.FC = () => {
                   : undefined
               }
               isLoading={isLoadingDiff}
-              onCollapse={handleToggleFilesPanel}
+              onCollapse={isMobile ? undefined : handleToggleFilesPanel}
             />
           </div>
         )}
 
-        {!isFilesPanelCollapsed && (
+        {!isMobile && !isFilesPanelCollapsed && (
           <ResizeGutter
             panelRef={filesPaneRef}
             min={FILES_PANE.min}
@@ -430,7 +466,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {isFilesPanelCollapsed && (
+        {!isMobile && isFilesPanelCollapsed && (
           <div
             onClick={handleToggleFilesPanel}
             className="w-10 bg-[var(--surface-canvas)] hover:bg-[var(--surface-raised)] border-r border-black/15 flex flex-col items-center py-4 cursor-pointer transition select-none group shrink-0"
@@ -453,7 +489,11 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        <div className="flex-1 h-full flex flex-col min-w-0">
+        <div data-review-pane="code" className="flex-1 h-full flex flex-col min-w-0 min-h-0" style={isMobile ? mobilePaneStyle('code') : undefined}>
+          {isMobile && workspaceMode === 'diff' && <MobileFileNavigation
+            index={selectedFileIndex} count={diffResult?.files.length ?? 0}
+            onBack={() => setMobilePane('files')} onPrevious={() => moveFile(-1)} onNext={() => moveFile(1)}
+          />}
           {workspaceMode === 'learn' ? (
             <LearnWorkbench
               repoPath={repoInfo?.path || repoPath}
@@ -466,9 +506,11 @@ export const App: React.FC = () => {
             />
           ) : (
             <DiffViewer
+              active={!isMobile || mobilePane === 'code'}
               file={selectedFile}
               repoPath={repoInfo?.path || repoPath}
-              viewMode={viewMode}
+              compact={isMobile}
+              viewMode={isMobile ? 'unified' : viewMode}
               onToggleViewMode={setViewMode}
               onExplainHunk={handleExplainHunk}
               onExplainMultipleHunks={handleExplainMultipleHunks}
@@ -478,7 +520,7 @@ export const App: React.FC = () => {
           )}
         </div>
 
-        {isExplanationOpen && workspaceMode !== 'learn' && (
+        {!isMobile && isExplanationOpen && workspaceMode !== 'learn' && (
           <ResizeGutter
             panelRef={aiPaneRef}
             min={AI_PANE.min}
@@ -494,18 +536,21 @@ export const App: React.FC = () => {
 
         <div
           ref={aiPaneRef}
+          data-review-pane="ai"
           className="h-full min-h-0 shrink-0 overflow-hidden"
-          style={{ width: isExplanationOpen && workspaceMode !== 'learn' ? aiPaneWidth : 0 }}
+          style={isMobile ? mobilePaneStyle('ai') : { width: isExplanationOpen && workspaceMode !== 'learn' ? aiPaneWidth : 0 }}
         >
           <AIExplanationDrawer
-            isOpen={isExplanationOpen}
-            onClose={() => setIsExplanationOpen(false)}
+            isOpen={isMobile ? mobilePane === 'ai' : isExplanationOpen}
+            onClose={() => { if (isMobile) setMobilePane(mobileReturnPane.current); else setIsExplanationOpen(false); }}
             scope={explanationScope}
             repoPath={repoInfo?.path || repoPath}
             aiConfig={aiConfig}
           />
         </div>
       </div>
+
+      {isMobile && workspaceMode === 'diff' && <MobileReviewNavigation pane={mobilePane} onChange={selectMobilePane} />}
 
       <OpenRepoModal
         isOpen={isOpenRepoModal}

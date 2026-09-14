@@ -109,7 +109,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
+    <div className="repo-modal fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
       <div className="bg-[#FFFFFF] border border-black/15 rounded-xl w-full max-w-3xl max-h-[90vh] shadow-xl overflow-hidden flex flex-col text-zinc-900 animate-in fade-in zoom-in-95 duration-200">
         {/* Modal Header */}
         <div className="px-6 py-3.5 bg-[#FFFFFF] border-b border-black/15 flex items-center justify-between shrink-0">
@@ -133,9 +133,9 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
         </div>
 
         {/* Modal Body: 2 Columns (Shortcuts & Visual Browser) */}
-        <div className="flex-1 flex overflow-hidden min-h-[420px]">
+        <div className="repo-browser-body flex-1 flex overflow-hidden min-h-[420px]">
           {/* Left Sidebar: Quick Shortcuts & Drives */}
-          <div className="w-48 bg-[#FFFFFF]/80 border-r border-black/10 p-3 flex flex-col space-y-4 shrink-0 overflow-y-auto">
+          <div className="repo-shortcuts w-48 bg-[#FFFFFF]/80 border-r border-black/10 p-3 flex flex-col space-y-4 shrink-0 overflow-y-auto">
             {/* Quick Shortcuts */}
             <div>
               <span className="text-[10px] uppercase font-bold text-zinc-600 tracking-wider block mb-1.5">
@@ -179,7 +179,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
           </div>
 
           {/* Right Main Area: Visual Folder Navigator */}
-          <div className="flex-1 flex flex-col bg-[#FFFFFF] p-4 overflow-hidden space-y-3">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[#FFFFFF] p-4 overflow-hidden space-y-3">
             {/* Current Path Bar & Up Button */}
             <div className="flex items-center space-x-2 bg-[#F5F5F2] border border-black/15 rounded-xl p-1.5">
               <button
@@ -268,7 +268,7 @@ export const OpenRepoModal: React.FC<OpenRepoModalProps> = ({
                   当前目录下没有子文件夹
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {filteredDirs.map((dir) => (
                     <div
                       key={dir.path}

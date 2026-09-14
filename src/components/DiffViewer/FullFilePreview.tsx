@@ -71,7 +71,7 @@ export const FullFilePreview = React.memo<FullFilePreviewProps>(
             </>
           )}
         </div>
-        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto pb-16">
+        <div ref={scrollRef} className="diff-code-scroll flex-1 min-h-0 overflow-auto pb-16">
           {children}
         </div>
       </div>

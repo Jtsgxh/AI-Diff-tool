@@ -17,6 +17,8 @@ import { FullFilePreview } from './FullFilePreview';
 import { FullDiffContextBlock } from './FullDiffContextBlock';
 
 interface DiffViewerProps {
+  compact?: boolean;
+  active?: boolean;
   file: DiffFile | null;
   repoPath: string;
   viewMode: DiffViewMode;
@@ -37,6 +39,8 @@ interface DiffViewerProps {
 }
 
 export const DiffViewer = React.memo<DiffViewerProps>(({
+  compact = false,
+  active = true,
   file,
   repoPath,
   viewMode,
@@ -134,7 +138,8 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   );
 
   useEffect(() => {
-    if (displayMode !== 'file' || !expandedDiff.blocks) {
+    if (!active) return;
+    if (!hunks?.length || (displayMode === 'file' && !expandedDiff.blocks)) {
       setHunkNavigation({ current: 0, canPrevious: false, canNext: false });
       return;
     }
@@ -145,6 +150,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
     const updateNavigation = () => {
       animationFrame = 0;
+      if (!container.getClientRects().length) return;
       const viewportTop = container.getBoundingClientRect().top;
       const elements = Array.from(
         container.querySelectorAll<HTMLElement>('[data-diff-hunk-index]')
@@ -186,7 +192,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
       window.removeEventListener('resize', scheduleUpdate);
       if (animationFrame) cancelAnimationFrame(animationFrame);
     };
-  }, [displayMode, expandedDiff.blocks]);
+  }, [active, displayMode, expandedDiff.blocks, hunks]);
 
   const jumpToHunk = useCallback((direction: 'previous' | 'next') => {
     const container = fullFileScrollRef.current;
@@ -267,7 +273,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[var(--surface-panel)] text-zinc-600 p-8">
         <FileCode className="w-12 h-12 mb-3 text-zinc-500 stroke-1" />
-        <p className="text-sm font-medium text-zinc-700">请选择左侧文件以查看代码差异对比</p>
+        <p className="text-sm font-medium text-zinc-700">请选择文件以查看代码差异对比</p>
         <p className="text-xs text-zinc-500 mt-1">
           支持「⚡ 直接 Diff 解释」、「🧠 文件关联解释 (Codex)」与「🤖 AI 伪代码对照」
         </p>
@@ -278,6 +284,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   return (
     <div className="flex-1 flex flex-col h-full bg-[var(--surface-panel)] overflow-hidden relative">
       <DiffToolbar
+        compact={compact}
         file={file}
         hunkCount={hunks.length}
         selectedCount={selectedHunkIds.size}
@@ -307,7 +314,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
             error={filePreviewError || expandedDiff.error}
             scrollRef={fullFileScrollRef}
           >
-            <div style={{ ['--diff-split-left' as string]: `${split.pct}%` }}>
+            <div className={viewMode === 'unified' ? 'diff-unified-canvas' : undefined} style={{ ['--diff-split-left' as string]: `${split.pct}%` }}>
               {expandedDiff.blocks?.map((block) =>
                 block.type === 'context' ? (
                   <FullDiffContextBlock
@@ -318,6 +325,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
                   />
                 ) : (
                   <HunkBlock
+                    compact={compact}
                     key={block.hunk.id}
                     hunk={block.hunk}
                     viewMode={viewMode}
@@ -338,11 +346,14 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
           </FullFilePreview>
         ) : (
           <div
-            className="absolute inset-0 overflow-auto pb-16"
+            ref={fullFileScrollRef}
+            className="diff-code-scroll absolute inset-0 overflow-auto pb-16"
             style={{ ['--diff-split-left' as string]: `${split.pct}%` }}
           >
+            <div className={viewMode === 'unified' ? 'diff-unified-canvas' : undefined}>
             {hunks.map((hunk) => (
               <HunkBlock
+                compact={compact}
                 key={hunk.id}
                 hunk={hunk}
                 viewMode={viewMode}
@@ -358,6 +369,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
                 onExplain={handleExplainHunk}
               />
             ))}
+            </div>
           </div>
         )}
 
@@ -384,7 +396,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
 
       {/* Multi-selection action bar */}
       {selectedHunkIds.size > 0 && (
-        <div className="absolute bottom-3 left-6 right-6 bg-[#F5F5F2]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
+        <div className="diff-selection-bar absolute bottom-3 left-6 right-6 bg-[#F5F5F2]/95 border border-zinc-400 rounded-xl px-4 py-2.5 shadow-xl flex items-center justify-between z-30 animate-in slide-in-from-bottom-2 duration-150">
           <div className="flex items-center space-x-3 text-xs">
             <div className="flex items-center space-x-1.5 text-zinc-800 font-semibold font-mono">
               <Layers className="w-4 h-4 text-zinc-700" />

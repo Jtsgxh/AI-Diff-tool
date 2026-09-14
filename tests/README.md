@@ -1,3 +1,18 @@
+# Mobile review regression
+
+With the Vite client running and Playwright available, run `node tests/mobile-review.mjs`.
+Set `MOBILE_TEST_URL` to the client URL (default `http://localhost:5173`),
+`MOBILE_TEST_BROWSER` to an installed Chromium channel (default `msedge`), and
+optionally `MOBILE_TEST_OUTPUT` for screenshots. If Playwright is provided by an
+external runtime, set `NODE_PATH` to its `node_modules` directory.
+
+The isolated touch browser context intercepts all API calls. It verifies commit →
+file → unified Diff → AI navigation, file and hunk navigation, full-file mode,
+long code scrolling, background review completion without duplicate requests,
+draft/scroll preservation, widths 320/390/430/767, phone landscape, a short viewport, and restoration
+of desktop panel sizes and split view. It generates screenshots in the system temp
+directory by default. No live model calls or repository writes are made.
+
 # Learn graph performance regression
 
 Run the scheduler and layout tests:

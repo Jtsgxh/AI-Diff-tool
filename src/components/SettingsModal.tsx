@@ -226,7 +226,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
+    <div className="settings-modal fixed inset-0 z-50 bg-black/25 flex items-center justify-center p-4">
       <div className="bg-[#FFFFFF] border border-black/15 rounded-xl w-full max-w-2xl shadow-xl overflow-hidden text-zinc-900 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="px-5 py-4 bg-[#FFFFFF] border-b border-black/15 flex items-center justify-between shrink-0">

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 interface CommitGraphProps {
+  compact?: boolean;
   commits: CommitNode[];
   selection: SelectionState;
   onSelectCommit: (hash: string) => void;
@@ -37,6 +38,7 @@ const DOT_RADIUS = 5;
  * re-render and its inputs are unrelated to AI streaming state.
  */
 export const CommitGraph = React.memo<CommitGraphProps>(({
+  compact = false,
   commits,
   selection,
   onSelectCommit,
@@ -161,6 +163,23 @@ export const CommitGraph = React.memo<CommitGraphProps>(({
   };
 
   const svgWidth = Math.max(LANE_WIDTH * (maxColumns + 1), 32);
+
+  if (compact) {
+    return <section className="flex h-full min-h-0 flex-col bg-white" aria-label="提交历史">
+      <div className="shrink-0 border-b border-black/10 p-3">
+        <h2 className="mb-2 text-sm font-semibold">提交历史 <span className="text-zinc-500">{commits.length}</span></h2>
+        <input aria-label="搜索提交" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="搜索提交、作者或 SHA" className="w-full rounded-lg border border-black/15 bg-zinc-50 px-3 py-2 text-sm" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {filteredCommits.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">{commits.length ? '没有匹配的提交' : '暂无提交，可从菜单查看未提交变更'}</p>}
+        {filteredCommits.map((commit) => <button key={commit.hash} onClick={() => onSelectCommit(commit.hash)} aria-current={selection.type === 'commit' && selection.commitHash === commit.hash ? 'true' : undefined} className={`block w-full border-b border-black/10 px-4 py-3 text-left ${selection.type === 'commit' && selection.commitHash === commit.hash ? 'bg-sky-50' : ''}`}>
+          <span className="block break-words text-sm font-medium leading-6">{commit.message}</span>
+          <span className="mt-1 flex items-center justify-between gap-3 text-xs text-zinc-500"><span className="truncate">{commit.author}</span><span className="font-mono">{commit.shortHash}</span></span>
+          {commit.refs.length > 0 && <span className="mt-1 block truncate text-xs text-emerald-700">{commit.refs.join(' · ')}</span>}
+        </button>)}
+      </div>
+    </section>;
+  }
 
   return (
     <div className="flex flex-col h-full bg-[var(--surface-panel)] border-r border-black/15 text-zinc-900">

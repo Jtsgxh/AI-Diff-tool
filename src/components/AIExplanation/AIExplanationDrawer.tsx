@@ -156,8 +156,8 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
     >
       {/* 1. Header & session tabs */}
       <div className="border-b border-black/15 bg-[#FFFFFF] flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-black/10">
-          <div className="flex items-center space-x-2.5">
+        <div className="ai-review-heading flex items-center justify-between px-4 py-2.5 border-b border-black/10">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center space-x-2 text-sm font-semibold text-zinc-950">
               <Sparkles className="w-4 h-4 text-zinc-700" />
               <span>AI 深度审查工作台</span>
@@ -202,7 +202,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
         />
 
         {activeSession && (
-          <div className="flex items-center justify-between px-4 py-2 bg-[#EFEFEC] text-xs">
+          <div className="ai-review-controls flex items-center justify-between px-4 py-2 bg-[#EFEFEC] text-xs">
             <div className="flex items-center bg-[var(--surface-raised)] p-0.5 rounded-lg border border-black/10">
               <button
                 onClick={() => handleSwitchMode('agent')}
@@ -271,7 +271,7 @@ export const AIExplanationDrawer: React.FC<AIExplanationDrawerProps> = ({
       {/* 2. Report body */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4 text-zinc-900 select-text scroll-smooth"
+        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-zinc-900 select-text scroll-smooth"
       >
         {!activeSession ? (
           <div className="h-full flex flex-col items-center justify-center text-zinc-600 text-xs space-y-2">

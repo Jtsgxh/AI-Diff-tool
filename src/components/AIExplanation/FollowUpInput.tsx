@@ -39,11 +39,12 @@ export const FollowUpInput = React.memo<FollowUpInputProps>(({ disabled, onSend 
             ? 'AI 正在自主探查与生成中...'
             : '追问 AI：例如“这个方法有潜在并发问题吗？”或“在哪些地方被调用了？”'
         }
-        className="flex-1 bg-[var(--surface-raised)] text-xs text-zinc-900 px-3 py-2 rounded-lg border border-black/10 focus:outline-none focus:border-zinc-400 transition placeholder:text-zinc-600 disabled:opacity-50 font-sans"
+        className="flex-1 min-w-0 bg-[var(--surface-raised)] text-xs text-zinc-900 px-3 py-2 rounded-lg border border-black/10 focus:outline-none focus:border-zinc-400 transition placeholder:text-zinc-600 disabled:opacity-50 font-sans"
       />
 
       <button
         type="submit"
+        aria-label="发送追问"
         disabled={!text.trim() || disabled}
         className="bg-[#C4C4C8] hover:bg-zinc-400 disabled:opacity-40 text-zinc-950 p-2 rounded-lg transition shrink-0"
       >

@@ -9,6 +9,7 @@ import { estimateHunkHeight } from './hunkMetrics';
 import type { NaturalLanguageEntry, PseudocodeLines } from './hooks/useHunkAnnotations';
 
 export interface HunkBlockProps {
+  compact?: boolean;
   hunk: DiffHunk;
   viewMode: DiffViewMode;
   isSelected: boolean;
@@ -32,6 +33,7 @@ export interface HunkBlockProps {
  */
 export const HunkBlock = React.memo<HunkBlockProps>(
   ({
+    compact = false,
     hunk,
     viewMode,
     isSelected,
@@ -57,9 +59,22 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             : 'hover:bg-black/[0.015]'
         }`}
       >
-        {/* Floating hover toolbar */}
-        <div
-          className={`absolute right-4 top-2 z-20 flex items-center space-x-1.5 transition-opacity duration-150 ${
+        {compact ? <div className="diff-viewport-content border-b border-black/10 bg-[#F5F5F2] px-2 text-xs">
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-zinc-500">块 #{hunk.index}</span>
+            <button className="px-2 text-amber-800" onClick={() => onExplain(hunk, 'fast')}>直接解释</button>
+            <button className="px-2 text-sky-800" onClick={() => onExplain(hunk, 'agent')}>关联解释</button>
+            <details>
+              <summary className="flex cursor-pointer list-none items-center px-2">更多</summary>
+              <div className="absolute right-2 z-30 flex w-52 flex-col rounded-lg border border-black/15 bg-white p-2 shadow-xl">
+                <button className="px-2 text-left" onClick={() => onToggleSelection(hunk.id)}>{isSelected ? '取消选择此块' : '选择此块'}</button>
+                <button className="px-2 text-left" onClick={() => onTogglePseudocode(hunk)}>{pseudocode?.error || pseudocode?.warning ? '重试 AI 伪代码' : showPseudocode ? '关闭 AI 伪代码' : '开启 AI 伪代码'}</button>
+                <button className="px-2 text-left" onClick={() => onToggleNaturalLanguage(hunk)}>{showNaturalLanguage ? '收起块释义' : '展开块释义'}</button>
+              </div>
+            </details>
+          </div>
+        </div> : <div
+          className={`hunk-actions absolute right-4 top-2 z-20 flex items-center space-x-1.5 transition-opacity duration-150 ${
             isSelected || showNaturalLanguage || showPseudocode
               ? 'opacity-100'
               : 'opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto'
@@ -150,7 +165,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             <Brain className="w-3.5 h-3.5" />
             <span>关联解释 (Codex)</span>
           </button>
-        </div>
+        </div>}
 
         {/* Split mode carries its own header; unified renders it inline with the rows. */}
         {viewMode === 'split' && (
@@ -169,7 +184,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
 
         {showPseudocode && (pseudocode?.error || pseudocode?.warning) && (
           <div
-            className={`border-y px-5 py-2.5 text-xs flex items-start space-x-2 ${
+            className={`diff-viewport-content border-y px-5 py-2.5 text-xs flex items-start space-x-2 ${
               pseudocode.error
                 ? 'bg-rose-50 border-rose-200 text-rose-900'
                 : 'bg-amber-50 border-amber-200 text-amber-900'
@@ -192,7 +207,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
         )}
 
         {showNaturalLanguage && (
-          <div className="bg-zinc-100/80 border-y border-zinc-400 px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150">
+          <div className="diff-viewport-content bg-zinc-100/80 border-y border-zinc-400 px-5 py-3.5 text-xs text-zinc-900 flex items-start space-x-3 shadow-inner animate-in fade-in duration-150">
             <div className="p-1.5 rounded-lg bg-zinc-100 text-zinc-800 shrink-0 mt-0.5 border border-zinc-400">
               <BookOpen className="w-4 h-4 text-zinc-700" />
             </div>
