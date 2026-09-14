@@ -12,6 +12,7 @@ long code wrapping and horizontal background coverage, touch commit range select
 (including reverse endpoints, hidden intermediate commits and cancellation), background review completion without duplicate requests,
 action-menu dismissal after selection, mode changes, inline/external explanations, outside taps and Escape,
 per-hunk code/explanation pages with native touch swiping, width changes, closing and full-file mode,
+floating full-file diff navigation (previous/next, direct jump and landscape focus),
 workspace restoration after reload and tab recreation (commit range, selected file,
 Diff/full-file mode, wrapping and scroll position), per-repository isolation and invalid-selection fallback,
 draft/scroll preservation, widths 320/390/430/767, phone landscape focus with controls

@@ -17,6 +17,7 @@ import { FullFilePreview } from './FullFilePreview';
 import { FullDiffContextBlock } from './FullDiffContextBlock';
 import { readWorkspace, updateWorkspace } from '../../services/workspaceState';
 import { usePersistentDiffScroll } from '../../hooks/usePersistentDiffScroll';
+import { MobileDiffJump } from './MobileDiffJump';
 
 interface DiffViewerProps {
   compact?: boolean;
@@ -211,7 +212,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
     };
   }, [active, displayMode, expandedDiff.blocks, hunks, wrapLines]);
 
-  const jumpToHunk = useCallback((direction: 'previous' | 'next') => {
+  const jumpToHunk = useCallback((direction: 'previous' | 'next' | number) => {
     const container = fullFileScrollRef.current;
     if (!container) return;
     const viewportTop = container.getBoundingClientRect().top;
@@ -219,7 +220,9 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
       container.querySelectorAll<HTMLElement>('[data-diff-hunk-index]')
     );
     const target =
-      direction === 'next'
+      typeof direction === 'number'
+        ? elements.find((element) => Number(element.dataset.diffHunkIndex) === direction)
+        : direction === 'next'
         ? elements.find((element) => element.getBoundingClientRect().top > viewportTop + 2)
         : elements
             .slice()
@@ -298,8 +301,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
     );
   }
 
+  const showMobileJumps = compact && displayMode === 'file' && !!expandedDiff.blocks && hunks.length > 0;
+
   return (
-    <div className={`flex-1 flex flex-col h-full bg-[var(--surface-panel)] overflow-hidden relative ${wrapLines ? 'diff-wrap-lines' : ''}`}>
+    <div className={`flex-1 flex flex-col h-full bg-[var(--surface-panel)] overflow-hidden relative ${wrapLines ? 'diff-wrap-lines' : ''} ${showMobileJumps ? 'has-mobile-diff-jumps' : ''}`}>
       <DiffToolbar
         wrapLines={wrapLines}
         onToggleWrapLines={() => setMobileWrapLines((value) => !value)}
@@ -412,6 +417,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
           </div>
         )}
       </div>
+
+      {showMobileJumps && <MobileDiffJump count={hunks.length} current={hunkNavigation.current}
+        canPrevious={hunkNavigation.canPrevious} canNext={hunkNavigation.canNext}
+        onPrevious={jumpToPreviousHunk} onNext={jumpToNextHunk} onJump={jumpToHunk} />}
 
       {/* Multi-selection action bar */}
       {selectedHunkIds.size > 0 && (

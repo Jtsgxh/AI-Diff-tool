@@ -227,6 +227,21 @@ try {
   assert.equal(await firstHunk.locator('.hunk-explanation-page').count(), 0);
   await pane('code').getByRole('button', { name: '看全文', exact: true }).click();
   await pane('code').getByText('240 行', { exact: true }).waitFor();
+  const waitForHunkAtTop = (index) => page.waitForFunction((hunkIndex) => {
+    const scroller = document.querySelector('[data-review-pane="code"] .diff-code-scroll');
+    const hunk = scroller.querySelector(`[data-diff-hunk-index="${hunkIndex}"]`);
+    return Math.abs(hunk.getBoundingClientRect().top - scroller.getBoundingClientRect().top) < 2;
+  }, index);
+  const jumpControls = page.getByRole('navigation', { name: '全文差异跳转', exact: true });
+  await jumpControls.getByLabel('跳转到指定差异').selectOption('3');
+  await waitForHunkAtTop(3);
+  assert.equal(await jumpControls.getByRole('button', { name: '下一处差异', exact: true }).isDisabled(), true);
+  await jumpControls.getByRole('button', { name: '上一处差异', exact: true }).tap();
+  await waitForHunkAtTop(2);
+  await jumpControls.getByLabel('跳转到指定差异').selectOption('1');
+  await waitForHunkAtTop(1);
+  assert.equal(await jumpControls.getByRole('button', { name: '上一处差异', exact: true }).isDisabled(), true);
+  await page.screenshot({ path: join(output, 'full-file-jump-controls.png') });
   await openHunkMenu();
   await hunkMenu.getByRole('button', { name: '展开块释义', exact: true }).tap();
   await firstHunk.getByRole('button', { name: '查看右侧块释义', exact: true }).tap();
@@ -280,6 +295,14 @@ try {
   await page.getByRole('button', { name: '收起操作栏', exact: true }).tap();
   assert.equal(await page.locator('.diff-file-metadata').isVisible(), false, 'full-file metadata also hides in focus');
   assert.equal((await pane('code').locator('.diff-code-scroll').boundingBox()).height, 390);
+  assert.equal(await jumpControls.isVisible(), true, 'jump controls remain available in landscape focus');
+  await jumpControls.getByLabel('跳转到指定差异').selectOption('3');
+  await waitForHunkAtTop(3);
+  await jumpControls.getByRole('button', { name: '上一处差异', exact: true }).tap();
+  await waitForHunkAtTop(2);
+  const jumpBox = await jumpControls.boundingBox();
+  const menuBox = await page.getByRole('button', { name: '展开操作栏', exact: true }).boundingBox();
+  assert.ok(jumpBox.x + jumpBox.width <= menuBox.x, 'jump controls do not cover the landscape menu');
   await page.screenshot({ path: join(output, 'landscape-focused-full-file.png') });
   await page.setViewportSize({ width: 390, height: 844 });
   await nav.waitFor({ state: 'visible' });

@@ -34,6 +34,8 @@
 .app-shell--reading { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 .app-shell--reading .diff-code-scroll { padding-bottom: 0; }
 .diff-reading-toggle { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); }
+.app-shell--reading .has-mobile-diff-jumps .diff-code-scroll { padding-bottom: 56px; }
+.has-mobile-diff-jumps .diff-selection-bar { bottom: 64px; }
 
 /* Phone review uses one mounted panel at a time; desktop sizing remains in App. */
 @media (max-width: 767px), (max-width: 1023px) and (max-height: 500px) and (pointer: coarse) {

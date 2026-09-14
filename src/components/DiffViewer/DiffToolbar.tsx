@@ -72,11 +72,11 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
     if (compact) return <div className="mobile-diff-toolbar shrink-0 border-b border-black/15 bg-white text-xs">
       <div className="flex items-center justify-between gap-1 px-2">
         <button onClick={() => onDisplayMode(displayMode === 'diff' ? 'file' : 'diff')} disabled={displayMode === 'diff' && !file.previewSource} className="px-2">{displayMode === 'diff' ? '看全文' : '看差异'}</button>
-        <div className="flex items-center">
+        {displayMode !== 'file' && <div className="flex items-center">
           <button aria-label="上一处差异" disabled={!canJumpToPreviousHunk} onClick={onJumpToPreviousHunk}><ArrowUp className="h-4 w-4" /></button>
           <span className="font-mono">{currentHunkNumber}/{hunkCount}</span>
           <button aria-label="下一处差异" disabled={!canJumpToNextHunk} onClick={onJumpToNextHunk}><ArrowDown className="h-4 w-4" /></button>
-        </div>
+        </div>}
         <button className="px-2 font-semibold text-sky-800" onClick={onExplainFile}>AI 解释</button>
         <ActionMenu label="文件的更多操作">
             <div className="border-b border-[var(--border-subtle)] px-2 py-2">
