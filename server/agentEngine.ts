@@ -39,6 +39,10 @@ import type {
   PartialAIProviderConfig,
 } from '../shared/types';
 import { validateLearnAnalysisEnvelope } from '../shared/learnGraphSchema';
+import {
+  normalizeDeepSeekReasoningResponse,
+  prepareDeepSeekToolRequest,
+} from './deepSeekReasoning';
 
 export type AgentExecutionConfig = PartialAIProviderConfig;
 export type AgentExplainOptions = AgentExplainRequest;
@@ -267,8 +271,6 @@ export class CodexAgentEngine {
     let accumulatedContent = '';
     let lastTurnContent = '';
     let accumulatedReasoningContent = '';
-    const completedReasoningTurns: string[] = [];
-    let currentReasoningTurn = '';
     let actionCount = 0;
     let hitMaxTurns = false;
     let outputTruncated = false;
@@ -284,55 +286,21 @@ export class CodexAgentEngine {
     };
 
     try {
-      // The Agents SDK drops DeepSeek's `reasoning_content` from replay history.
-      // Reattach the raw value captured for each completed model turn whenever
-      // the next Chat Completions request still carries tools.
+      // DeepSeek calls its field `reasoning_content`, while the Agents SDK
+      // persists `reasoning`. Normalize both directions at the transport
+      // boundary so each tool-loop continuation replays the exact model turn.
       const customFetch: typeof fetch = async (input, init) => {
         if (requiresReasoningRoundTrip && typeof init?.body === 'string') {
-          let parsedBody: any = null;
-          try {
-            parsedBody = JSON.parse(init.body);
-          } catch {
-            // Non-JSON requests are unrelated to Chat Completions.
-          }
-          if (
-            parsedBody &&
-            Array.isArray(parsedBody.messages) &&
-            Array.isArray(parsedBody.tools) &&
-            parsedBody.tools.length > 0
-          ) {
-            let reasoningIndex = 0;
-            let reasoningForTurn: string | undefined;
-            let insideAssistantTurn = false;
-            for (const msg of parsedBody.messages) {
-              if (msg.role === 'tool') {
-                insideAssistantTurn = false;
-                continue;
-              }
-              if (msg.role !== 'assistant') continue;
-              if (!insideAssistantTurn) {
-                // The SDK may split one response into consecutive assistant
-                // content and tool-call messages; both belong to this turn.
-                reasoningForTurn = completedReasoningTurns[reasoningIndex++];
-                insideAssistantTurn = true;
-              }
-              const reasoning = msg.reasoning_content ?? msg.reasoning ?? reasoningForTurn;
-              if (typeof reasoning !== 'string') {
-                throw new Error(
-                  'DeepSeek thinking 工具续轮缺少上一轮 reasoning_content，已停止发送无效请求'
-                );
-              }
-              msg.reasoning_content = reasoning;
-              delete msg.reasoning;
-            }
-            init = { ...init, body: JSON.stringify(parsedBody) };
-          }
+          init = { ...init, body: prepareDeepSeekToolRequest(init.body) };
         }
         // Propagate client disconnects down to the provider connection.
         const signal = init?.signal
           ? AbortSignal.any([init.signal, stream.signal])
           : stream.signal;
-        return fetch(input, { ...init, signal });
+        const response = await fetch(input, { ...init, signal });
+        return requiresReasoningRoundTrip
+          ? normalizeDeepSeekReasoningResponse(response)
+          : response;
       };
 
       openaiClient = new OpenAI({
@@ -430,7 +398,6 @@ export class CodexAgentEngine {
             const reasoningChunk = extractReasoningDelta(delta);
 
             if (reasoningChunk) {
-              currentReasoningTurn += reasoningChunk;
               accumulatedReasoningContent += reasoningChunk;
               stream.send({ type: 'thought', text: reasoningChunk });
               stream.send({
@@ -440,10 +407,6 @@ export class CodexAgentEngine {
                   .slice(-80)
                   .replace(/\n/g, ' ')}...`,
               });
-            }
-            if (requiresReasoningRoundTrip && choice?.finish_reason) {
-              completedReasoningTurns.push(currentReasoningTurn);
-              currentReasoningTurn = '';
             }
             if (delta?.content) {
               emitAssistantContent(delta.content);
