@@ -119,6 +119,7 @@ export function prepareDeepSeekToolRequest(body: string): string {
     // as one assistant turn containing content, reasoning_content and tools.
     const assistantTurn = { ...message };
     const toolCalls = [...(assistantTurn.tool_calls ?? [])];
+    const contentFragments = [assistantTurn.content];
     let reasoning = assistantTurn.reasoning_content ?? assistantTurn.reasoning;
     delete assistantTurn.reasoning;
 
@@ -127,7 +128,7 @@ export function prepareDeepSeekToolRequest(body: string): string {
       const fragmentReasoning = fragment.reasoning_content ?? fragment.reasoning;
       if (reasoning === undefined) reasoning = fragmentReasoning;
       if (fragment.content !== undefined && fragment.content !== null) {
-        assistantTurn.content = mergeAssistantContent(assistantTurn.content, fragment.content);
+        contentFragments.push(fragment.content);
       }
       if (Array.isArray(fragment.tool_calls)) toolCalls.push(...fragment.tool_calls);
     }
@@ -137,12 +138,10 @@ export function prepareDeepSeekToolRequest(body: string): string {
         'DeepSeek thinking 工具续轮缺少上一轮 reasoning_content，已停止发送无效请求'
       );
     }
+    assistantTurn.content = contentFragments.map(assistantContentText).join('');
     assistantTurn.reasoning_content = reasoning;
     if (toolCalls.length > 0) {
       assistantTurn.tool_calls = toolCalls;
-      if (assistantTurn.content === null || assistantTurn.content === undefined) {
-        assistantTurn.content = '';
-      }
     } else {
       delete assistantTurn.tool_calls;
     }
@@ -153,9 +152,16 @@ export function prepareDeepSeekToolRequest(body: string): string {
   return JSON.stringify(request);
 }
 
-function mergeAssistantContent(current: unknown, next: unknown): unknown {
-  if (current === null || current === undefined) return next;
-  if (typeof current === 'string' && typeof next === 'string') return current + next;
-  if (Array.isArray(current) && Array.isArray(next)) return [...current, ...next];
-  return current;
+function assistantContentText(content: unknown): string {
+  if (content === null || content === undefined) return '';
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        return part && typeof part.text === 'string' ? part.text : '';
+      })
+      .join('');
+  }
+  throw new Error('DeepSeek thinking 工具续轮的 assistant.content 不是字符串，已停止发送无效请求');
 }

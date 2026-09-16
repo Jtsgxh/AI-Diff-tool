@@ -96,7 +96,8 @@ test('DeepSeek agent detects an unlisted thinking model and replays consecutive 
         (message: any) =>
           typeof message.reasoning_content !== 'string' ||
           !message.reasoning_content ||
-          Object.hasOwn(message, 'reasoning')
+          Object.hasOwn(message, 'reasoning') ||
+          typeof message.content !== 'string'
       );
       const consecutiveAssistant = body.messages.some(
         (message: any, index: number) =>
@@ -203,7 +204,7 @@ test('DeepSeek agent detects an unlisted thinking model and replays consecutive 
         {
           reasoning: 'reasoning-turn-1',
           toolCalls: 1,
-          content: [{ type: 'text', text: '先读取入口文件。', annotations: [] }],
+          content: '先读取入口文件。',
         },
         { reasoning: 'reasoning-turn-2', toolCalls: 1, content: '' },
       ]
