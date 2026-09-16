@@ -6,7 +6,10 @@ import path from 'node:path';
 import test from 'node:test';
 import type { Response as ExpressResponse } from 'express';
 import { CodexAgentEngine } from '../server/agentEngine';
-import { normalizeDeepSeekReasoningResponse } from '../server/deepSeekReasoning';
+import {
+  normalizeDeepSeekReasoningResponse,
+  prepareDeepSeekToolRequest,
+} from '../server/deepSeekReasoning';
 
 function completionStream(deltas: Record<string, unknown>[], finishReason: string): Response {
   const frames = [
@@ -14,14 +17,14 @@ function completionStream(deltas: Record<string, unknown>[], finishReason: strin
       id: 'chatcmpl-deepseek-fixture',
       object: 'chat.completion.chunk',
       created: 1,
-      model: 'deepseek-v4-pro',
+      model: 'deepseek-flash',
       choices: [{ index: 0, delta, finish_reason: null }],
     })),
     {
       id: 'chatcmpl-deepseek-fixture',
       object: 'chat.completion.chunk',
       created: 1,
-      model: 'deepseek-v4-pro',
+      model: 'deepseek-flash',
       choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
     },
   ];
@@ -47,17 +50,35 @@ class CapturedResponse extends EventEmitter {
 
 test('DeepSeek reasoning stream is mirrored into the field understood by the Agents SDK', async () => {
   const source = completionStream([{ reasoning_content: '完整推理' }], 'stop');
-  const normalized = normalizeDeepSeekReasoningResponse(source);
+  let detected = false;
+  const normalized = normalizeDeepSeekReasoningResponse(source, () => {
+    detected = true;
+  });
   const text = await normalized.text();
   const firstDataLine = text.split('\n').find((line) => line.startsWith('data: {'))!;
   const event = JSON.parse(firstDataLine.slice('data: '.length));
 
   assert.equal(event.choices[0].delta.reasoning_content, '完整推理');
   assert.equal(event.choices[0].delta.reasoning, '完整推理');
+  assert.equal(detected, true);
   assert.match(text, /data: \[DONE\]/);
 });
 
-test('DeepSeek agent replays exact reasoning across consecutive tool turns', async () => {
+test('non-thinking tool history is left unchanged', () => {
+  const body = JSON.stringify({
+    model: 'deepseek-chat',
+    messages: [
+      { role: 'user', content: '检查代码' },
+      { role: 'assistant', content: '调用工具', tool_calls: [{ id: 'call_1' }] },
+      { role: 'tool', tool_call_id: 'call_1', content: '结果' },
+    ],
+    tools: [{ type: 'function' }],
+  });
+
+  assert.equal(prepareDeepSeekToolRequest(body), body);
+});
+
+test('DeepSeek agent detects an unlisted thinking model and replays consecutive tool turns', async () => {
   const repo = await mkdtemp(path.join(tmpdir(), 'deepseek-reasoning-'));
   const originalFetch = globalThis.fetch;
   const requestBodies: any[] = [];
@@ -151,7 +172,8 @@ test('DeepSeek agent replays exact reasoning across consecutive tool turns', asy
           provider: 'custom',
           apiKey: 'fixture-key',
           baseUrl: 'http://fixture.invalid/v1',
-          model: 'deepseek-v4-pro',
+          // This name deliberately did not match the old v4/reasoner heuristic.
+          model: 'deepseek-flash',
           maxExplorationTurns: 10,
           maxRetries: 0,
         },

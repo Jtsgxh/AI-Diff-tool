@@ -6,7 +6,10 @@ const SSE_DATA_PREFIX = /^data:(\s?)/;
  * SDK consumes the stream so reasoning stays attached to the model turn that
  * produced it instead of being reconstructed later from observer events.
  */
-export function normalizeDeepSeekReasoningResponse(response: Response): Response {
+export function normalizeDeepSeekReasoningResponse(
+  response: Response,
+  onReasoningContent?: () => void
+): Response {
   if (
     !response.body ||
     !response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')
@@ -32,13 +35,12 @@ export function normalizeDeepSeekReasoningResponse(response: Response): Response
       let changed = false;
       for (const choice of event?.choices ?? []) {
         const delta = choice?.delta;
-        if (
-          delta &&
-          typeof delta.reasoning_content === 'string' &&
-          typeof delta.reasoning !== 'string'
-        ) {
-          delta.reasoning = delta.reasoning_content;
-          changed = true;
+        if (delta && typeof delta.reasoning_content === 'string') {
+          onReasoningContent?.();
+          if (typeof delta.reasoning !== 'string') {
+            delta.reasoning = delta.reasoning_content;
+            changed = true;
+          }
         }
       }
       return changed ? `data:${prefix[1]}${JSON.stringify(event)}${lineEnding}` : line;
@@ -96,6 +98,13 @@ export function prepareDeepSeekToolRequest(body: string): string {
   ) {
     return body;
   }
+
+  const hasReasoningHistory = request.messages.some((message: any) => {
+    if (message?.role !== 'assistant') return false;
+    const reasoning = message.reasoning_content ?? message.reasoning;
+    return typeof reasoning === 'string' && reasoning.length > 0;
+  });
+  if (!hasReasoningHistory) return body;
 
   const messages: any[] = [];
   for (let index = 0; index < request.messages.length; index++) {

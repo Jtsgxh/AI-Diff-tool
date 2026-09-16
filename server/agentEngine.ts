@@ -275,7 +275,7 @@ export class CodexAgentEngine {
     let hitMaxTurns = false;
     let outputTruncated = false;
 
-    const requiresReasoningRoundTrip = requiresDeepSeekReasoningRoundTrip(provider);
+    let requiresReasoningRoundTrip = requiresDeepSeekReasoningRoundTrip(provider);
     const emitAssistantContent = (content: string) => {
       accumulatedContent += content;
       lastTurnContent += content;
@@ -298,9 +298,12 @@ export class CodexAgentEngine {
           ? AbortSignal.any([init.signal, stream.signal])
           : stream.signal;
         const response = await fetch(input, { ...init, signal });
-        return requiresReasoningRoundTrip
-          ? normalizeDeepSeekReasoningResponse(response)
-          : response;
+        // Model aliases and compatible gateways do not reliably advertise
+        // thinking support in their names. Detect the vendor field from the
+        // first streamed response and enable exact replay for later tool turns.
+        return normalizeDeepSeekReasoningResponse(response, () => {
+          requiresReasoningRoundTrip = true;
+        });
       };
 
       openaiClient = new OpenAI({
