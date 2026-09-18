@@ -111,6 +111,11 @@ test('learn analysis uses JSON Output before streaming the prose stage', async (
     assert.ok(requestBodies[0].tools?.length);
     assert.deepEqual(requestBodies[1].response_format, { type: 'json_object' });
     assert.equal(requestBodies[2].response_format, undefined);
+    // 结构化输出和正文综合都不应携带工具声明，避免旧探查模式干扰生成。
+    for (const body of requestBodies.slice(1)) {
+      assert.equal(Object.hasOwn(body, 'tools'), false);
+      assert.equal(Object.hasOwn(body, 'tool_choice'), false);
+    }
 
     const wire = response.chunks.join('');
     const graphAt = wire.indexOf('```learn-graph');

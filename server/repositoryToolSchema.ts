@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// 所有仓库请求共用同一组工具定义，直接解释通过 tool_choice 禁用调用。
+// 关联探查使用稳定的工具定义，直接解释和综合输出不发送工具声明。
 export const repositoryToolSpecs: { name: string; description: string; parameters: z.ZodObject<any> }[] = [
   { name: 'read_file', description: '读取当前代码库中指定文件的源代码内容。在分析 Diff 中涉及的外部类、接口或调用逻辑时使用。', parameters: z.object({
     file_path: z.string().describe('相对于仓库根目录的文件路径 (例如: "src/Actors/Actor.cs")'),

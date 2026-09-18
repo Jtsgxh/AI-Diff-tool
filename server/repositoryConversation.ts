@@ -11,7 +11,8 @@ type Message = Record<string, any>;
 const SYSTEM_PROMPT = `你是仓库代码分析助手。本对话持续服务同一仓库。
 每次用户消息中的【本轮任务要求】只约束该轮任务；以最新任务的范围、格式和当前提供的源码为准。
 历史回答是分析记录，不是源码事实。代码可能已经变化；跨轮引用旧源码前应根据当前输入或工具重新核实。
-直接解释不得调用工具；关联分析可使用只读工具。不要把旧任务的输出格式带入新任务。`;
+本轮工具权限由最新任务要求和当前请求实际提供的工具决定。无工具阶段必须直接输出正文，不要请求或模拟工具调用。
+不要把旧任务的输出格式或工具权限带入新任务。`;
 
 interface Entry {
   messages: Message[];
@@ -158,6 +159,10 @@ export class RepositoryConversation {
     this.signal.throwIfAborted();
     const body = JSON.parse(String(init?.body));
     const source: Message[] = body.messages;
+    const toolsEnabled = Boolean(body.tools?.length) && body.tool_choice !== 'none';
+    const toolInstruction = toolsEnabled
+      ? '当前是关联探查阶段，允许调用本次请求提供的只读工具。'
+      : '当前是无工具输出阶段，没有可调用工具。请根据本轮输入和已有证据直接输出正文；证据不足时明确指出，禁止请求或模拟工具调用。';
     let common = 0;
     while (common < source.length && common < this.previousSource.length &&
       isDeepStrictEqual(source[common], this.previousSource[common])) common++;
@@ -169,15 +174,21 @@ export class RepositoryConversation {
       if (continuing && message.role === 'assistant') continue;
       if (message.role === 'tool' && this.recordedToolIds.has(message.tool_call_id)) continue;
       this.messages.push(message.role === 'system' || message.role === 'developer'
-        ? { role: 'user', content: `【本轮任务要求】\n${message.content}` }
+        ? { role: 'user', content: `【本轮任务要求】\n${message.content}\n\n【本轮工具权限】\n${toolInstruction}` }
         : structuredClone(message));
     }
     this.previousSource = structuredClone(source);
-    const toolsEnabled = Boolean(body.tools?.length);
     body.messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...this.messages];
-    body.tools = repositoryWireTools;
-    body.tool_choice = toolsEnabled ? (body.tool_choice || 'auto') : 'none';
-    if (JSON.stringify(body.messages).length + JSON.stringify(body.tools).length > this.maxChars) {
+    // 无工具阶段不能为了前缀一致性强塞工具列表，避免模型被历史探查模式带偏。
+    if (toolsEnabled) {
+      body.tools = repositoryWireTools;
+      body.tool_choice ||= 'auto';
+    } else {
+      delete body.tools;
+      delete body.tool_choice;
+      delete body.parallel_tool_calls;
+    }
+    if (JSON.stringify(body.messages).length + (body.tools ? JSON.stringify(body.tools).length : 0) > this.maxChars) {
       throw new Error(`当前对话已达到上下文预算，请点击“${this.lane === 'learn' ? '清除学习对话' : '清除仓库对话'}”后重试，或增大上下文设置`);
     }
     const response = await fetch(input, { ...init, body: JSON.stringify(body),

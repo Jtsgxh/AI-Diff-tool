@@ -66,11 +66,13 @@ export class AIService {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
       if (provider.isOpenRouter) Object.assign(headers, openRouterHeaders());
+      let recoveredReasoningOnlyStop = false;
 
       for (let pass = 1; pass <= MAX_CONTINUATION_PASSES && !stream.isClosed; pass++) {
         let passText = '';
         let passReasoning = '';
         let finishReason: string | null = null;
+        let returnedToolCalls = false;
         const firstByteController = new AbortController();
         const firstByteSignal = AbortSignal.any([stream.signal, firstByteController.signal]);
         let firstByteTimedOut = false;
@@ -116,6 +118,7 @@ export class AIService {
           const choice = parsed.choices?.[0];
           const delta = choice?.delta;
           if (choice?.finish_reason) finishReason = choice.finish_reason;
+          if (delta?.tool_calls?.length) returnedToolCalls = true;
 
           const reasoning = extractReasoningDelta(delta);
           if (reasoning) {
@@ -128,6 +131,17 @@ export class AIService {
             passText += text;
             stream.send({ text });
           }
+        }
+
+        if (returnedToolCalls) throw new Error('直接解释收到意外工具调用，本轮未执行工具，请重试');
+
+        // 某些兼容端点会在仅输出推理后错误地返回 stop；保留完整推理，只补一次正文。
+        if (finishReason === 'stop' && !passText.trim() && passReasoning.trim() &&
+          !recoveredReasoningOnlyStop && pass < MAX_CONTINUATION_PASSES) {
+          recoveredReasoningOnlyStop = true;
+          messages.push({ role: 'user', content:
+            '上一条回复只有思考，没有最终正文。本轮是无工具输出阶段，请根据已经提供的代码和证据完成当前任务，严格遵守原始输出格式。不要请求或模拟工具调用；证据不足时明确说明。现在输出最终正文。' });
+          continue;
         }
 
         if (finishReason === 'length') {

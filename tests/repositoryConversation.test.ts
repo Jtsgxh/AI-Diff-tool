@@ -36,7 +36,7 @@ function request(question: string, tools = false) {
     ...(tools ? { tools: [{ type: 'function' }] } : {}) };
 }
 
-test('跨模式和重启保留完整前缀、推理、工具消息及稳定工具定义', async () => {
+test('跨模式和重启保留消息前缀，无工具模式不附带工具声明', async () => {
   const f = fixture();
   const original = globalThis.fetch;
   const sent: any[] = [];
@@ -55,8 +55,9 @@ test('跨模式和重启保留完整前缀、推理、工具消息及稳定工�
     assert.deepEqual(sent[1].messages.slice(0, sent[0].messages.length), sent[0].messages);
     assert.equal(sent[1].messages[sent[0].messages.length].content, '回答1');
     assert.equal(sent[1].messages[sent[0].messages.length].reasoning_content, '完整推理');
-    assert.deepEqual(sent[0].tools, sent[1].tools);
-    assert.equal(sent[0].tool_choice, 'none');
+    assert.equal(Object.hasOwn(sent[0], 'tools'), false);
+    assert.equal(Object.hasOwn(sent[0], 'tool_choice'), false);
+    assert.ok(sent[1].tools.length > 0);
     assert.equal(sent[1].tool_choice, 'auto');
     const history = readFileSync(path.join(f.directory, readdirSync(f.directory)[0]), 'utf8');
     assert.doesNotMatch(history, /Authorization|apiKey/);
@@ -88,8 +89,13 @@ test('工具续轮保存实际 assistant 且工具结果只出现一次，综合
     assert.equal(sent[1].messages.filter((m: any) => m.role === 'tool').length, 1);
     assert.equal(sent[1].messages.find((m: any) => m.role === 'assistant').reasoning_content, '完整推理');
     assert.doesNotMatch(JSON.stringify(sent[1]), /SDK 重组正文/);
-    await (await tx.fetch('http://fixture.invalid', { body: JSON.stringify(request('综合输出')) })).text();
+    await (await tx.fetch('http://fixture.invalid', { body: JSON.stringify({
+      ...request('综合输出', true), tool_choice: 'none', parallel_tool_calls: true,
+    }) })).text();
     assert.deepEqual(sent[2].messages.slice(0, sent[1].messages.length), sent[1].messages);
+    assert.equal(Object.hasOwn(sent[2], 'tools'), false);
+    assert.equal(Object.hasOwn(sent[2], 'tool_choice'), false);
+    assert.equal(Object.hasOwn(sent[2], 'parallel_tool_calls'), false);
     tx.commit();
   } finally { tx.release(); globalThis.fetch = original; rmSync(f.root, { recursive: true, force: true }); }
 });
@@ -223,6 +229,87 @@ class CapturedResponse extends EventEmitter {
   write(value: string): boolean { this.chunks.push(value); return true; }
   /** 标记响应结束。 */
   end(): void { this.writableEnded = true; }
+}
+
+for (const task of ['review', 'natural_language', 'pseudocode'] as const) {
+  test(`${task} 的 stop 响应只有思考时补正文，完整保留原任务及推理`, async () => {
+    const f = fixture();
+    const original = globalThis.fetch;
+    const sent: any[] = [];
+    globalThis.fetch = (async (_input, init) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return sent.length === 1
+        ? completion('', undefined, '应当直接解释，但我可能需要先读取文件。')
+        : completion('这是最终正文', undefined, '已确认本轮无工具');
+    }) as typeof fetch;
+    try {
+      const response = new CapturedResponse();
+      await new AIService().streamExplainDiff({ repoPath: f.repo, diff: '+const value = 1;', task,
+        userPrompt: task === 'review' ? undefined : '严格遵守本任务的原始输出格式',
+        config: { provider: 'custom', apiKey: 'fixture', baseUrl: 'http://fixture.invalid/v1', model: 'deepseek-flash' },
+      }, response as unknown as ExpressResponse);
+      assert.equal(sent.length, 2);
+      assert.deepEqual(sent[1].messages.slice(0, sent[0].messages.length), sent[0].messages);
+      assert.equal(sent[1].messages.find((m: any) => m.role === 'assistant').reasoning_content,
+        '应当直接解释，但我可能需要先读取文件。');
+      for (const body of sent) {
+        assert.equal(Object.hasOwn(body, 'tools'), false);
+        assert.equal(Object.hasOwn(body, 'tool_choice'), false);
+        assert.match(JSON.stringify(body.messages), /无工具/);
+      }
+      assert.match(sent[1].messages.at(-1).content, /原始输出格式/);
+      assert.match(response.chunks.join(''), /这是最终正文/);
+      assert.match(response.chunks.join(''), /\[DONE\]/);
+      assert.doesNotMatch(response.chunks.join(''), /"error"/);
+    } finally { repositoryConversations.clear(f.repo); globalThis.fetch = original; rmSync(f.root, { recursive: true, force: true }); }
+  });
+}
+
+test('连续只有思考时只补一次，失败任务不提交历史', async () => {
+  const f = fixture();
+  const original = globalThis.fetch;
+  const sent: any[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    sent.push(JSON.parse(String(init?.body)));
+    return completion('', undefined, '只有思考');
+  }) as typeof fetch;
+  const config = { provider: 'custom' as const, apiKey: 'fixture', baseUrl: 'http://fixture.invalid/v1', model: 'fixture' };
+  try {
+    const response = new CapturedResponse();
+    await new AIService().streamExplainDiff({ repoPath: f.repo, diff: '+失败的输入', config }, response as unknown as ExpressResponse);
+    assert.equal(sent.length, 2);
+    assert.match(response.chunks.join(''), /没有输出正文/);
+    assert.doesNotMatch(response.chunks.join(''), /\[DONE\]/);
+    globalThis.fetch = (async (_input, init) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return completion('正常正文');
+    }) as typeof fetch;
+    const fresh = new CapturedResponse();
+    await new AIService().streamExplainDiff({ repoPath: f.repo, diff: '+新任务', config }, fresh as unknown as ExpressResponse);
+    assert.doesNotMatch(JSON.stringify(sent[2]), /失败的输入|只有思考/);
+  } finally { repositoryConversations.clear(f.repo); globalThis.fetch = original; rmSync(f.root, { recursive: true, force: true }); }
+});
+
+for (const scenario of ['empty', 'unexpected_tool'] as const) {
+  test(`${scenario} 不进入思考补正文流程，也不会误报完成`, async () => {
+    const f = fixture();
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return scenario === 'empty' ? completion('', undefined, '') : completion('', [{ index: 0,
+        id: 'unwanted', type: 'function', function: { name: 'read_file', arguments: '{"file_path":"A.ts"}' } }]);
+    }) as typeof fetch;
+    try {
+      const response = new CapturedResponse();
+      await new AIService().streamExplainDiff({ repoPath: f.repo, diff: '+input',
+        config: { provider: 'custom', apiKey: 'fixture', baseUrl: 'http://fixture.invalid/v1', model: 'fixture' },
+      }, response as unknown as ExpressResponse);
+      assert.equal(calls, 1);
+      assert.match(response.chunks.join(''), scenario === 'empty' ? /没有输出正文/ : /意外工具调用/);
+      assert.doesNotMatch(response.chunks.join(''), /\[DONE\]/);
+    } finally { repositoryConversations.clear(f.repo); globalThis.fetch = original; rmSync(f.root, { recursive: true, force: true }); }
+  });
 }
 
 test('实际直接解释和 Agent 引擎共享仓库历史，清除后下一次请求重新开始', async () => {
