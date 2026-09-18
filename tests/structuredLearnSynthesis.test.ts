@@ -80,7 +80,7 @@ test('learn analysis uses JSON Output before streaming the prose stage', async (
     globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       requestBodies.push(body);
-      if (body.tools?.length) return completionStream('探查完成');
+      if (body.tools?.length && body.tool_choice !== 'none') return completionStream('探查完成');
       if (body.response_format?.type === 'json_object') {
         return completionStream(JSON.stringify(graph));
       }
@@ -136,7 +136,7 @@ test('invalid structured data is regenerated once using the exact field error', 
     globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       requestBodies.push(body);
-      if (body.tools?.length) return completionStream('探查完成');
+      if (body.tools?.length && body.tool_choice !== 'none') return completionStream('探查完成');
       if (body.response_format?.type === 'json_object') {
         structuredPass += 1;
         if (structuredPass === 1) {
@@ -193,7 +193,7 @@ test('learn prose continues when provider reports stop before the completion mar
     globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       requestBodies.push(body);
-      if (body.tools?.length) return completionStream('探查完成');
+      if (body.tools?.length && body.tool_choice !== 'none') return completionStream('探查完成');
       if (body.response_format?.type === 'json_object') {
         return completionStream(JSON.stringify(graph));
       }

@@ -379,6 +379,7 @@ export function useReviewSessions(repoPath: string, aiConfig: AIProviderConfig) 
       };
 
       const shared = {
+        repoPath: repoPathRef.current,
         sessionId,
         scopeType: toScopeType(scope),
         diff: scope.diff,

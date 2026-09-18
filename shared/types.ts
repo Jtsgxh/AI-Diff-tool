@@ -358,6 +358,8 @@ export type ScopeType = 'line' | 'chunk' | 'file' | 'commit' | 'repo';
  * free-form review so the server does not have to sniff the prompt text.
  */
 export type ExplainTask = 'review' | 'pseudocode' | 'natural_language' | 'learn';
+/** 同一仓库的审查和学习各自维护一条持续对话。 */
+export type RepositoryConversationLane = 'review' | 'learn';
 export type LearnRequestMode = 'question' | 'expand_graph' | 'drilldown_graph';
 
 /** Identifies one concrete route occurrence selected for recursive drill-down. */
@@ -393,6 +395,7 @@ export interface TargetLineInfo {
 }
 
 export interface ExplainRequest {
+  repoPath?: string;
   scopeType?: ScopeType;
   targetLine?: TargetLineInfo;
   diff?: string;

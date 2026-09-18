@@ -28,7 +28,8 @@ export interface NaturalLanguageEntry {
  * translation and the inline natural-language reading. Extracted from
  * DiffViewer so the component is left with rendering only.
  */
-export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderConfig) {
+/** 块释义和伪代码携带仓库路径，共用后台的仓库对话。 */
+export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderConfig, repoPath: string) {
   const [pseudocodeHunkIds, setPseudocodeHunkIds] = useState<Set<string>>(new Set());
   const [pseudocodeLines, setPseudocodeLines] = useState<Record<string, PseudocodeLines>>({});
   const [naturalHunkIds, setNaturalHunkIds] = useState<Set<string>>(new Set());
@@ -55,7 +56,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
     abortAll();
     setPseudocodeHunkIds(new Set());
     setNaturalHunkIds(new Set());
-  }, [filePath, file?.oldPath, fileDiff, abortAll]);
+  }, [repoPath, filePath, file?.oldPath, fileDiff, abortAll]);
 
   // Leaving the viewer entirely must not leave streams running.
   useEffect(() => abortAll, [abortAll]);
@@ -109,6 +110,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       let renderedLineCount = 0;
 
       const cancel = await streamExplainDiff({
+        repoPath,
         sessionId: `hunk_pseudocode_${hunkId}`,
         scopeType: 'chunk',
         task: 'pseudocode',
@@ -183,7 +185,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
 
       abortsRef.current.set(hunkId, cancel);
     },
-    [filePath]
+    [filePath, repoPath]
   );
 
   const ensurePseudocode = useCallback(
@@ -289,6 +291,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       let accumulated = '';
 
       streamExplainDiff({
+        repoPath,
         sessionId: `hunk_natural_${hunkId}`,
         scopeType: 'chunk',
         filePath,
@@ -327,7 +330,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
         },
       });
     },
-    [filePath, naturalContent, naturalHunkIds]
+    [filePath, repoPath, naturalContent, naturalHunkIds]
   );
 
   return {

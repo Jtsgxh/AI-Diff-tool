@@ -166,6 +166,7 @@ export function fetchBatchCommitsDiff(
 // ------------------------------ Streaming endpoints ------------------------------
 
 interface BaseStreamPayload {
+  repoPath?: string;
   sessionId?: string;
   scopeType?: ScopeType;
   targetLine?: TargetLineInfo;
@@ -236,7 +237,9 @@ function runStream(params: {
   payload: BaseStreamPayload;
   onEvent: (event: any, raw: string, ctx: { logSessionId: string }) => boolean | void;
 }): () => void {
-  const { fingerprint, url, body, payload } = params;
+  const { url, body, payload } = params;
+  // 不同仓库可以并行，即使它们的前端标签页标识恰好相同。
+  const fingerprint = `${payload.repoPath || ''}::${params.fingerprint}`;
 
   // Supersede an identical in-flight request.
   activeStreams.get(fingerprint)?.();
@@ -341,6 +344,7 @@ export async function streamExplainDiff(
     fingerprint,
     url: `${API_BASE}/ai/explain/stream`,
     body: {
+      repoPath: payload.repoPath,
       scopeType: payload.scopeType,
       targetLine: payload.targetLine,
       diff: payload.diff,

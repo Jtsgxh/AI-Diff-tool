@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { agentEngine } from '../agentEngine';
 import { aiService } from '../aiService';
+import { repositoryConversations } from '../repositoryConversation';
 import { asyncHandler, badRequest } from '../http/errors';
 import { resolveRepoPath } from '../utils/paths';
 import { LEARN_BUSINESS_STEP_KINDS } from '../../shared/types';
@@ -8,7 +9,7 @@ import type { AgentExplainRequest, ExplainRequest } from '../../shared/types';
 
 export const aiRouter = Router();
 
-/** Both engines accept the same body; only the agent one needs a repo root. */
+/** 两种引擎都接收仓库路径，以便将所有分析写入同一条仓库对话。 */
 function readExplainRequest(body: any): ExplainRequest {
   const { scopeType, targetLine, diff, filePath, commitMessage, userPrompt, task,
     learnRequestMode, existingBusinessRoutes, drillPath, config } =
@@ -52,6 +53,7 @@ function readExplainRequest(body: any): ExplainRequest {
   }
 
   return {
+    repoPath: resolveRepoPath(body?.repoPath),
     scopeType,
     targetLine,
     diff: diff || targetLine?.content || '',
@@ -73,6 +75,17 @@ aiRouter.post(
     await aiService.streamExplainDiff(readExplainRequest(req.body), res);
   })
 );
+
+/** 清除指定仓库的审查或学习对话，同时取消该条对话的在途及排队请求。 */
+aiRouter.post('/conversation/clear', asyncHandler(async (req, res) => {
+  if (typeof req.body?.repoPath !== 'string' || !req.body.repoPath.trim()) {
+    throw badRequest('repoPath is required');
+  }
+  const lane = req.body?.lane ?? 'review';
+  if (lane !== 'review' && lane !== 'learn') throw badRequest('Invalid conversation lane');
+  repositoryConversations.clear(resolveRepoPath(req.body?.repoPath), lane);
+  res.json({ cleared: true });
+}));
 
 /** Agent mode: autonomous ReAct exploration of the repository. */
 aiRouter.post(

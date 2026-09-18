@@ -5,7 +5,8 @@ import {
   OpenAIChatCompletionsModel,
   isOpenAIChatCompletionsRawModelStreamEvent,
 } from '@openai/agents-openai';
-import { z } from 'zod';
+import { repositoryToolSpecs } from './repositoryToolSchema';
+import { waitForRepositoryConversation, type RepositoryConversation } from './repositoryConversation';
 import { AgentTools } from './agentTools';
 import {
   extractReasoningDelta,
@@ -133,6 +134,7 @@ export function parseStructuredLearnGraphOutput(
  * the repository, streamed to the browser as status / tool / token events.
  */
 export class CodexAgentEngine {
+  /** 按仓库串行执行探查与综合，将实际工具轮次和最终回答写入同一历史。 */
   async streamAgentExplain(options: AgentExplainOptions, res: Response): Promise<void> {
     const { repoPath, config } = options;
     const stream = new SseStream(res);
@@ -156,136 +158,84 @@ export class CodexAgentEngine {
       message: `OpenAI Agents 官方智能体引擎已启动，上下文 ${contextTokens.toLocaleString()} tokens（约 ${contextChars.toLocaleString()} 字符），已挂载 Git 索引沙箱...`,
     });
 
-    // Runtime knobs exposed by the settings modal now actually reach the tools.
-    const toolsInstance = new AgentTools(repoPath, {
-      maxReadFileLines: config?.maxReadFileLines,
-      maxSearchResults: config?.maxSearchResults,
-    });
-    const explorationLog: ExplorationEntry[] = [];
+    let conversation: RepositoryConversation | undefined;
+    try {
+      stream.send({ type: 'status', phase: 'initializing', message: '正在等待当前仓库的前序分析完成...' });
+      conversation = await waitForRepositoryConversation(repoPath, stream, Math.round(contextChars * 0.9),
+        isLearnTask(options) ? 'learn' : 'review');
+      // Runtime knobs exposed by the settings modal now actually reach the tools.
+      const toolsInstance = new AgentTools(repoPath, {
+        maxReadFileLines: config?.maxReadFileLines,
+        maxSearchResults: config?.maxSearchResults,
+      });
+      const explorationLog: ExplorationEntry[] = [];
 
-    /** Wraps a repo tool so every call is mirrored into the synthesis log
-     *  and clipped to whatever of the context window is still free. */
-    const withLogging =
-      <A extends Record<string, unknown>>(name: string) =>
-      async (args: A): Promise<string> => {
-        const result = await toolsInstance.executeTool(name, args);
-        const room = Math.max(0, contextChars - reserveChars - usedChars);
-        const clipped = room > 0
-          ? clipChars(result, room)
-          : '模型上下文预算已用完。请停止扩大探查范围，基于已取得的证据输出报告。';
-        usedChars += clipped.length;
-        explorationLog.push({ name, args, output: clipped });
-        return clipped;
+      /** Wraps a repo tool so every call is mirrored into the synthesis log
+       *  and clipped to whatever of the context window is still free. */
+      const withLogging =
+        <A extends Record<string, unknown>>(name: string) =>
+        async (args: A): Promise<string> => {
+          const result = await toolsInstance.executeTool(name, args);
+          const room = Math.max(0, contextChars - reserveChars - usedChars);
+          const clipped = room > 0
+            ? clipChars(result, room)
+            : '模型上下文预算已用完。请停止扩大探查范围，基于已取得的证据输出报告。';
+          usedChars += clipped.length;
+          explorationLog.push({ name, args, output: clipped });
+          conversation?.recordToolOutput(name, args, clipped);
+          return clipped;
+        };
+
+      // 所有分析共用稳定的工具定义，便于仓库对话复用相同前缀。
+      const agentTools = repositoryToolSpecs.map((spec) => tool({ ...spec, execute: withLogging(spec.name) }));
+
+      const isFollowUp = Boolean(options.userPrompt && options.userPrompt.trim());
+      const learnTask = isLearnTask(options);
+      const isLearnExpansion = learnTask && options.learnRequestMode === 'expand_graph';
+      const isLearnDrilldown = learnTask && options.learnRequestMode === 'drilldown_graph';
+      const needsLearnGraph = learnTask && (!isFollowUp || isLearnExpansion || isLearnDrilldown);
+      let promptCtx: PromptContext = options;
+      if (learnTask) {
+        try {
+          stream.send({
+            type: 'status',
+            phase: 'initializing',
+            message: '正在解析代码结构图谱（节点 / 边 / 社区）...',
+          });
+          const structural = await buildLearnGraph(repoPath);
+          promptCtx = { ...options, graphDigest: formatLearnGraphDigest(structural) };
+        } catch {
+          promptCtx = options;
+        }
+      }
+      const systemPrompt = buildAgentSystemPrompt(promptCtx);
+      const initialUserMsg = buildAgentUserMessage(promptCtx);
+      const structuredLearnSystemPrompt = needsLearnGraph
+        ? buildLearnSystemPrompt(promptCtx, 'structured')
+        : undefined;
+      const proseLearnSystemPrompt = needsLearnGraph
+        ? buildLearnSystemPrompt(promptCtx, 'prose')
+        : undefined;
+      usedChars = systemPrompt.length + initialUserMsg.length;
+
+      let openaiClient: OpenAI | undefined;
+      let accumulatedContent = '';
+      let lastTurnContent = '';
+      let accumulatedReasoningContent = '';
+      let actionCount = 0;
+      let hitMaxTurns = false;
+      let outputTruncated = false;
+
+      let requiresReasoningRoundTrip = requiresDeepSeekReasoningRoundTrip(provider);
+      const emitAssistantContent = (content: string) => {
+        accumulatedContent += content;
+        lastTurnContent += content;
+
+        // Graph-producing learn requests always use the dedicated structured
+        // stage below. The exploratory agent's final prose is evidence only.
+        if (!needsLearnGraph) stream.send({ type: 'chunk', text: content });
       };
 
-    const readFileTool = tool({
-      name: 'read_file',
-      description:
-        '读取当前代码库中指定文件的源代码内容。在分析 Diff 中涉及的外部类、接口或调用逻辑时使用。',
-      parameters: z.object({
-        file_path: z.string().describe('相对于仓库根目录的文件路径 (例如: "src/Actors/Actor.cs")'),
-        start_line: z.number().optional().describe('起始行号 (可选，从 1 开始)'),
-        end_line: z.number().optional().describe('结束行号 (可选)'),
-      }),
-      execute: withLogging('read_file'),
-    });
-
-    const searchCodeTool = tool({
-      name: 'search_code',
-      description:
-        '在整个代码库中利用 Git 索引全局检索符号引用、下游调用方或类/函数定义（支持正则表达式）。',
-      parameters: z.object({
-        query: z.string().describe('搜索词或正则 (例如: "DerivedAttributeSet" 或 "class\\s+Player")'),
-        file_extension: z
-          .string()
-          .optional()
-          .describe('限制文件扩展名过滤 (可选，例如: "*.cs" 或 "*.ts")'),
-        offset: z.number().optional().describe('结果翻页偏移量；工具提示有下一页时使用'),
-        max_results: z.number().optional().describe('本次需要的结果数；不填则使用设置页默认值'),
-      }),
-      execute: withLogging('search_code'),
-    });
-
-    const findFilesTool = tool({
-      name: 'find_files',
-      description:
-        '根据文件名模式通过 Git 索引快速定位文件路径，用于定位同名测试、接口契约或配置文件。',
-      parameters: z.object({
-        pattern: z.string().describe('匹配模式 (例如: "*AttributeSet*" 或 "*Test*.cs")'),
-        offset: z.number().optional().describe('结果翻页偏移量；工具提示有下一页时使用'),
-        max_results: z.number().optional().describe('本次需要的结果数；不填则使用设置页默认值'),
-      }),
-      execute: withLogging('find_files'),
-    });
-
-    const repoOverviewTool = tool({
-      name: 'repo_overview',
-      description:
-        '获取仓库骨架：文件总数、顶层目录统计、主语言、README/工程清单摘录、疑似入口文件。学习一座陌生仓库时必须先调用。',
-      parameters: z.object({
-        note: z.string().optional().describe('可选备注，通常留空'),
-      }),
-      execute: withLogging('repo_overview'),
-    });
-
-    const repoGraphTool = tool({
-      name: 'repo_graph',
-      description:
-        '获取本地解析的类级代码图谱摘要：节点（类/React 组件/职责模块，普通函数归入所属节点）、边（calls/imports/references/inherits）、社区、活动枢纽和跨社区桥。学习仓库或追问调用关系时使用。',
-      parameters: z.object({
-        note: z.string().optional().describe('可选备注，通常留空'),
-      }),
-      execute: withLogging('repo_graph'),
-    });
-
-    const isFollowUp = Boolean(options.userPrompt && options.userPrompt.trim());
-    const learnTask = isLearnTask(options);
-    const isLearnExpansion = learnTask && options.learnRequestMode === 'expand_graph';
-    const isLearnDrilldown = learnTask && options.learnRequestMode === 'drilldown_graph';
-    const needsLearnGraph = learnTask && (!isFollowUp || isLearnExpansion || isLearnDrilldown);
-    let promptCtx: PromptContext = options;
-    if (learnTask) {
-      try {
-        stream.send({
-          type: 'status',
-          phase: 'initializing',
-          message: '正在解析代码结构图谱（节点 / 边 / 社区）...',
-        });
-        const structural = await buildLearnGraph(repoPath);
-        promptCtx = { ...options, graphDigest: formatLearnGraphDigest(structural) };
-      } catch {
-        promptCtx = options;
-      }
-    }
-    const systemPrompt = buildAgentSystemPrompt(promptCtx);
-    const initialUserMsg = buildAgentUserMessage(promptCtx);
-    const structuredLearnSystemPrompt = needsLearnGraph
-      ? buildLearnSystemPrompt(promptCtx, 'structured')
-      : undefined;
-    const proseLearnSystemPrompt = needsLearnGraph
-      ? buildLearnSystemPrompt(promptCtx, 'prose')
-      : undefined;
-    usedChars = systemPrompt.length + initialUserMsg.length;
-
-    let openaiClient: OpenAI | undefined;
-    let accumulatedContent = '';
-    let lastTurnContent = '';
-    let accumulatedReasoningContent = '';
-    let actionCount = 0;
-    let hitMaxTurns = false;
-    let outputTruncated = false;
-
-    let requiresReasoningRoundTrip = requiresDeepSeekReasoningRoundTrip(provider);
-    const emitAssistantContent = (content: string) => {
-      accumulatedContent += content;
-      lastTurnContent += content;
-
-      // Graph-producing learn requests always use the dedicated structured
-      // stage below. The exploratory agent's final prose is evidence only.
-      if (!needsLearnGraph) stream.send({ type: 'chunk', text: content });
-    };
-
-    try {
       // DeepSeek calls its field `reasoning_content`, while the Agents SDK
       // persists `reasoning`. Normalize both directions at the transport
       // boundary so each tool-loop continuation replays the exact model turn.
@@ -297,7 +247,7 @@ export class CodexAgentEngine {
         const signal = init?.signal
           ? AbortSignal.any([init.signal, stream.signal])
           : stream.signal;
-        const response = await fetch(input, { ...init, signal });
+        const response = await conversation!.fetch(input, { ...init, signal });
         // Model aliases and compatible gateways do not reliably advertise
         // thinking support in their names. Detect the vendor field from the
         // first streamed response and enable exact replay for later tool turns.
@@ -321,9 +271,7 @@ export class CodexAgentEngine {
         name: 'AutonomousCodexReviewer',
         instructions: systemPrompt,
         model,
-        tools: learnTask
-          ? [repoOverviewTool, repoGraphTool, readFileTool, searchCodeTool, findFilesTool]
-          : [repoOverviewTool, readFileTool, searchCodeTool, findFilesTool],
+        tools: agentTools,
       });
 
       // Legacy 0/unset resolves to the product default; null explicitly opts
@@ -468,6 +416,7 @@ export class CodexAgentEngine {
         });
       }
 
+      if (!stream.isClosed) conversation.commit();
       stream.send({
         type: 'status',
         phase: 'completed',
@@ -487,6 +436,8 @@ export class CodexAgentEngine {
 
       if (!stream.isClosed) stream.send({ type: 'error', message: `智能体引擎异常: ${err.message}` });
       stream.close();
+    } finally {
+      conversation?.release();
     }
   }
 

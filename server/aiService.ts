@@ -7,7 +7,8 @@ import {
   resolveProvider,
 } from './config/providers';
 import { readSseJson, SseStream } from './http/sse';
-import { buildFastPrompts } from './prompts';
+import { buildFastPrompts, isLearnTask } from './prompts';
+import { waitForRepositoryConversation, type RepositoryConversation } from './repositoryConversation';
 import {
   inferContextWindowTokens,
   resolveRequestTimeoutSeconds,
@@ -34,6 +35,7 @@ function clipTail(text: string, limit: number): string {
  * to the browser and continuing only when the provider reports truncation.
  */
 export class AIService {
+  /** 在仓库队列内执行直接解释，成功后保存完整模型消息。 */
   async streamExplainDiff(options: ExplainOptions, res: ExpressResponse): Promise<void> {
     const stream = new SseStream(res);
     const provider = resolveProvider(options.config);
@@ -45,7 +47,11 @@ export class AIService {
       return;
     }
 
+    let conversation: RepositoryConversation | undefined;
     try {
+      conversation = await waitForRepositoryConversation(options.repoPath || process.cwd(), stream,
+        Math.round(totalContextChars(inferContextWindowTokens(options.config ?? {})) * 0.9),
+        isLearnTask(options) ? 'learn' : 'review');
       const { system, user } = buildFastPrompts(options);
       const messages: any[] = [
         { role: 'system', content: system },
@@ -75,7 +81,7 @@ export class AIService {
 
         let response: Response;
         try {
-          response = await fetch(chatCompletionsUrl(provider.baseUrl), {
+          response = await conversation.fetch(chatCompletionsUrl(provider.baseUrl), {
             method: 'POST',
             headers,
             body: JSON.stringify({
@@ -155,6 +161,7 @@ export class AIService {
         }
         if (!passText.trim()) throw new Error('模型已结束，但没有输出正文');
 
+        conversation.commit();
         stream.sendRaw('[DONE]');
         stream.close();
         return;
@@ -165,6 +172,8 @@ export class AIService {
         stream.send({ error: `请求失败: ${err.message}` });
       }
       stream.close();
+    } finally {
+      conversation?.release();
     }
   }
 }

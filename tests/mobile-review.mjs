@@ -13,6 +13,8 @@ const browser = await chromium.launch({ channel: process.env.MOBILE_TEST_BROWSER
 const errors = [];
 let aiCalls = 0;
 const batchRequests = [];
+const clearRequests = [];
+const clearLanes = [];
 let releaseReview;
 const reviewGate = new Promise((resolve) => { releaseReview = resolve; });
 const fileNames = ['LongRepositoryServiceWithAVeryLongFileName.ts', 'second.ts'];
@@ -49,7 +51,15 @@ try {
     else if (path === '/api/repo/file-preview') json = { path: fileNames[0], source: 'working-tree', content: content.join('\n'), lineCount: 240, byteSize: 6000, encoding: 'utf-8', isBinary: false, isTooLarge: false };
     else if (path === '/api/system/quick-paths') json = { shortcuts: [{ name: '工程', path: '/fixture' }], drives: [] };
     else if (path === '/api/system/browse') json = { current: '/fixture', parent: '/', isCurrentGitRepo: true, directories: [] };
+    else if (path === '/api/repo/overview') json = { fileCount: 0, languages: [], topDirs: [], manifests: [], entryCandidates: [] };
+    else if (path === '/api/repo/learn-graph') return route.fulfill({ status: 503, json: { error: '本用例只验证学习对话清除入口' } });
+    else if (path === '/api/ai/conversation/clear') {
+      clearRequests.push(route.request().postDataJSON().repoPath);
+      clearLanes.push(route.request().postDataJSON().lane);
+      json = { cleared: true };
+    }
     else if (path.startsWith('/api/ai/')) {
+      assert.equal(route.request().postDataJSON().repoPath, '/fixture', '块分析必须发送所属仓库');
       aiCalls++;
       await reviewGate;
       return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify({ text: '手机测试报告：保留代码阅读位置。' })}\n\ndata: [DONE]\n\n` });
@@ -317,6 +327,12 @@ try {
   await page.getByRole('button', { name: '未提交变更 (2)', exact: true }).click();
   await assertPane('files');
   await page.getByRole('button', { name: '更多操作', exact: true }).click();
+  // 手机菜单清除的是当前仓库的后台对话，按钮完成后给出明确反馈。
+  await page.getByRole('button', { name: '清除仓库对话', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '仓库对话已清除' }).waitFor();
+  assert.deepEqual(clearRequests, ['/fixture']);
+  await page.screenshot({ path: join(output, 'clear-conversation-mobile.png') });
+  await page.getByRole('status').getByRole('button', { name: '关闭', exact: true }).click();
   await page.getByRole('button', { name: 'AI 引擎配置', exact: true }).click();
   await page.screenshot({ path: join(output, 'settings.png') });
   await page.locator('.settings-modal > div > div').first().getByRole('button').click();
@@ -325,6 +341,11 @@ try {
   await page.locator('.repo-modal > div > div').first().getByRole('button').click();
   await page.setViewportSize({ width: 1600, height: 1000 });
   await nav.waitFor({ state: 'hidden' });
+  // 桌面顶栏也提供同一个清除入口。
+  await page.getByRole('button', { name: '清除仓库对话', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '仓库对话已清除' }).waitFor();
+  assert.deepEqual(clearRequests, ['/fixture', '/fixture']);
+  await page.getByRole('status').getByRole('button', { name: '关闭', exact: true }).click();
   assert.equal(await pane('history').evaluate((el) => el.getBoundingClientRect().width), 380);
   assert.equal(await pane('files').evaluate((el) => el.getBoundingClientRect().width), 240);
   assert.equal(await pane('code').getByRole('separator').count(), 1, 'desktop restores split view');
@@ -424,6 +445,14 @@ try {
   });
   await reopened.reload();
   await reopened.locator('[data-review-pane="code"]').getByTitle(fileNames[0]).waitFor();
+  // 学习页的清除入口只操作 learn 对话线，审查页始终发送 review。
+  assert.deepEqual(clearLanes, ['review', 'review']);
+  await reopened.getByRole('button', { name: '学习', exact: true }).click();
+  await reopened.getByRole('button', { name: '更多操作', exact: true }).click();
+  await reopened.getByRole('button', { name: '清除学习对话', exact: true }).click();
+  await reopened.getByRole('status').filter({ hasText: '学习对话已清除' }).waitFor();
+  assert.deepEqual(clearLanes, ['review', 'review', 'learn']);
+  await reopened.screenshot({ path: join(output, 'clear-learning-conversation.png') });
   assert.deepEqual(errors, []);
   console.log(`PASS: mobile review navigation, unified diff/full file, review in background, draft/scroll preservation, 320–767px layouts, short viewport and desktop restoration. Screenshots: ${output}`);
 } finally {

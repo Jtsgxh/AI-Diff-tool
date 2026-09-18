@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Code, Files, FolderGit2, GitCommit, Menu, Sparkles, X } from 'lucide-react';
 import type { RepoInfo } from '../types';
+import { ClearRepositoryConversation } from './ClearRepositoryConversation';
 
 export type MobileReviewPane = 'history' | 'files' | 'code' | 'ai';
 
@@ -42,6 +43,8 @@ export function MobileReviewHeader(props: MobileHeaderProps) {
           <button className="text-left px-3" onClick={() => run(props.onWorkingTree)}>未提交变更 ({props.repoInfo?.modifiedFilesCount ?? 0})</button>
           <button className="text-left px-3" disabled={props.isLoading} onClick={() => run(props.onRefresh)}>{props.isLoading ? '正在刷新…' : '刷新仓库'}</button>
           <button className="text-left px-3" onClick={() => run(props.onSettings)}>AI 引擎配置</button>
+          <ClearRepositoryConversation key={`${props.repoInfo?.path || props.repoPath}:${props.workspaceMode}`} repoPath={props.repoInfo?.path || props.repoPath}
+            lane={props.workspaceMode === 'learn' ? 'learn' : 'review'} disabled={!props.repoInfo} />
         </div>
       </>}
     </header>

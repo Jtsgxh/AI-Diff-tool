@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { RepoInfo, SelectionState } from '../types';
 import { aiLogger } from '../services/aiLogger';
+import { ClearRepositoryConversation } from './ClearRepositoryConversation';
 
 interface HeaderProps {
   repoInfo: RepoInfo | null;
@@ -210,6 +211,8 @@ export const Header = React.memo<HeaderProps>(({
 
       {/* Right: Actions, AI Console & Settings */}
       <div className="flex items-center space-x-2">
+        <ClearRepositoryConversation key={`${repoInfo?.path || repoPath}:${workspaceMode}`} repoPath={repoInfo?.path || repoPath}
+          lane={workspaceMode === 'learn' ? 'learn' : 'review'} disabled={!repoInfo} compact />
         {/* AI Explanation Workspace Drawer Button */}
         {onWorkspaceMode && (
           <button

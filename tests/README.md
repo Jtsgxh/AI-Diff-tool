@@ -1,5 +1,8 @@
 # Mobile review regression
 
+仓库对话回归：`node --import tsx --test tests/repositoryConversation.test.ts tests/deepSeekReasoning.test.ts tests/structuredLearnSynthesis.test.ts`。
+运行前把 `AI_DIFF_CONVERSATION_DIR` 指向临时目录，隔离生产历史。测试覆盖审查与学习隔离、跨模式前缀、重启恢复、工具消息完整性、仓库隔离、排队取消、清除防写回和预算上限；模型响应全部模拟。
+
 With the Vite client running and Playwright available, run `node tests/mobile-review.mjs`.
 Set `MOBILE_TEST_URL` to the client URL (default `http://localhost:5173`),
 `MOBILE_TEST_BROWSER` to an installed Chromium channel (default `msedge`), and

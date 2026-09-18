@@ -73,7 +73,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   const [selectedHunkIds, setSelectedHunkIds] = useState<Set<string>>(new Set());
   const split = useResizableSplit(STORAGE_KEYS.diffSplitPct);
 
-  const annotations = useHunkAnnotations(file, aiConfig);
+  const annotations = useHunkAnnotations(file, aiConfig, repoPath);
 
   useEffect(() => {
     updateWorkspace(repoPath, { displayMode, wrapLines: mobileWrapLines });

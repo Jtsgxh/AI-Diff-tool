@@ -3,6 +3,7 @@
  * application code keeps importing from `@/types`.
  */
 export type {
+  RepositoryConversationLane,
   AgentPhase,
   AgentErrorEvent,
   AgentStatusEvent,
