@@ -24,6 +24,7 @@ export interface HunkBlockProps {
   onToggleSelection: (hunkId: string) => void;
   onTogglePseudocode: (hunk: DiffHunk) => void;
   onToggleNaturalLanguage: (hunk: DiffHunk) => void;
+  onRetryNaturalLanguage: (hunk: DiffHunk) => void;
   onExplain: (hunk: DiffHunk, mode: 'agent' | 'fast') => void;
 }
 
@@ -47,6 +48,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
     onToggleSelection,
     onTogglePseudocode,
     onToggleNaturalLanguage,
+    onRetryNaturalLanguage,
     onExplain,
   }) => {
     const { ref, isMounted } = useDeferredMount(deferMount);
@@ -86,12 +88,24 @@ export const HunkBlock = React.memo<HunkBlockProps>(
                     content={naturalLanguage.text}
                     className="prose prose-sm max-w-none text-zinc-900 text-xs leading-relaxed"
                   />
-                ) : (
+                ) : naturalLanguage?.loading ? (
                   <span className="text-zinc-700 animate-pulse text-[11px]">
                     正在调用 AI 将该块代码改动转译为自然语言叙述...
                   </span>
-                )}
+                ) : null}
               </div>
+              {naturalLanguage?.error && (
+                <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-rose-900">
+                  <p className="leading-relaxed">{naturalLanguage.error}</p>
+                  <button
+                    type="button"
+                    onClick={() => onRetryNaturalLanguage(hunk)}
+                    className="mt-1.5 text-[11px] text-rose-800 hover:text-zinc-950 underline underline-offset-2"
+                  >
+                    重试块释义
+                  </button>
+                </div>
+              )}
             </div>
           </div>
     ) : null;
@@ -115,7 +129,7 @@ export const HunkBlock = React.memo<HunkBlockProps>(
             <ActionMenu label={`改动块 ${hunk.index} 的更多操作`}>
                 <button className="px-2 text-left" onClick={() => onToggleSelection(hunk.id)}>{isSelected ? '取消选择此块' : '选择此块'}</button>
                 <button className="px-2 text-left" onClick={() => onTogglePseudocode(hunk)}>{pseudocode?.error || pseudocode?.warning ? '重试 AI 伪代码' : showPseudocode ? '关闭 AI 伪代码' : '开启 AI 伪代码'}</button>
-                <button className="px-2 text-left" onClick={() => onToggleNaturalLanguage(hunk)}>{showNaturalLanguage ? '收起块释义' : '展开块释义'}</button>
+                <button className="px-2 text-left" onClick={() => naturalLanguage?.error ? onRetryNaturalLanguage(hunk) : onToggleNaturalLanguage(hunk)}>{naturalLanguage?.error ? '重试块释义' : showNaturalLanguage ? '收起块释义' : '展开块释义'}</button>
             </ActionMenu>
           </div>
         </div> : <div
@@ -179,16 +193,16 @@ export const HunkBlock = React.memo<HunkBlockProps>(
 
           <button
             type="button"
-            onClick={() => onToggleNaturalLanguage(hunk)}
+            onClick={() => naturalLanguage?.error ? onRetryNaturalLanguage(hunk) : onToggleNaturalLanguage(hunk)}
             className={`px-2.5 py-1 rounded-md text-[11px] font-sans font-medium flex items-center space-x-1 border shadow-none transition ${
               showNaturalLanguage
                 ? 'bg-[var(--surface-selected)] text-zinc-950 border-[var(--border-subtle)]'
                 : 'bg-[var(--surface-panel)] hover:bg-[var(--surface-hover)] text-zinc-800 hover:text-zinc-950 border-[var(--border-subtle)]'
             }`}
-            title="点击在此 Diff 块内直接展开/折叠自然语言直读释义"
+            title={naturalLanguage?.error ? '块释义生成失败，点击重新请求' : '点击在此 Diff 块内直接展开/折叠自然语言直读释义'}
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>{showNaturalLanguage ? '收起释义' : '📖 块释义'}</span>
+            <span>{naturalLanguage?.error ? '重试释义' : showNaturalLanguage ? '收起释义' : '📖 块释义'}</span>
           </button>
 
           <button

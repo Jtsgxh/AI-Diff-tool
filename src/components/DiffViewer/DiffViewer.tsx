@@ -362,6 +362,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
                     onToggleSelection={toggleHunkSelection}
                     onTogglePseudocode={annotations.togglePseudocode}
                     onToggleNaturalLanguage={annotations.toggleNaturalLanguage}
+                    onRetryNaturalLanguage={annotations.retryNaturalLanguage}
                     onExplain={handleExplainHunk}
                   />
                 )
@@ -390,6 +391,7 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
                 onToggleSelection={toggleHunkSelection}
                 onTogglePseudocode={annotations.togglePseudocode}
                 onToggleNaturalLanguage={annotations.toggleNaturalLanguage}
+                onRetryNaturalLanguage={annotations.retryNaturalLanguage}
                 onExplain={handleExplainHunk}
               />
             ))}

@@ -12,6 +12,7 @@ await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ channel: process.env.MOBILE_TEST_BROWSER || 'msedge', headless: true });
 const errors = [];
 let aiCalls = 0;
+let naturalLanguageCalls = 0;
 const batchRequests = [];
 const clearRequests = [];
 const clearLanes = [];
@@ -59,9 +60,13 @@ try {
       json = { cleared: true };
     }
     else if (path.startsWith('/api/ai/')) {
-      assert.equal(route.request().postDataJSON().repoPath, '/fixture', '块分析必须发送所属仓库');
+      const payload = route.request().postDataJSON();
+      assert.equal(payload.repoPath, '/fixture', '块分析必须发送所属仓库');
       aiCalls++;
       await reviewGate;
+      if (payload.task === 'natural_language' && ++naturalLanguageCalls === 1) {
+        return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify({ error: '等待模型开始响应超过 35 秒' })}\n\n` });
+      }
       return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify({ text: '手机测试报告：保留代码阅读位置。' })}\n\ndata: [DONE]\n\n` });
     } else throw new Error(`Unexpected API request: ${path}`);
     await route.fulfill({ json });
@@ -197,7 +202,12 @@ try {
   await openHunkMenu();
   await hunkMenu.getByRole('button', { name: '展开块释义', exact: true }).tap();
   await assertMenuClosed('inline explanation closes the hunk menu');
+  await firstHunk.getByText('块释义生成失败：等待模型开始响应超过 35 秒', { exact: true }).waitFor();
+  await openHunkMenu();
+  await hunkMenu.getByRole('button', { name: '重试块释义', exact: true }).tap();
+  await assertMenuClosed('retrying a failed inline explanation closes the hunk menu');
   await firstHunk.getByText('手机测试报告：保留代码阅读位置。', { exact: true }).waitFor();
+  assert.equal(naturalLanguageCalls, 2, 'failed inline explanation can issue a fresh request');
   const hunkPager = firstHunk.locator('.hunk-explanation-pages');
   const sideGeometry = await firstHunk.evaluate((el) => {
     const code = el.querySelector('.hunk-code-page').getBoundingClientRect();

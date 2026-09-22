@@ -21,6 +21,7 @@ export interface PseudocodeLines {
 export interface NaturalLanguageEntry {
   text: string;
   loading: boolean;
+  error?: string;
 }
 
 /**
@@ -250,22 +251,11 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
     [abortAll, ensurePseudocode, pseudocodeHunkIds.size]
   );
 
-  const toggleNaturalLanguage = useCallback(
+  /** 请求块释义；失败状态不会被当成已完成内容，允许用户原地重试。 */
+  const requestNaturalLanguage = useCallback(
     (hunk: DiffHunk) => {
       if (!filePath) return;
       const hunkId = hunk.id;
-
-      if (naturalHunkIds.has(hunkId)) {
-        setNaturalHunkIds((prev) => {
-          const next = new Set(prev);
-          next.delete(hunkId);
-          return next;
-        });
-        return;
-      }
-
-      setNaturalHunkIds((prev) => new Set(prev).add(hunkId));
-
       const config = configRef.current;
       const persistentKey = aiCache.generateKey({
         type: 'natural_language',
@@ -278,15 +268,18 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
       if (cached?.report) {
         setNaturalContent((prev) => ({
           ...prev,
-          [hunkId]: { text: cached.report, loading: false },
+          [hunkId]: { text: cached.report, loading: false, error: undefined },
         }));
         return;
       }
 
       const existing = naturalContent[hunkId];
-      if (existing?.text || existing?.loading) return;
+      if (existing?.loading || (existing?.text && !existing.error)) return;
 
-      setNaturalContent((prev) => ({ ...prev, [hunkId]: { text: '', loading: true } }));
+      setNaturalContent((prev) => ({
+        ...prev,
+        [hunkId]: { text: '', loading: true, error: undefined },
+      }));
 
       let accumulated = '';
 
@@ -303,7 +296,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
           accumulated += chunk;
           setNaturalContent((prev) => ({
             ...prev,
-            [hunkId]: { text: accumulated, loading: true },
+            [hunkId]: { text: accumulated, loading: true, error: undefined },
           }));
         },
         onComplete: () => {
@@ -316,21 +309,51 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
           }
           setNaturalContent((prev) => ({
             ...prev,
-            [hunkId]: { text: prev[hunkId]?.text || '', loading: false },
+            [hunkId]: { text: prev[hunkId]?.text || '', loading: false, error: undefined },
           }));
         },
         onError: (err) => {
           setNaturalContent((prev) => ({
             ...prev,
             [hunkId]: {
-              text: (prev[hunkId]?.text || '') + `\n\n*(转译异常: ${err.message})*`,
+              text: prev[hunkId]?.text || '',
               loading: false,
+              error: `块释义生成失败：${err.message}`,
             },
           }));
         },
       });
     },
-    [filePath, repoPath, naturalContent, naturalHunkIds]
+    [filePath, repoPath, naturalContent]
+  );
+
+  /** 展开或收起块释义，展开时只在没有可用结果时发起请求。 */
+  const toggleNaturalLanguage = useCallback(
+    (hunk: DiffHunk) => {
+      const hunkId = hunk.id;
+
+      if (naturalHunkIds.has(hunkId)) {
+        setNaturalHunkIds((prev) => {
+          const next = new Set(prev);
+          next.delete(hunkId);
+          return next;
+        });
+        return;
+      }
+
+      setNaturalHunkIds((prev) => new Set(prev).add(hunkId));
+      requestNaturalLanguage(hunk);
+    },
+    [naturalHunkIds, requestNaturalLanguage]
+  );
+
+  /** 保持释义面板展开，并为失败的块发起一次全新请求。 */
+  const retryNaturalLanguage = useCallback(
+    (hunk: DiffHunk) => {
+      setNaturalHunkIds((prev) => new Set(prev).add(hunk.id));
+      requestNaturalLanguage(hunk);
+    },
+    [requestNaturalLanguage]
   );
 
   return {
@@ -341,6 +364,7 @@ export function useHunkAnnotations(file: DiffFile | null, aiConfig: AIProviderCo
     togglePseudocode,
     toggleAllPseudocode,
     toggleNaturalLanguage,
+    retryNaturalLanguage,
   };
 }
 
