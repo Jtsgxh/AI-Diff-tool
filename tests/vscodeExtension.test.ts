@@ -127,8 +127,10 @@ test('native extension commands open real practice files, save only practice dra
     /** 基准改用手动输入，结束提交直接从列表选择，分别检查保持打开选项。 */
     native.window.showQuickPick = async (items, options) => {
       assert.equal(options?.ignoreFocusOut, true);
+      assert.equal(options?.matchOnDetail, true);
+      assert.equal(items[0].hash, target, 'commit selection comes before manual input');
       pickCount++;
-      return pickCount === 1 ? items[0] : items.find((item) => item.hash === target);
+      return pickCount === 1 ? items.find((item) => item.action === 'manual') : items.find((item) => item.hash === target);
     };
     /** 模拟切到外部复制 SHA 后返回输入，输入框同样需要保持打开。 */
     native.window.showInputBox = async (options) => {
@@ -147,6 +149,45 @@ test('native extension commands open real practice files, save only practice dra
     // Git 检出遵循本机换行设置；验证基准内容，同时接受 Windows 的 CRLF。
     assert.match(await fs.readFile(path.join(createdPath, 'sample.ts'), 'utf8'), /^export const value = 1;\r?\n$/);
     assert.ok(calls.some((call) => call[0] === 'vscode.openFolder' && call[1].fsPath === createdPath && call[2] === true));
+  });
+  /** 模拟历史超过首批上限，列表点选较老基准及结束点，全程不需要输入 SHA。 */
+  await t.test('commit list loads older history and selects both endpoints without manual input', async (t) => {
+    const original = gitService.getCommits;
+    t.after(() => { gitService.getCommits = original; });
+    const records = await original.call(gitService, repo);
+    const limits: number[] = [];
+    /** 用分页记录模拟大型历史，练习创建仍使用真实可解析的两端提交。 */
+    gitService.getCommits = async (_repo, limit = 100) => {
+      limits.push(limit);
+      return limit === 100 ? Array.from({ length: 100 }, () => records.find((record) => record.hash === target)!) : records;
+    };
+    let picks = 0;
+    /** 先加载更早历史，再依次点击基准和结束提交，并检查列表的信息展示。 */
+    native.window.showQuickPick = async (items, options) => {
+      assert.equal(options?.ignoreFocusOut, true);
+      assert.equal(options?.matchOnDescription, true);
+      assert.equal(options?.matchOnDetail, true);
+      picks++;
+      if (picks === 1) return items.find((item) => item.action === 'more');
+      const selected = items.find((item) => item.hash === (picks === 2 ? base : target));
+      assert.match(selected.label, /base|target/);
+      assert.match(selected.description, /Native Test/);
+      assert.ok(selected.description.endsWith(records.find((record) => record.hash === selected.hash)!.date), 'preserve the complete Git date format');
+      if (picks === 3) assert.match(selected.detail, /HEAD/);
+      return selected;
+    };
+    /** 列表点选不得跳转至手动输入。 */
+    native.window.showInputBox = async () => { assert.fail('Manual hash input must not be required'); };
+    const createdPath = path.join(root, 'list-practice');
+    /** 为第二个真实练习提供独立目录，避免覆盖前一个测试结果。 */
+    native.window.showSaveDialog = async () => uri(createdPath);
+    await commands.get('aiDiff.follow.create')!();
+    assert.deepEqual(limits, [100, 200, 100]);
+    assert.equal(picks, 3);
+    assert.deepEqual(errors, []);
+    const created = await follow.loadFollow(createdPath);
+    assert.equal(created?.baseHash, base);
+    assert.equal(created?.steps[0].hash, target);
   });
   assert.deepEqual(errors, []);
   for (const item of context.subscriptions) item.dispose?.();

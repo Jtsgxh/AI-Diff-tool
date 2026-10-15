@@ -74,15 +74,24 @@ async function chooseRepository(): Promise<string | undefined> {
   return (await simpleGit(selected[0].fsPath).revparse(['--show-toplevel'])).trim();
 }
 
-/** 在最近提交和任意提交输入之间选择，不把历史读取上限当课程范围。 */
+/** 优先直接点选提交，支持按说明和分支筛选、加载更早历史，手动输入作为备用入口。 */
 async function chooseCommit(repo: string, title: string): Promise<string | undefined> {
-  const commits = await gitService.getCommits(repo);
-  const choice = await vscode.window.showQuickPick([
-    { label: '$(edit) 输入提交 SHA、分支或标签', hash: '' },
-    ...commits.map((commit) => ({ label: `${commit.shortHash} ${commit.message}`, description: commit.author, hash: commit.hash })),
-  ], { title, matchOnDescription: true, ignoreFocusOut: true });
-  if (!choice) return;
-  return choice.hash || vscode.window.showInputBox({ title, prompt: '输入提交 SHA、分支或标签', ignoreFocusOut: true });
+  let limit = 100;
+  while (true) {
+    const commits = await gitService.getCommits(repo, limit);
+    const choice = await vscode.window.showQuickPick([
+      ...commits.map((commit) => ({ label: `$(git-commit) ${commit.message}`,
+        description: `${commit.shortHash} · ${commit.author} · ${commit.date}`,
+        detail: commit.refs.join(' · ') || undefined, hash: commit.hash, action: 'commit' as const })),
+      ...(commits.length >= limit ? [{ label: '$(history) 加载更早的 100 条提交', hash: '', action: 'more' as const }] : []),
+      { label: '$(edit) 手动输入提交 SHA、分支或标签', hash: '', action: 'manual' as const },
+    ], { title, placeHolder: '点击提交选择；输入提交说明、作者或分支筛选',
+      matchOnDescription: true, matchOnDetail: true, ignoreFocusOut: true });
+    if (!choice) return;
+    if (choice.action === 'more') { limit += 100; continue; }
+    if (choice.action === 'manual') return vscode.window.showInputBox({ title, prompt: '输入提交 SHA、分支或标签', ignoreFocusOut: true });
+    return choice.hash;
+  }
 }
 
 /** 激活扩展：复用业务服务，代码编辑和符号检索交给 VS Code 及语言扩展。 */
