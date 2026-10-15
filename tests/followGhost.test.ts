@@ -53,8 +53,7 @@ class Selection extends Range { active = this.end; isEmpty = true; }
 function controller(preview: (...args: any[]) => Promise<any>) {
   const disposable = { dispose() {} };
   const calls: string[] = [];
-  const decorations: any[][] = [];
-  let provider: any;
+  const decorations = new Map<string, any[]>();
   let changed: (event: any) => void = () => {};
   const status = { visible: false, text: '', command: '', tooltip: '',
     /** 记录状态栏显示，不模拟文件写入。 */
@@ -66,12 +65,11 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     ThemeColor: class { constructor(public id: string) {} },
     DecorationRangeBehavior: { ClosedClosed: 1 }, StatusBarAlignment: { Right: 2 },
     TextEditorRevealType: { InCenterIfOutsideViewport: 0 },
-    InlineCompletionItem: class { constructor(public insertText: string, public range: Range) {} },
     window: { activeTextEditor: undefined as any, visibleTextEditors: [] as any[],
-      createTextEditorDecorationType: () => disposable, createStatusBarItem: () => status,
+      createTextEditorDecorationType: (options: any) => ({ ...disposable, key: options.before ? 'ghost' : 'deleted' }), createStatusBarItem: () => status,
       onDidChangeActiveTextEditor: () => disposable },
     workspace: { onDidChangeTextDocument: (callback: typeof changed) => { changed = callback; return disposable; } },
-    languages: { registerInlineCompletionItemProvider: (_selector: any, value: any) => { provider = value; return disposable; } },
+    languages: { registerInlineCompletionItemProvider: () => assert.fail('Follow hints must not depend on the completion channel') },
     commands: { executeCommand: async (command: string) => { calls.push(command); } },
   };
   const require = createRequire(path.resolve('package.json'));
@@ -97,18 +95,18 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   }
   /** 让模拟编辑器持有当前文档，并记录控制器添加的装饰。 */
   function editor(doc: ReturnType<typeof document>) {
-    const value = { document: doc, selection: new Selection(new Position(0, 0), new Position(0, 0)),
-      setDecorations: (_type: any, ranges: any[]) => decorations.push(ranges), revealRange() {} };
+    const value = { document: doc, options: { tabSize: 2 }, selection: new Selection(new Position(0, 0), new Position(0, 0)),
+      setDecorations: (type: any, ranges: any[]) => decorations.set(type.key, ranges), revealRange() {} };
     native.window.activeTextEditor = value; native.window.visibleTextEditors = [value];
     return value;
   }
-  return { ghost, native, provider, calls, decorations, status, document, editor,
+  return { ghost, native, calls, decorations, status, document, editor,
     /** 触发真实控制器的输入监听并等待其短暂防抖。 */
     async changed(doc: any) { changed({ document: doc }); await new Promise((resolve) => setTimeout(resolve, 140)); } };
 }
 
-/** 验证默认虚影、按字收缩、红色旧内容、缓存、步骤切换和语言补全共存。 */
-test('native ghost uses unsaved text, preserves edits and changes targets when advancing', async (t) => {
+/** 验证持续淡字不依赖光标和补全，按未保存输入收缩，保留旧内容标记与目标缓存。 */
+test('persistent ghost stays visible away from the caret without occupying completion', async (t) => {
   let reads = 0;
   const c = controller(async () => { reads++; return { content: 'const value = 3;\n' }; });
   t.after(() => c.ghost.dispose());
@@ -119,39 +117,46 @@ test('native ghost uses unsaved text, preserves edits and changes targets when a
   const doc = c.document(path.join(repo, 'sample.ts'), 'const value = 1;\n');
   const editor = c.editor(doc);
   await c.ghost.open(editor, 'const value = 2;\n');
-  const position = doc.positionAt(14);
-  const context = { selectedCompletionInfo: undefined };
-  const token = { isCancellationRequested: false };
-  const items = await c.provider.provideInlineCompletionItems(doc, position, context, token);
-  assert.equal(items[0].insertText, '2');
-  assert.equal(items[0].range.start, position);
-  assert.equal(items[0].range.end, position, 'ghost itself inserts nothing into the existing file');
+  const hint = c.decorations.get('ghost')![0];
+  assert.equal(hint.renderOptions.before.contentText, '2');
+  assert.deepEqual(hint.range.start, doc.positionAt(14));
+  assert.deepEqual(hint.range.start, hint.range.end);
   assert.equal(doc.text, 'const value = 1;\n');
-  assert.equal(c.decorations.at(-1)![0].range.start.character, 14);
-  assert.ok(c.calls.includes('editor.action.inlineSuggest.trigger'));
+  assert.equal(c.decorations.get('deleted')![0].range.start.character, 14);
+  editor.selection = new Selection(new Position(0, 0), new Position(0, 0));
+  await c.changed(doc);
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '2', 'moving away does not hide the target');
+  assert.equal(editor.selection.active.character, 0, 'passive rendering does not move the cursor');
+  assert.deepEqual(c.calls, [], 'no inlineSuggest trigger/hide commands affect other providers');
   doc.text = 'const value = 21;\n'; doc.version++;
   await c.changed(doc);
-  assert.equal((await c.provider.provideInlineCompletionItems(doc, doc.positionAt(15), context, token)).length, 0);
-  assert.equal(c.decorations.at(-1)![0].range.start.character, 15, 'typed target text remains and only the obsolete character is marked');
+  assert.equal(c.decorations.get('ghost')!.length, 0);
+  assert.equal(c.decorations.get('deleted')![0].range.start.character, 15, 'typed target text remains and only the obsolete character is marked');
   doc.text = 'const value = ;\n'; doc.version++;
   await c.changed(doc);
-  assert.equal((await c.provider.provideInlineCompletionItems(doc, position, context, token))[0].insertText, '2');
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '2');
   assert.equal(reads, 0, 'typing reuses the already loaded target without Git calls');
   doc.text = 'const value = 2;\n'; doc.version++;
   await c.changed(doc);
-  assert.equal((await c.provider.provideInlineCompletionItems(doc, position, context, token)).length, 0);
+  assert.equal(c.decorations.get('ghost')!.length, 0);
   assert.match(c.status.text, /已一致/);
   c.ghost.setStep({ ...session, stepIndex: 1 }, files);
-  assert.equal((await c.provider.provideInlineCompletionItems(doc, position, context, token))[0].insertText, '3');
+  await c.changed(doc);
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '3');
   assert.equal(reads, 1);
-  assert.equal((await c.provider.provideInlineCompletionItems(doc, position, context, { isCancellationRequested: true })).length, 0);
-  assert.equal((await c.provider.provideInlineCompletionItems(doc, position, { selectedCompletionInfo: {} }, token)).length, 0);
   const unrelated = c.document(path.resolve('.validation/unrelated/sample.ts'), '');
-  assert.equal((await c.provider.provideInlineCompletionItems(unrelated, new Position(0, 0), context, token)).length, 0);
+  c.editor(unrelated);
+  await c.changed(unrelated);
+  assert.equal(c.decorations.get('ghost')!.length, 0);
+  c.ghost.setStep(session, [{ path: 'removed.ts', deleted: true, complete: false }]);
+  const removed = c.document(path.join(repo, 'removed.ts'), '');
+  await c.ghost.open(c.editor(removed), '');
+  assert.match(c.status.text, /需要删除整个文件/, 'an empty file must not be reported complete when the target deletes it');
+  assert.doesNotMatch(c.status.text, /已一致/);
 });
 
-/** 验证新文件多行虚影、Windows 换行、旧请求失效以及完成后不再覆盖提示。 */
-test('ghost supports bounded multiline previews and discards stale asynchronous targets', async (t) => {
+/** 验证空文件立即显示首行、换行后继续下一行，旧请求失效且显示不拆分 Unicode。 */
+test('empty files show a persistent line target and advance through multiline code', async (t) => {
   let resolve!: (value: any) => void;
   const c = controller(() => new Promise((done) => { resolve = done; }));
   t.after(() => c.ghost.dispose());
@@ -161,17 +166,58 @@ test('ghost supports bounded multiline previews and discards stale asynchronous 
   c.ghost.setStep(session, files);
   const doc = c.document(path.join(repo, 'new.ts'), '', 2);
   const editor = c.editor(doc);
-  const args = [doc, new Position(0, 0), {}, { isCancellationRequested: false }];
-  const stale = c.provider.provideInlineCompletionItems(...args);
+  const stale = c.ghost.locate();
   c.ghost.setStep({ ...session, stepIndex: 1 }, files);
   resolve({ content: 'stale code' });
-  assert.equal((await stale).length, 0);
+  await stale;
+  assert.equal(c.decorations.get('ghost')!.length, 0);
   const target = Array.from({ length: 20 }, (_, index) => `line ${index}`).join('\n') + '\n';
   await c.ghost.open(editor, target);
-  const items = await c.provider.provideInlineCompletionItems(...args);
-  assert.match(items[0].insertText, /^line 0\r\nline 1/);
-  assert.equal(items[0].insertText.split('\n').length, 8);
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'line 0 ↵');
+  assert.match(c.decorations.get('ghost')![0].hoverMessage, /line 1/);
   assert.equal(doc.text, '');
+  doc.text = 'li'; doc.version++;
+  await c.changed(doc);
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'ne 0 ↵');
+  assert.equal(c.decorations.get('ghost')![0].range.start.character, 2, 'typed prefix remains real text and the hint shrinks');
+  doc.text = 'line 0\r\n'; doc.version++;
+  await c.changed(doc);
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'line 1 ↵');
+  assert.equal(c.decorations.get('ghost')![0].range.start.line, 1);
+  await c.ghost.open(editor, 'x'.repeat(1999) + '😀');
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'x'.repeat(1999));
+  doc.text = ''; doc.version++;
+  await c.ghost.open(editor, '\t  \n');
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '⇥·· ↵', 'tabs must not be presented as spaces');
+  doc.text = '\t  \r\n'; doc.version++;
+  await c.changed(doc);
+  assert.equal(c.decorations.get('ghost')!.length, 0);
+  assert.match(c.status.text, /已一致/);
   c.ghost.setStep({ ...session, finished: true }, files);
-  assert.equal((await c.provider.provideInlineCompletionItems(...args)).length, 0);
+  await c.changed(doc);
+  assert.equal(c.decorations.get('ghost')!.length, 0);
+  assert.equal(c.status.visible, false);
+});
+
+/** 目标读取失败必须给出可见错误，并允许下次输入或定位重试，不能静默变成空白。 */
+test('target read failures remain visible and can be retried', async (t) => {
+  let reads = 0;
+  const c = controller(async () => {
+    if (++reads === 1) throw new Error('Git unavailable');
+    return { content: 'target' };
+  });
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'new.ts', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'new.ts'), '');
+  c.editor(doc);
+  await c.changed(doc);
+  assert.equal(c.status.visible, true);
+  assert.match(c.status.text, /读取失败/);
+  assert.match(c.status.tooltip, /Git unavailable/);
+  await c.changed(doc);
+  assert.equal(reads, 2);
+  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'target');
+  assert.equal(doc.text, '');
 });

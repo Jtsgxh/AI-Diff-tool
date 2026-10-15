@@ -4,11 +4,15 @@ import { gitService } from '../server/gitService';
 import type { FollowFile, FollowSession } from '../server/followService';
 import { nextGhostEdit, type GhostEdit } from '../shared/followGhost';
 
-/** 在真实练习文件内显示下一处虚影和旧内容标记，不修改文档或编辑器配置。 */
-export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.Disposable {
+/** 用持续显示的原生文字装饰提示下一处代码，不占用补全通道或修改文件。 */
+export class FollowGhost implements vscode.Disposable {
   private readonly deleted = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor('diffEditor.removedTextBackground'), textDecoration: 'line-through',
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  });
+  private readonly ghost = vscode.window.createTextEditorDecorationType({
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    before: { color: new vscode.ThemeColor('editorGhostText.foreground'), fontStyle: 'italic' },
   });
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 10);
   private readonly subscriptions: vscode.Disposable[];
@@ -20,11 +24,10 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   private timer?: ReturnType<typeof setTimeout>;
   private disposed = false;
 
-  /** 注册原生虚影提供器，并在输入与切换文件后刷新同一编辑器中的提示。 */
+  /** 输入与切换文件后更新淡色提示，普通语言补全保持独立。 */
   constructor() {
     this.status.command = 'aiDiff.follow.locate';
-    this.subscriptions = [vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, this),
-      vscode.window.onDidChangeActiveTextEditor(() => this.schedule()),
+    this.subscriptions = [vscode.window.onDidChangeActiveTextEditor(() => this.schedule()),
       vscode.workspace.onDidChangeTextDocument((event) => {
         if (event.document === vscode.window.activeTextEditor?.document) this.schedule();
       })];
@@ -35,8 +38,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const key = session && !session.finished ? `${session.practiceRepo}\0${session.steps[session.stepIndex].hash}` : '';
     if (key !== this.key) {
       this.targets.clear(); this.key = key;
-      for (const editor of vscode.window.visibleTextEditors) editor.setDecorations(this.deleted, []);
-      void vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
+      for (const editor of vscode.window.visibleTextEditors) this.clear(editor);
     }
     this.session = session;
     this.files = new Map(files.map((file) => [file.path, file]));
@@ -58,9 +60,18 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       const session = this.session;
       this.targets.set(file.path, file.deleted ? Promise.resolve('') :
         gitService.getFilePreview(session.practiceRepo, file.path, session.steps[session.stepIndex].hash)
-          .then((preview) => preview.content ?? undefined).catch(() => undefined));
+          .then((preview) => {
+            if (preview.content === null) throw new Error('目标文件无法按文本显示，请检查文件大小和编码。');
+            return preview.content;
+          }));
     }
-    const target = await this.targets.get(file.path)!;
+    const pending = this.targets.get(file.path)!;
+    let target: string | undefined;
+    try { target = await pending; }
+    catch (error) {
+      if (this.targets.get(file.path) === pending) this.targets.delete(file.path);
+      throw error;
+    }
     return target?.replace(/\r\n|\r|\n/g, document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n');
   }
 
@@ -73,56 +84,71 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     return edit;
   }
 
-  /** 在当前差异起点提供有限长度的原生虚影，已有文本保持为真实可编辑内容。 */
-  async provideInlineCompletionItems(document: vscode.TextDocument, position: vscode.Position,
-    context: vscode.InlineCompletionContext, token: vscode.CancellationToken): Promise<vscode.InlineCompletionItem[]> {
-    const key = this.key;
-    const version = document.version;
-    const target = await this.target(document);
-    if (target === undefined || this.disposed || token.isCancellationRequested || key !== this.key || version !== document.version ||
-      context.selectedCompletionInfo) return [];
-    const edit = this.plan(document, target);
-    if (!edit?.text || document.offsetAt(position) !== edit.start) return [];
-    // 控制可见虚影体积；继续输入后自动展示后面的内容，不限制文件最终校验。
-    let text = edit.text.split('\n').slice(0, 8).join('\n').slice(0, 2000);
-    if (text.endsWith('\r')) text = text.slice(0, -1);
-    if (/[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
-    return text ? [new vscode.InlineCompletionItem(text, new vscode.Range(position, position))] : [];
+  /** 只清除本扩展自己的装饰，不干预其他扩展的提示或补全。 */
+  private clear(editor: vscode.TextEditor): void {
+    editor.setDecorations(this.deleted, []);
+    editor.setDecorations(this.ghost, []);
   }
 
   /** 标记待移除的旧内容，点击状态栏可重新定位下一处差异。 */
   private async render(locate = false): Promise<void> {
     const editor = vscode.window.activeTextEditor;
     this.status.hide();
+    for (const visible of vscode.window.visibleTextEditors) if (visible !== editor) this.clear(visible);
     if (!editor) return;
-    editor.setDecorations(this.deleted, []);
     const key = this.key;
     const version = editor.document.version;
     const target = await this.target(editor.document);
-    if (target === undefined || this.disposed || key !== this.key || editor !== vscode.window.activeTextEditor ||
+    if (this.disposed || key !== this.key || editor !== vscode.window.activeTextEditor ||
       version !== editor.document.version) return;
+    if (target === undefined) { this.clear(editor); return; }
     const edit = this.plan(editor.document, target);
-    if (!edit) { this.status.text = '$(pass) 跟写内容已一致'; this.status.show(); return; }
+    const deleting = this.file(editor.document)?.deleted && !this.file(editor.document)?.complete;
+    if (!edit) {
+      this.clear(editor);
+      this.status.text = deleting ? '$(trash) 跟写 · 需要删除整个文件' : '$(pass) 跟写内容已一致';
+      this.status.tooltip = deleting ? '在跟写侧栏右键此文件，选择删除文件并移到回收站；清空内容不等于删除文件。' : '当前文本已与目标一致，保存后可检查整个练习。';
+      this.status.show(); return;
+    }
     const start = editor.document.positionAt(edit.start);
     const range = new vscode.Range(start, editor.document.positionAt(edit.end));
-    if (edit.end > edit.start) editor.setDecorations(this.deleted, [{ range, hoverMessage: '待删除或替换的旧内容；目标内容以淡色虚影显示。' }]);
-    this.status.text = edit.end > edit.start ? '$(edit) 跟写 · 移除红色旧内容后填入虚影' :
-      edit.text.trim() ? '$(edit) 跟写 · 按虚影输入' : '$(edit) 跟写 · 补齐缩进或换行';
-    this.status.tooltip = '点击定位下一处跟写。虚影只是提示，保存和校验只读取你实际写入的内容。';
+    editor.setDecorations(this.deleted, edit.end > edit.start ? [{ range, hoverMessage: '待删除或替换的旧内容；目标内容以淡色虚影显示。' }] : []);
+    if (edit.text) {
+      const line = edit.text.split(/\r\n|\r|\n/, 1)[0];
+      let text = line.replace(/\t/g, '⇥').slice(0, 2000);
+      if (/[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
+      // 装饰不制造虚拟行：逐行显示；换行和纯空格用可见符号提示，实际输入仍是原始字符。
+      if (!line.trim()) text = text.replace(/ /g, '·');
+      if (/[\r\n]/.test(edit.text)) text += ' ↵';
+      editor.setDecorations(this.ghost, [{ range: new vscode.Range(start, start),
+        renderOptions: { before: { contentText: text } },
+        hoverMessage: `本段待跟写内容（淡字不写入文件，↵ 表示换行，⇥ 表示 Tab，纯缩进中的 · 表示空格）：\n${edit.text.slice(0, 6000)}` }]);
+    } else editor.setDecorations(this.ghost, []);
+    this.status.text = deleting ? '$(trash) 跟写 · 需要删除整个文件' :
+      `$(edit) 跟写 · 第 ${start.line + 1} 行 · ${edit.end > edit.start ? '删除红字' : '输入淡字'}`;
+    this.status.tooltip = deleting ? '在跟写侧栏右键此文件，选择删除文件并移到回收站。' :
+      '淡色文字是待写目标，输入后持续更新。↵ 表示换行，⇥ 表示 Tab；点击定位下一处。';
     this.status.show();
     if (locate) {
       editor.selection = new vscode.Selection(start, start);
       editor.revealRange(new vscode.Range(start, start), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-    }
-    if (editor.selection.isEmpty && editor.document.offsetAt(editor.selection.active) === edit.start) {
-      await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger');
     }
   }
 
   /** 合并按键事件，延迟刷新不会为每个字符启动 Git 进程。 */
   private schedule(): void {
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => { void this.render().catch(() => this.status.hide()); }, 100);
+    this.timer = setTimeout(() => {
+      const key = this.key;
+      const document = vscode.window.activeTextEditor?.document;
+      void this.render().catch((error: unknown) => {
+        if (this.disposed || key !== this.key || document !== vscode.window.activeTextEditor?.document) return;
+        if (vscode.window.activeTextEditor) this.clear(vscode.window.activeTextEditor);
+        this.status.text = '$(error) 跟写目标读取失败';
+        this.status.tooltip = error instanceof Error ? error.message : String(error);
+        this.status.show();
+      });
+    }, 100);
   }
 
   /** 打开文件后立即定位第一处待跟写内容，复用调用方已读取的目标快照。 */
@@ -136,12 +162,12 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   /** 由状态栏或命令面板返回下一处未完成的跟写位置。 */
   async locate(): Promise<void> { await this.render(true); }
 
-  /** 释放提供器、事件、装饰和定时器，关闭扩展后清除所有提示。 */
+  /** 释放事件、装饰和定时器，关闭扩展后清除所有提示。 */
   dispose(): void {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
     this.subscriptions.forEach((subscription) => subscription.dispose());
-    for (const editor of vscode.window.visibleTextEditors) editor.setDecorations(this.deleted, []);
-    this.deleted.dispose(); this.status.dispose(); this.targets.clear();
+    for (const editor of vscode.window.visibleTextEditors) this.clear(editor);
+    this.deleted.dispose(); this.ghost.dispose(); this.status.dispose(); this.targets.clear();
   }
 }
