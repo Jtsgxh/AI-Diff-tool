@@ -49,40 +49,48 @@ class Range { constructor(public start: Position, public end: Position) {} }
 /** 模拟原生光标，定位不会产生文本修改。 */
 class Selection extends Range { active = this.end; isEmpty = true; }
 
-/** 在模拟原生窗口中加载实际虚影控制器，差异计算使用真实实现。 */
+/** 在模拟宿主加载实际控制器，并像编辑器一样在触发命令后读取真实提供器。 */
 function controller(preview: (...args: any[]) => Promise<any>) {
   const disposable = { dispose() {} };
   const calls: string[] = [];
   const decorations = new Map<string, any[]>();
-  let lensEnabled = true;
-  let lensChanges = 0;
-  let lensProvider: any;
+  let inlineEnabled = true;
+  let inlineMode = 'subwordSmart';
+  let provider: any;
+  let items: any[] = [];
   let changed: (event: any) => void = () => {};
+  let selectionChanged: (event: any) => void = () => {};
   const status = { visible: false, text: '', command: '', tooltip: '',
-    /** 记录状态栏显示，不模拟文件写入。 */
-    show() { this.visible = true; },
-    /** 记录状态栏隐藏与释放。 */
-    hide() { this.visible = false; }, dispose() {} };
+    /** 记录状态栏显示和隐藏。 */
+    show() { this.visible = true; }, hide() { this.visible = false; }, dispose() {} };
   const native = {
     Position, Range, Selection, EndOfLine: { LF: 1, CRLF: 2 },
-    /** 记录预览刷新，验证控制器通知原生宿主重新读取代码透镜。 */
-    EventEmitter: class { event = () => disposable; fire() { lensChanges++; } dispose() {} },
-    /** 模拟原生独立预览行及其点击命令。 */
-    CodeLens: class { constructor(public range: Range, public command: any) {} },
+    /** 保留原生提供器返回的真实换行文本与替换范围。 */
+    InlineCompletionItem: class { constructor(public insertText: string, public range: Range) {} },
     ThemeColor: class { constructor(public id: string) {} },
     DecorationRangeBehavior: { ClosedClosed: 1 }, StatusBarAlignment: { Right: 2 },
     TextEditorRevealType: { InCenterIfOutsideViewport: 0 },
     window: { activeTextEditor: undefined as any, visibleTextEditors: [] as any[],
-      createTextEditorDecorationType: (options: any) => ({ ...disposable, key: options.before ? 'ghost' : 'deleted' }), createStatusBarItem: () => status,
-      onDidChangeActiveTextEditor: () => disposable },
+      /** 禁止重新用单行装饰假装承载多行代码。 */
+      createTextEditorDecorationType: (options: any) => { assert.equal(options.before, undefined); return { ...disposable, key: 'deleted' }; },
+      createStatusBarItem: () => status, onDidChangeActiveTextEditor: () => disposable,
+      onDidChangeTextEditorSelection: (callback: typeof selectionChanged) => { selectionChanged = callback; return disposable; } },
     workspace: { onDidChangeTextDocument: (callback: typeof changed) => { changed = callback; return disposable; },
       onDidChangeConfiguration: () => disposable,
-      /** 使用文档作用域读取设置，确保实际语言的覆盖项也能生效。 */
-      getConfiguration: (_section: string, scope: any) => { assert.equal(typeof scope?.getText, 'function'); return { get: () => lensEnabled }; } },
-    languages: { registerInlineCompletionItemProvider: () => assert.fail('Follow hints must not depend on the completion channel'),
-      /** 通过实际注册的提供器检查预览，防止只有内部数据而没有显示入口。 */
-      registerCodeLensProvider: (selector: any, provider: any) => { assert.equal(selector.scheme, 'file'); lensProvider = provider; return disposable; } },
-    commands: { executeCommand: async (command: string) => { calls.push(command); } },
+      /** 使用文档作用域，兼容语言自己的内联建议设置。 */
+      getConfiguration: (_section: string, scope: any) => { assert.equal(typeof scope?.getText, 'function'); return { get: (key: string) => key === 'inlineSuggest.mode' ? inlineMode : inlineEnabled }; } },
+    languages: {
+      /** 记录实际注册入口，测试不会直接调用一个未接入宿主的内部函数。 */
+      registerInlineCompletionItemProvider: (selector: any, value: any) => { assert.equal(selector.scheme, 'file'); provider = value; return disposable; },
+      registerCodeLensProvider: () => assert.fail('CodeLens is not a multiline ghost renderer') },
+    commands: {
+      /** 模拟原生编辑器重新请求虚影；禁止全局隐藏其他扩展的提示。 */
+      executeCommand: async (command: string) => {
+        calls.push(command);
+        assert.equal(command, 'editor.action.inlineSuggest.trigger');
+        const editor = native.window.activeTextEditor;
+        items = await provider.provideInlineCompletionItems(editor.document, editor.selection.active, {}, { isCancellationRequested: false });
+      } },
   };
   const require = createRequire(path.resolve('package.json'));
   const module = { exports: {} as any };
@@ -91,38 +99,53 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     require: (id: string) => id === 'vscode' ? native : id === '../server/gitService' ? { gitService: { getFilePreview: preview } }
       : id === '../shared/followGhost' ? { nextGhostEdit } : require(id) });
   const ghost = new module.exports.FollowGhost();
-  /** 用真实字符串模拟原生文档及版本，每次输入只改文档自身。 */
+  /** 以实际字符串和 UTF-16 偏移模拟文档，行末范围不包含 CRLF。 */
   function document(file: string, text: string, eol = 1) {
     return { text, version: 1, eol, uri: { scheme: 'file', fsPath: file },
       getText() { return this.text; },
-      /** 按原生换行计算行列，保留 CRLF 对偏移的影响。 */
-      positionAt(offset: number) {
-        const lines = this.text.slice(0, offset).split('\n');
-        return new Position(lines.length - 1, lines.at(-1)!.length);
-      },
-      /** 还原 UTF-16 偏移，便于验证虚影锚点。 */
-      offsetAt(position: Position) {
-        return this.text.split('\n').slice(0, position.line).reduce((sum, line) => sum + line.length + 1, 0) + position.character;
-      } };
+      /** 按原生换行计算行列。 */
+      positionAt(offset: number) { const lines = this.text.slice(0, offset).split('\n'); return new Position(lines.length - 1, lines.at(-1)!.length); },
+      /** 将行列转换为含 CRLF 的真实偏移。 */
+      offsetAt(position: Position) { return this.text.split('\n').slice(0, position.line).reduce((sum, line) => sum + line.length + 1, 0) + position.character; },
+      /** 提供真实的行末，验证多行建议满足宿主范围要求。 */
+      lineAt(index: number) { const text = (this.text.split('\n')[index] || '').replace(/\r$/, ''); return { text, range: new Range(new Position(index, 0), new Position(index, text.length)) }; } };
   }
-  /** 让模拟编辑器持有当前文档，并记录控制器添加的装饰。 */
+  /** 切换模拟编辑器，只记录删除装饰，不向文档注入目标。 */
   function editor(doc: ReturnType<typeof document>) {
-    const value = { document: doc, options: { tabSize: 2 }, selection: new Selection(new Position(0, 0), new Position(0, 0)),
+    const value = { document: doc, selection: new Selection(new Position(0, 0), new Position(0, 0)),
       setDecorations: (type: any, ranges: any[]) => decorations.set(type.key, ranges), revealRange() {} };
-    native.window.activeTextEditor = value; native.window.visibleTextEditors = [value];
+    native.window.activeTextEditor = value; native.window.visibleTextEditors = [value]; items = [];
     return value;
   }
   return { ghost, native, calls, decorations, status, document, editor,
-    /** 暴露真实注册结果和刷新次数，检查宿主的显示接入点。 */
-    get lensProvider() { return lensProvider; }, get lensChanges() { return lensChanges; },
-    /** 模拟用户关闭代码透镜，验证提示能够明确说明缺失的显示条件。 */
-    disableLens() { lensEnabled = false; },
-    /** 触发真实控制器的输入监听并等待其短暂防抖。 */
-    async changed(doc: any) { changed({ document: doc }); await new Promise((resolve) => setTimeout(resolve, 140)); } };
+    /** 返回模拟宿主收到的候选，而不是检查控制器的内部缓存。 */
+    get items() { return items; },
+    /** 模拟用户关闭内联建议，控制器应明确显示原因。 */
+    disableInline() { inlineEnabled = false; },
+    /** 模拟前缀模式的限制，避免已有代码之前的多行目标静默消失。 */
+    prefixMode() { inlineMode = 'prefix'; },
+    /** 模拟真实光标事件，回到待写行后应主动恢复目标。 */
+    async moved(position: Position) {
+      const editor = native.window.activeTextEditor;
+      editor.selection = new Selection(position, position); items = [];
+      selectionChanged({ textEditor: editor });
+      await new Promise(resolve => setTimeout(resolve, 140));
+    },
+    /** 按原生输入行为使旧候选失效，并等待控制器提供更新。 */
+    async changed(doc: any) { items = []; changed({ document: doc }); await new Promise((resolve) => setTimeout(resolve, 140)); },
+    /** 提供补全菜单与取消场景，检验原生提供器的实际接入逻辑。 */
+    async provide(doc: any, position: Position, context: any = {}, cancelled = false) {
+      return provider.provideInlineCompletionItems(doc, position, context, { isCancellationRequested: cancelled });
+    } };
 }
 
-/** 验证持续淡字不依赖光标和补全，按未保存输入收缩，保留旧内容标记与目标缓存。 */
-test('persistent ghost stays visible away from the caret without occupying completion', async (t) => {
+/** 将候选应用到副本检查完整结果，真实文档必须保持原样。 */
+function proposedText(doc: any, item: any): string {
+  return doc.text.slice(0, doc.offsetAt(item.range.start)) + item.insertText + doc.text.slice(doc.offsetAt(item.range.end));
+}
+
+/** 验证替换必须先删除旧字，之后才展示真实目标，输入使用缓存且不会移动光标。 */
+test('native ghosts wait for removal, preserve suffixes and update unsaved input', async (t) => {
   let reads = 0;
   const c = controller(async () => { reads++; return { content: 'const value = 3;\n' }; });
   t.after(() => c.ghost.dispose());
@@ -133,95 +156,80 @@ test('persistent ghost stays visible away from the caret without occupying compl
   const doc = c.document(path.join(repo, 'sample.ts'), 'const value = 1;\n');
   const editor = c.editor(doc);
   await c.ghost.open(editor, 'const value = 2;\n');
-  const hint = c.decorations.get('ghost')![0];
-  assert.equal(hint.renderOptions.before.contentText, '2');
-  assert.deepEqual(hint.range.start, doc.positionAt(14));
-  assert.deepEqual(hint.range.start, hint.range.end);
-  assert.equal(doc.text, 'const value = 1;\n');
+  assert.equal(c.items.length, 0, 'replacement must not be shown as a misleading 21');
   assert.equal(c.decorations.get('deleted')![0].range.start.character, 14);
-  editor.selection = new Selection(new Position(0, 0), new Position(0, 0));
-  await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '2', 'moving away does not hide the target');
-  assert.equal(editor.selection.active.character, 0, 'passive rendering does not move the cursor');
-  assert.deepEqual(c.calls, [], 'no inlineSuggest trigger/hide commands affect other providers');
-  doc.text = 'const value = 21;\n'; doc.version++;
-  await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')!.length, 0);
-  assert.equal(c.decorations.get('deleted')![0].range.start.character, 15, 'typed target text remains and only the obsolete character is marked');
+  assert.match(c.status.text, /先删除红字/);
   doc.text = 'const value = ;\n'; doc.version++;
   await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '2');
-  assert.equal(reads, 0, 'typing reuses the already loaded target without Git calls');
+  assert.equal(c.items.length, 1);
+  assert.equal(c.items[0].insertText, '2');
+  assert.equal(c.items[0].range.end.character, 14);
+  assert.equal(proposedText(doc, c.items[0]), 'const value = 2;\n');
+  assert.equal(doc.text, 'const value = ;\n');
+  assert.equal(reads, 0);
+  await c.moved(new Position(0, 0));
+  assert.equal(editor.selection.active.character, 0);
+  assert.equal(proposedText(doc, c.items[0]), 'const value = 2;\n', 'cursor may remain before the insertion on the same line');
+  doc.text = 'const value = 21;\n'; doc.version++;
+  await c.changed(doc);
+  assert.equal(c.items.length, 0);
+  assert.equal(c.decorations.get('deleted')![0].range.start.character, 15);
   doc.text = 'const value = 2;\n'; doc.version++;
   await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')!.length, 0);
   assert.match(c.status.text, /已一致/);
   c.ghost.setStep({ ...session, stepIndex: 1 }, files);
   await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '3');
   assert.equal(reads, 1);
+  assert.match(c.status.text, /先删除红字/);
   const unrelated = c.document(path.resolve('.validation/unrelated/sample.ts'), '');
-  c.editor(unrelated);
-  await c.changed(unrelated);
-  assert.equal(c.decorations.get('ghost')!.length, 0);
+  c.editor(unrelated); await c.changed(unrelated);
+  assert.equal(c.items.length, 0); assert.equal(c.status.visible, false);
   c.ghost.setStep(session, [{ path: 'removed.ts', deleted: true, complete: false }]);
   const removed = c.document(path.join(repo, 'removed.ts'), '');
   await c.ghost.open(c.editor(removed), '');
-  assert.match(c.status.text, /需要删除整个文件/, 'an empty file must not be reported complete when the target deletes it');
+  assert.match(c.status.text, /需要删除整个文件/);
   assert.doesNotMatch(c.status.text, /已一致/);
 });
 
-/** 验证空文件多行目标独立预览，输入前缀后保持完整行，旧请求失效且不拆分 Unicode。 */
-test('empty files preview multiline targets on independent rows', async (t) => {
+/** 空文件应一次获得多行正文，保留真实换行和 Tab，输入后继续剩余目标且不泄漏旧步骤。 */
+test('empty files receive real multiline ghost code and continue after typed prefixes', async (t) => {
   let resolve!: (value: any) => void;
   const c = controller(() => new Promise((done) => { resolve = done; }));
   t.after(() => c.ghost.dispose());
   const repo = path.resolve('.validation/ghost-practice');
-  const session = { practiceRepo: repo, steps: [{ hash: 'old' }, { hash: 'new' }], stepIndex: 0, finished: false };
-  const files = [{ path: 'new.ts', deleted: false, complete: false }];
+  const session = { practiceRepo: repo, steps: [{ hash: 'old' }, { hash: 'target' }], stepIndex: 0, finished: false };
+  const files = [{ path: 'Empty.java', deleted: false, complete: false }];
   c.ghost.setStep(session, files);
-  const doc = c.document(path.join(repo, 'new.ts'), '', 2);
+  const doc = c.document(path.join(repo, 'Empty.java'), '', 2);
   const editor = c.editor(doc);
   const stale = c.ghost.locate();
   c.ghost.setStep({ ...session, stepIndex: 1 }, files);
-  resolve({ content: 'stale code' });
-  await stale;
-  assert.equal(c.decorations.get('ghost')!.length, 0);
-  assert.equal(c.ghost.provideCodeLenses(doc).length, 0);
-  const target = Array.from({ length: 20 }, (_, index) => `line ${index}`).join('\n') + '\n';
+  resolve({ content: 'stale code' }); await stale;
+  assert.equal(c.items.length, 0);
+  const target = 'package demo;\n\npublic class Empty {\n\tint value;\n}\n';
   await c.ghost.open(editor, target);
-  assert.equal(c.decorations.get('ghost')!.length, 0);
-  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /待写目标：line 0.*换行/);
-  assert.match(c.ghost.provideCodeLenses(doc)[0].command.tooltip, /line 1/);
+  assert.equal(c.items[0].insertText, target.replace(/\n/g, '\r\n'));
   assert.equal(doc.text, '');
-  doc.text = 'li'; doc.version++;
+  doc.text = 'pac'; doc.version++;
+  editor.selection = new Selection(new Position(0, 3), new Position(0, 3));
   await c.changed(doc);
-  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /待写目标：line 0/, 'preview retains the full expected line including the typed prefix');
-  assert.equal(c.ghost.provideCodeLenses(doc)[0].range.start.character, 2);
-  doc.text = 'line 0\r\n'; doc.version++;
+  assert.match(c.items[0].insertText, /^kage demo;\r\n/);
+  assert.equal(proposedText(doc, c.items[0]), target.replace(/\n/g, '\r\n'));
+  doc.text = 'package demo;\r\n'; doc.version++;
+  editor.selection = new Selection(new Position(1, 0), new Position(1, 0));
   await c.changed(doc);
-  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /待写目标：line 1/);
-  assert.equal(c.ghost.provideCodeLenses(doc)[0].range.start.line, 1);
-  await c.ghost.open(editor, 'x'.repeat(1999) + '😀');
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'x'.repeat(1999));
-  doc.text = ''; doc.version++;
-  await c.ghost.open(editor, `${'x'.repeat(1999)}😀\r\n`);
-  assert.equal(c.ghost.provideCodeLenses(doc)[0].command.title, `待写目标：${'x'.repeat(1999)}  ↵ 换行`, 'independent previews share the Unicode-safe display limit');
-  await c.ghost.open(editor, '\t  \n');
-  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /⇥··/, 'tabs must not be presented as spaces');
-  doc.text = '\t  \r\n'; doc.version++;
+  assert.match(c.items[0].insertText, /^\r\npublic class Empty/);
+  assert.equal(c.items[0].range.start.line, 1);
+  doc.text = target.replace(/\n/g, '\r\n'); doc.version++;
   await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')!.length, 0);
-  assert.equal(c.ghost.provideCodeLenses(doc).length, 0);
-  assert.match(c.status.text, /已一致/);
+  assert.equal(c.items.length, 0); assert.match(c.status.text, /已一致/);
   c.ghost.setStep({ ...session, finished: true }, files);
   await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')!.length, 0);
   assert.equal(c.status.visible, false);
 });
 
-/** 复现截图中的 import 插入，换行目标必须独立成行，不把两个 import 拼成同一行。 */
-test('inserted import lines never concatenate the preview with the existing import', async (t) => {
+/** 复现两条 import 的截图：多行范围到行末，保留旧 import，输入换行后精确收敛。 */
+test('multiline import suggestions preserve the existing line and actual line breaks', async (t) => {
   for (const eol of ['\n', '\r\n']) {
     const c = controller(async () => ({ content: '' }));
     t.after(() => c.ghost.dispose());
@@ -230,54 +238,96 @@ test('inserted import lines never concatenate the preview with the existing impo
       [{ path: 'Imports.java', deleted: false, complete: false }]);
     const before = `import com.gameplus.service.dmx.DmxCatLogic;${eol}`;
     const added = 'import com.gameplus.service.activitypro.returncampaign.ReturnCampaignActivity;';
+    const target = `${added}${eol}${before}`;
     const doc = c.document(path.join(repo, 'Imports.java'), before, eol === '\n' ? 1 : 2);
     const editor = c.editor(doc);
-    await c.ghost.open(editor, `${added}${eol}${before}`);
-    assert.equal(c.lensProvider, c.ghost);
-    assert.ok(c.lensChanges > 0, 'opening the target requests a CodeLens refresh');
-    assert.equal(c.decorations.get('ghost')!.length, 0, 'multiline code must not be injected before existing text');
-    const lens = c.lensProvider.provideCodeLenses(doc)[0];
-    assert.match(lens.command.title, /ReturnCampaignActivity/);
-    assert.doesNotMatch(lens.command.title, /DmxCatLogic/);
-    assert.equal(lens.range.start.line, 0);
+    await c.ghost.open(editor, target);
+    assert.equal(c.items.length, 1);
+    assert.equal(c.items[0].range.end.character, doc.lineAt(0).text.length);
+    assert.equal(proposedText(doc, c.items[0]), target);
     assert.equal(doc.text, before);
+    assert.ok(c.items[0].insertText.includes(eol));
+    assert.equal(c.items[0].filterText, doc.lineAt(0).text);
     doc.text = added + before; doc.version++;
-    assert.equal(c.ghost.provideCodeLenses(doc).length, 0, 'old document versions cannot leak a stale preview');
+    editor.selection = new Selection(new Position(0, added.length), new Position(0, added.length));
     await c.changed(doc);
-    assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /在此处换行/);
-    assert.equal(c.decorations.get('ghost')!.length, 0);
-    doc.text = `${added}${eol}${before}`; doc.version++;
+    assert.equal(c.items[0].insertText, eol + doc.lineAt(0).text.slice(added.length));
+    assert.equal(proposedText(doc, c.items[0]), target);
+    doc.text = target; doc.version++;
     await c.changed(doc);
-    assert.equal(c.ghost.provideCodeLenses(doc).length, 0);
-    assert.match(c.status.text, /已一致/);
-    doc.text = before; doc.version++;
-    c.disableLens();
-    await c.changed(doc);
-    assert.match(c.status.text, /开启代码透镜/);
-    assert.match(c.status.tooltip, /ReturnCampaignActivity/);
-    assert.equal(doc.text, before, 'preview settings never insert line breaks or answers');
+    assert.equal(c.items.length, 0); assert.match(c.status.text, /已一致/);
   }
 });
 
-/** 目标读取失败必须给出可见错误，并允许下次输入或定位重试，不能静默变成空白。 */
-test('target read failures remain visible and can be retried', async (t) => {
-  let reads = 0;
-  const c = controller(async () => {
-    if (++reads === 1) throw new Error('Git unavailable');
-    return { content: 'target' };
-  });
+/** 匹配的普通补全可继续展示目标；不匹配、取消、跨行光标和过期版本不会生成错误候选。 */
+test('inline candidates extend compatible IntelliSense without replacing unrelated suggestions', async (t) => {
+  const c = controller(async () => ({ content: '' }));
   t.after(() => c.ghost.dispose());
   const repo = path.resolve('.validation/ghost-practice');
   c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
-    [{ path: 'new.ts', deleted: false, complete: false }]);
-  const doc = c.document(path.join(repo, 'new.ts'), '');
-  c.editor(doc);
-  await c.changed(doc);
-  assert.equal(c.status.visible, true);
-  assert.match(c.status.text, /读取失败/);
-  assert.match(c.status.tooltip, /Git unavailable/);
-  await c.changed(doc);
-  assert.equal(reads, 2);
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'target');
+    [{ path: 'Demo.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'Demo.java'), 'pa');
+  const editor = c.editor(doc);
+  await c.ghost.open(editor, 'package demo;\nclass Demo {}\n');
+  const position = new Position(0, 2);
+  const selected = { range: new Range(new Position(0, 0), position), text: 'package' };
+  const compatible = await c.provide(doc, position, { selectedCompletionInfo: selected });
+  assert.equal(compatible.length, 1);
+  assert.equal(proposedText(doc, compatible[0]), 'package demo;\nclass Demo {}\n');
+  assert.equal((await c.provide(doc, position, { selectedCompletionInfo: { ...selected, text: 'parseFloat' } })).length, 0);
+  assert.match(c.status.text, /按 Esc/);
+  await c.provide(doc, position);
+  assert.match(c.status.text, /照虚影输入/);
+  assert.equal((await c.provide(doc, position, {}, true)).length, 0);
+  assert.equal((await c.provide(doc, new Position(1, 0))).length, 0);
+  doc.text = 'fn()'; doc.version++;
+  await c.ghost.open(editor, 'fn(value)');
+  assert.equal(proposedText(doc, c.items[0]), 'fn(value)', 'auto-closing suffix is preserved exactly once');
+  c.disableInline(); await c.changed(doc);
+  assert.match(c.status.text, /请启用内联建议/);
+  assert.equal(c.items.length, 0);
+});
+
+/** 限制每次候选的行数和字符数，避免原生渲染上限导致空白，同时保持 Unicode 和 CRLF 完整。 */
+test('native ghost chunks retain multiple lines and never split Unicode or CRLF', async (t) => {
+  const c = controller(async () => ({ content: '' }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'Long.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'Long.java'), '', 2);
+  const editor = c.editor(doc);
+  await c.ghost.open(editor, Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n') + '\n');
+  assert.equal(c.items[0].insertText.split('\r\n').length, 61);
+  assert.match(c.items[0].insertText, /line 20/);
+  assert.doesNotMatch(c.items[0].insertText, /line 60/);
+  await c.ghost.open(editor, 'x'.repeat(3999) + '😀\n');
+  assert.equal(c.items[0].insertText, 'x'.repeat(3999));
+  await c.ghost.open(editor, 'x'.repeat(3999) + '\n');
+  assert.equal(c.items[0].insertText, 'x'.repeat(3999));
   assert.equal(doc.text, '');
+  doc.text = 'x'.repeat(4100); doc.version++;
+  await c.ghost.open(editor, 'new\n' + doc.text);
+  assert.equal(c.items.length, 0); assert.match(c.status.text, /当前行过长/);
+  doc.text = 'existing'; doc.version++;
+  c.prefixMode();
+  await c.ghost.open(editor, 'new\nexisting');
+  assert.equal(c.items.length, 0); assert.match(c.status.text, /子词模式/);
+  assert.equal((c.status.command as any).arguments[0], '@id:editor.inlineSuggest.mode');
+});
+
+/** 目标读取失败仍需显示可见错误，并允许下一次定位或输入重试。 */
+test('target read failures remain visible and can be retried', async (t) => {
+  let reads = 0;
+  const c = controller(async () => { if (++reads === 1) throw new Error('Git target unavailable'); return { content: 'target' }; });
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'retry.ts', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'retry.ts'), '');
+  c.editor(doc); await c.changed(doc);
+  assert.equal(c.status.visible, true); assert.match(c.status.text, /读取失败/);
+  assert.match(c.status.tooltip, /Git target unavailable/);
+  await c.changed(doc);
+  assert.equal(reads, 2); assert.equal(c.items[0].insertText, 'target'); assert.equal(doc.text, '');
 });
