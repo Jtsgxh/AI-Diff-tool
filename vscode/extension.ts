@@ -7,6 +7,7 @@ import { advanceFollow, checkFollow, combineFollow, createFollow, isWithin, load
   type FollowSession, type FollowCheck, type FollowFile } from '../server/followService';
 import { VSCodeWorkbench } from './workbench';
 import { FollowGhost } from './followGhost';
+import { ensureFollowWorkspace } from './followWorkspace';
 
 const SCHEME = 'ai-diff-reference';
 
@@ -165,7 +166,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!destination) return;
     const session = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
       title: '正在准备合并范围并创建独立练习目录…' }, () => createFollow(repo, destination.fsPath, base, target));
-    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(session.practiceRepo), true);
+    const workspace = await ensureFollowWorkspace(session.practiceRepo, vscode.version);
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspace), true);
   });
 
   register('aiDiff.follow.check', async () => {
@@ -232,6 +234,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('aiDiff.follow.open', (file: FollowFile) => openFollow(file));
   register('aiDiff.follow.compare', (file: FollowFile) => openFollow(file, true));
   register('aiDiff.follow.locate', () => ghost.locate());
+  /** 旧练习显式切换专用工作区；已在其中时只恢复编辑焦点，不反复重开窗口。 */
+  register('aiDiff.follow.stable', async () => {
+    if (!tree.session) throw new Error('请先打开跟写练习。');
+    const workspace = await ensureFollowWorkspace(tree.session.practiceRepo, vscode.version);
+    if (vscode.workspace.workspaceFile?.scheme === 'file' && !path.relative(vscode.workspace.workspaceFile.fsPath, workspace)) {
+      await ghost.locate(); return;
+    }
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(workspace), { forceReuseWindow: true });
+  });
 
   register('aiDiff.follow.delete', async (file: FollowFile) => {
     if (!tree.session || !file) return;

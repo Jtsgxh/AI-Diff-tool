@@ -2,7 +2,7 @@
   "name": "ai-diff-follow",
   "displayName": "AI Diff · 跟写工作台",
   "description": "在 VS Code 中审查、学习 Git 仓库，并将提交范围合为一个目标，用原生虚影一比一跟写。",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "publisher": "jtsgxh",
   "license": "ISC",
   "repository": { "type": "git", "url": "https://github.com/Jtsgxh/AI-Diff-tool.git" },
@@ -26,6 +26,7 @@
       { "command": "aiDiff.follow.open", "title": "打开虚影跟写", "category": "AI Diff" },
       { "command": "aiDiff.follow.compare", "title": "查看目标对照", "category": "AI Diff" },
       { "command": "aiDiff.follow.locate", "title": "定位下一处跟写", "category": "AI Diff", "icon": "$(go-to-file)" },
+      { "command": "aiDiff.follow.stable", "title": "启用稳定跟写窗口", "category": "AI Diff", "icon": "$(window)" },
       { "command": "aiDiff.follow.delete", "title": "删除本步要求移除的文件", "category": "AI Diff" },
       { "command": "aiDiff.follow.sync", "title": "同步本步二进制资源", "category": "AI Diff" },
       { "command": "aiDiff.symbols", "title": "搜索工作区代码符号", "category": "AI Diff", "icon": "$(symbol-method)" }
@@ -36,6 +37,7 @@
       "view/title": [
         { "command": "aiDiff.follow.create", "when": "view == aiDiff.follow", "group": "navigation@1" },
         { "command": "aiDiff.follow.check", "when": "view == aiDiff.follow", "group": "navigation@2" },
+        { "command": "aiDiff.follow.stable", "when": "view == aiDiff.follow && aiDiff.followMode", "group": "navigation@2.5" },
         { "command": "aiDiff.follow.next", "when": "view == aiDiff.follow && aiDiff.followMode == commits", "group": "navigation@3" },
         { "command": "aiDiff.follow.finish", "when": "view == aiDiff.follow && aiDiff.followMode == combined", "group": "navigation@3" },
         { "command": "aiDiff.follow.combine", "when": "view == aiDiff.follow && aiDiff.followMode == commits", "group": "tools" },

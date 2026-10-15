@@ -25,6 +25,11 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     this.status.command = 'aiDiff.follow.locate';
     this.subscriptions = [vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, this),
       vscode.window.onDidChangeActiveTextEditor(() => this.schedule()),
+      vscode.window.onDidChangeVisibleTextEditors(() => this.schedule()),
+      vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
+        if (event.textEditor === vscode.window.activeTextEditor) this.schedule();
+      }),
+      vscode.window.onDidChangeWindowState((state) => { if (state.focused) this.schedule(); }),
       vscode.window.onDidChangeTextEditorSelection((event) => {
         if (event.textEditor === vscode.window.activeTextEditor) this.schedule();
       }),
@@ -147,7 +152,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     }
     const item = new vscode.InlineCompletionItem(insertText, new vscode.Range(from, to));
     item.filterText = current.slice(fromOffset, toOffset);
-    this.status.text = `$(edit) 跟写 · 第 ${start.line + 1} 行 · 照虚影输入`;
+    this.status.text = `$(edit) 跟写 · 第 ${start.line + 1} 行 · 目标就绪`;
     this.status.tooltip = `照正文虚影输入；普通补全打开时按 Esc 返回虚影。\n${edit.text.slice(0, 6000)}`;
     this.status.command = 'aiDiff.follow.locate';
     this.status.show();
@@ -179,7 +184,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const range = new vscode.Range(start, editor.document.positionAt(edit.end));
     editor.setDecorations(this.deleted, edit.end > edit.start ? [{ range, hoverMessage: '先删除或替换这些旧内容，再继续跟写虚影。' }] : []);
     this.status.text = deleting ? '$(trash) 跟写 · 需要删除整个文件' :
-      `$(edit) 跟写 · 第 ${start.line + 1} 行 · ${edit.end > edit.start ? '先删除红字' : '照虚影输入'}`;
+      `$(edit) 跟写 · 第 ${start.line + 1} 行 · ${edit.end > edit.start ? '先删除红字' : '点击显示虚影'}`;
     this.status.tooltip = deleting ? '在跟写侧栏右键此文件，选择删除文件并移到回收站。' :
       `目标在正文以原生多行虚影显示；点击定位。普通补全打开时按 Esc 可回到虚影。\n${edit.text.slice(0, 6000)}`;
     const config = vscode.workspace.getConfiguration('editor', editor.document);
@@ -193,7 +198,12 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     }
     if (edit.start === edit.end && edit.text && config.get<boolean>('inlineSuggest.enabled', true)) {
       if (editor.selection.isEmpty && editor.selection.active.line === start.line && editor.document.offsetAt(editor.selection.active) <= edit.start) {
-        await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger');
+        // 新宿主支持按扩展选择提供器；只为练习请求目标，避免混入其他 AI 候选。
+        // 老宿主保留通用触发，不能把新版本的命令参数当作最低支持版本的保证。
+        const [major, minor] = vscode.version.split('.').map(Number);
+        if (major > 1 || major === 1 && minor >= 138) {
+          await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger', { providerId: 'jtsgxh.ai-diff-follow:*' });
+        } else await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger');
       } else {
         this.status.text = `$(location) 跟写 · 第 ${start.line + 1} 行 · 点击定位虚影`;
       }
@@ -224,8 +234,14 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     await this.render(true);
   }
 
-  /** 由状态栏或命令面板返回下一处未完成的跟写位置。 */
-  async locate(): Promise<void> { await this.render(true); }
+  /** 状态栏与侧栏可能持有焦点，先返回真实编辑器，再请求下一处虚影。 */
+  async locate(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (editor && this.file(editor.document)) {
+      await vscode.window.showTextDocument(editor.document, { viewColumn: editor.viewColumn, preview: false, preserveFocus: false });
+    }
+    await this.render(true);
+  }
 
   /** 释放事件、装饰和定时器，关闭扩展后清除所有提示。 */
   dispose(): void {

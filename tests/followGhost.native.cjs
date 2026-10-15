@@ -22,13 +22,18 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Empty.java'), emptyTarget);
   await fs.writeFile(path.join(source, 'Imports.java'), newImport + oldImport);
   await fs.writeFile(path.join(source, 'replace.ts'), 'const value = 2;\n');
+  await fs.writeFile(path.join(source, 'New.ts'), 'const custom = 1;\n');
+  await fs.writeFile(path.join(source, 'Calls.ts'), 'call(1);\n');
   git('add', '.'); git('commit', '--quiet', '-m', 'target');
   await require('esbuild').build({ entryPoints: ['server/followService.ts'], outfile: path.join(root, 'follow-service.cjs'),
     bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
   await require(path.join(root, 'follow-service.cjs')).createFollow(source, path.join(root, 'practice'), base, 'HEAD');
+  await require('esbuild').build({ entryPoints: ['vscode/followWorkspace.ts'], outfile: path.join(root, 'follow-workspace.cjs'),
+    bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
+  await require(path.join(root, 'follow-workspace.cjs')).ensureFollowWorkspace(path.join(root, 'practice'), '1.138.0');
   await fs.mkdir(path.join(root, 'profile', 'User'), { recursive: true });
   await fs.writeFile(path.join(root, 'profile', 'User', 'settings.json'), JSON.stringify({
-    'security.workspace.trust.enabled': false, 'editor.inlineSuggest.enabled': true, 'editor.quickSuggestions': false,
+    'security.workspace.trust.enabled': false,
     'workbench.startupEditor': 'none', 'telemetry.telemetryLevel': 'off', 'update.mode': 'none',
   }));
   await fs.mkdir(path.join(root, 'extensions'));
@@ -63,7 +68,29 @@ exports.run = async () => {
     assert.equal(editor.document.getText(), '');
     assert.equal(await fs.readFile(path.join(practice, 'Empty.java'), 'utf8'), '');
     await checkpoint('empty', editor);
-    await vscode.commands.executeCommand('type', { text: 'package demo;\n' });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(editor.document.getText(), expected(editor.document, emptyTarget), 'first candidate must work before any typing');
+    await vscode.commands.executeCommand('undo');
+    assert.equal(editor.document.getText(), '');
+    await settle();
+    await vscode.commands.executeCommand('workbench.action.focusSideBar');
+    await settle();
+    await checkpoint('blurred', editor);
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await vscode.commands.executeCommand('editor.action.insertSnippet', { snippet: '${1:x}$0' });
+    await vscode.commands.executeCommand('type', { text: 'pac' });
+    await settle();
+    await checkpoint('snippet-prefix', editor);
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(editor.document.getText(), expected(editor.document, emptyTarget), 'snippet mode must retain the follow candidate');
+    await vscode.commands.executeCommand('undo');
+    assert.equal(editor.document.getText(), 'pac');
+    await vscode.commands.executeCommand('leaveSnippet');
+    // 逐字符模拟手敲并保留原生按键行为，不能只验证一次粘贴整行。
+    for (const text of 'kage demo;\n') {
+      await vscode.commands.executeCommand('type', { text });
+      await new Promise(resolve => setTimeout(resolve, 160));
+    }
     await settle();
     assert.equal(editor.document.getText(), expected(editor.document, 'package demo;\n'));
     await checkpoint('typed-prefix', editor);
@@ -87,6 +114,35 @@ exports.run = async () => {
     assert.equal(editor.document.getText(), expected(editor.document, 'const value = ;\n'));
     await checkpoint('replacement', editor);
     await vscode.commands.executeCommand('type', { text: '2' });
+    await editor.document.save();
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'New.ts' });
+    editor = vscode.window.activeTextEditor;
+    await settle();
+    for (const text of 'con') {
+      await vscode.commands.executeCommand('type', { text });
+      await new Promise(resolve => setTimeout(resolve, 160));
+    }
+    await settle();
+    await checkpoint('completion-prefix', editor);
+    await vscode.commands.executeCommand('editor.action.triggerSuggest');
+    await settle();
+    await checkpoint('completion-menu', editor);
+    await vscode.commands.executeCommand('hideSuggestWidget');
+    await settle();
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(editor.document.getText(), expected(editor.document, 'const custom = 1;\n'));
+    await editor.document.save();
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Calls.ts' });
+    editor = vscode.window.activeTextEditor;
+    await vscode.commands.executeCommand('type', { text: 'call' });
+    await vscode.commands.executeCommand('type', { text: '(' });
+    assert.equal(editor.document.getText(), 'call()', 'native auto closing must remain available');
+    await settle();
+    await checkpoint('auto-close', editor);
+    await vscode.commands.executeCommand('type', { text: '1' });
+    await vscode.commands.executeCommand('type', { text: ')' });
+    await vscode.commands.executeCommand('type', { text: ';\n' });
+    assert.equal(editor.document.getText(), expected(editor.document, 'call(1);\n'));
     await vscode.commands.executeCommand('aiDiff.follow.finish');
     const session = JSON.parse(await fs.readFile(path.join(practice, '.git', 'ai-diff-follow.json'), 'utf8'));
     assert.equal(session.finished, true);

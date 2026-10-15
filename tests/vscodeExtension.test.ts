@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import { transformSync } from 'esbuild';
 import { gitService } from '../server/gitService';
 import * as follow from '../server/followService';
+import { ensureFollowWorkspace } from '../vscode/followWorkspace';
 
 test('native extension commands open real practice files, save only practice drafts and persist completion', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ai-diff-native-test-'));
@@ -46,6 +47,7 @@ test('native extension commands open real practice files, save only practice dra
     async save() { practiceSaved++; await fs.writeFile(this.uri.fsPath, 'export const value = 2;\n'); this.isDirty = false; return true; } };
   const disposable = { dispose() {} };
   const native = {
+    version: '1.138.0',
     EventEmitter: class { event = () => disposable; fire() {} dispose() {} },
     TreeItem: class { constructor(public label: string) {} }, ThemeIcon: class { constructor(public id: string) {} },
     Uri: { file: uri, from: (value: any) => value }, ViewColumn: { One: 1, Beside: 2 },
@@ -84,7 +86,7 @@ test('native extension commands open real practice files, save only practice dra
   vm.runInNewContext(code, { module, exports: module.exports, URLSearchParams, setTimeout, clearTimeout,
     require: (id: string) => id === 'vscode' ? native : id === '../server/gitService' ? { gitService }
       : id === '../server/followService' ? follow : id === './workbench' ? { VSCodeWorkbench: class { dispose() {} updateReference() {} } }
-      : id === './followGhost' ? { FollowGhost: class {
+      : id === './followWorkspace' ? { ensureFollowWorkspace } : id === './followGhost' ? { FollowGhost: class {
         /** 记录真实命令对虚影控制器的调用，具体提示另由专用测试检查。 */
         open(editor: any, target: string) { calls.push(['ghost.open', editor, target]); }
         /** 此用例不模拟具体虚影生命周期，生命周期由专用测试覆盖。 */
@@ -97,6 +99,14 @@ test('native extension commands open real practice files, save only practice dra
   const context = { subscriptions: [] as any[] };
   await module.exports.activate(context);
   assert.equal(provider.getChildren().length, 1);
+  await commands.get('aiDiff.follow.stable')!();
+  assert.ok(calls.some((call) => call[0] === 'vscode.openFolder' && call[1].fsPath === path.join(practice, '.git', 'ai-diff-follow.code-workspace') && call[2].forceReuseWindow === true));
+  // 已在专用工作区时只定位，不重复切换窗口。
+  Object.assign(native.workspace, { workspaceFile: uri(path.join(practice, '.git', 'ai-diff-follow.code-workspace')) });
+  const switches = calls.filter((call) => call[0] === 'vscode.openFolder').length;
+  await commands.get('aiDiff.follow.stable')!();
+  assert.equal(calls.filter((call) => call[0] === 'vscode.openFolder').length, switches);
+  Reflect.deleteProperty(native.workspace, 'workspaceFile');
   await commands.get('aiDiff.follow.combine')!();
   assert.equal(practiceSaved, 0, 'combining preserves unsaved practice drafts');
   assert.equal(unrelatedSaved, 0);
@@ -148,7 +158,7 @@ test('native extension commands open real practice files, save only practice dra
     assert.equal(created?.steps[0].hash, target);
     // Git 检出遵循本机换行设置；验证基准内容，同时接受 Windows 的 CRLF。
     assert.match(await fs.readFile(path.join(createdPath, 'sample.ts'), 'utf8'), /^export const value = 1;\r?\n$/);
-    assert.ok(calls.some((call) => call[0] === 'vscode.openFolder' && call[1].fsPath === createdPath && call[2] === true));
+    assert.ok(calls.some((call) => call[0] === 'vscode.openFolder' && call[1].fsPath === path.join(createdPath, '.git', 'ai-diff-follow.code-workspace') && call[2] === true));
   });
   /** 模拟历史超过首批上限，列表点选较老基准及结束点，全程不需要输入 SHA。 */
   await t.test('commit list loads older history and selects both endpoints without manual input', async (t) => {

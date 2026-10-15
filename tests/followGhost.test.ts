@@ -58,13 +58,18 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   let inlineMode = 'subwordSmart';
   let provider: any;
   let items: any[] = [];
+  let missRequest = false;
   let changed: (event: any) => void = () => {};
   let selectionChanged: (event: any) => void = () => {};
+  let rangesChanged: (event: any) => void = () => {};
+  let visibleChanged: () => void = () => {};
+  let windowChanged: (event: any) => void = () => {};
+  let focused = 0;
   const status = { visible: false, text: '', command: '', tooltip: '',
     /** 记录状态栏显示和隐藏。 */
     show() { this.visible = true; }, hide() { this.visible = false; }, dispose() {} };
   const native = {
-    Position, Range, Selection, EndOfLine: { LF: 1, CRLF: 2 },
+    Position, Range, Selection, version: '1.138.0', EndOfLine: { LF: 1, CRLF: 2 },
     /** 保留原生提供器返回的真实换行文本与替换范围。 */
     InlineCompletionItem: class { constructor(public insertText: string, public range: Range) {} },
     ThemeColor: class { constructor(public id: string) {} },
@@ -74,6 +79,16 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       /** 禁止重新用单行装饰假装承载多行代码。 */
       createTextEditorDecorationType: (options: any) => { assert.equal(options.before, undefined); return { ...disposable, key: 'deleted' }; },
       createStatusBarItem: () => status, onDidChangeActiveTextEditor: () => disposable,
+      /** 模拟布局完成与窗口重新获得焦点，不需要伪造一次文本输入。 */
+      onDidChangeVisibleTextEditors: (callback: typeof visibleChanged) => { visibleChanged = callback; return disposable; },
+      onDidChangeTextEditorVisibleRanges: (callback: typeof rangesChanged) => { rangesChanged = callback; return disposable; },
+      onDidChangeWindowState: (callback: typeof windowChanged) => { windowChanged = callback; return disposable; },
+      /** 定位应将输入焦点还给原编辑器，不改写文档。 */
+      showTextDocument: async (doc: any, options: any) => {
+        assert.equal(doc, native.window.activeTextEditor.document);
+        assert.equal(options.preserveFocus, false); focused++;
+        return native.window.activeTextEditor;
+      },
       onDidChangeTextEditorSelection: (callback: typeof selectionChanged) => { selectionChanged = callback; return disposable; } },
     workspace: { onDidChangeTextDocument: (callback: typeof changed) => { changed = callback; return disposable; },
       onDidChangeConfiguration: () => disposable,
@@ -85,9 +100,12 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       registerCodeLensProvider: () => assert.fail('CodeLens is not a multiline ghost renderer') },
     commands: {
       /** 模拟原生编辑器重新请求虚影；禁止全局隐藏其他扩展的提示。 */
-      executeCommand: async (command: string) => {
+      executeCommand: async (command: string, options?: any) => {
         calls.push(command);
         assert.equal(command, 'editor.action.inlineSuggest.trigger');
+        if (native.version === '1.138.0') assert.equal(options.providerId, 'jtsgxh.ai-diff-follow:*');
+        else assert.equal(options, undefined);
+        if (missRequest) { missRequest = false; items = []; return; }
         const editor = native.window.activeTextEditor;
         items = await provider.provideInlineCompletionItems(editor.document, editor.selection.active, {}, { isCancellationRequested: false });
       } },
@@ -118,6 +136,16 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     return value;
   }
   return { ghost, native, calls, decorations, status, document, editor,
+    /** 模拟首次打开时宿主尚未受理请求，随后由真实生命周期事件恢复。 */
+    missNextRequest() { missRequest = true; },
+    get focused() { return focused; },
+    /** 模拟当前编辑器完成布局，不改变文档版本和光标。 */
+    async laidOut() { rangesChanged({ textEditor: native.window.activeTextEditor }); await new Promise(resolve => setTimeout(resolve, 140)); },
+    /** 模拟编辑器重新可见或窗口切回。 */
+    async resumed(kind: 'visible' | 'window') {
+      if (kind === 'visible') visibleChanged(); else windowChanged({ focused: true });
+      await new Promise(resolve => setTimeout(resolve, 140));
+    },
     /** 返回模拟宿主收到的候选，而不是检查控制器的内部缓存。 */
     get items() { return items; },
     /** 模拟用户关闭内联建议，控制器应明确显示原因。 */
@@ -194,7 +222,9 @@ test('native ghosts wait for removal, preserve suffixes and update unsaved input
 /** 空文件应一次获得多行正文，保留真实换行和 Tab，输入后继续剩余目标且不泄漏旧步骤。 */
 test('empty files receive real multiline ghost code and continue after typed prefixes', async (t) => {
   let resolve!: (value: any) => void;
-  const c = controller(() => new Promise((done) => { resolve = done; }));
+  let started!: () => void;
+  const reading = new Promise<void>((done) => { started = done; });
+  const c = controller(() => new Promise((done) => { resolve = done; started(); }));
   t.after(() => c.ghost.dispose());
   const repo = path.resolve('.validation/ghost-practice');
   const session = { practiceRepo: repo, steps: [{ hash: 'old' }, { hash: 'target' }], stepIndex: 0, finished: false };
@@ -203,6 +233,8 @@ test('empty files receive real multiline ghost code and continue after typed pre
   const doc = c.document(path.join(repo, 'Empty.java'), '', 2);
   const editor = c.editor(doc);
   const stale = c.ghost.locate();
+  // 定位现在先恢复编辑焦点，等待旧目标读取实际开始后再切换步骤，继续验证过期结果保护。
+  await reading;
   c.ghost.setStep({ ...session, stepIndex: 1 }, files);
   resolve({ content: 'stale code' }); await stale;
   assert.equal(c.items.length, 0);
@@ -226,6 +258,37 @@ test('empty files receive real multiline ghost code and continue after typed pre
   c.ghost.setStep({ ...session, finished: true }, files);
   await c.changed(doc);
   assert.equal(c.status.visible, false);
+});
+
+/** 首次请求未显示时，布局、重新可见和切回窗口都应恢复，不能要求用户先输入 pac。 */
+test('initial ghost requests recover after editor readiness without typing', async (t) => {
+  const c = controller(async () => ({ content: 'package demo;\nclass Empty {}\n' }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'Empty.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'Empty.java'), '');
+  const editor = c.editor(doc);
+  const target = 'package demo;\nclass Empty {}\n';
+  for (const event of ['layout', 'visible', 'window'] as const) {
+    c.missNextRequest();
+    await c.ghost.open(editor, target);
+    assert.equal(c.items.length, 0);
+    assert.match(c.status.text, /点击显示虚影/);
+    if (event === 'layout') await c.laidOut(); else await c.resumed(event);
+    assert.equal(c.items[0].insertText, target);
+    assert.equal(doc.getText(), ''); assert.equal(doc.version, 1);
+  }
+  await c.ghost.locate();
+  assert.equal(c.focused, 1, 'status-bar recovery restores the editing focus');
+  c.native.version = '1.100.0';
+  await c.ghost.locate();
+  assert.equal(c.items[0].insertText, target, 'older hosts retain the supported generic command');
+  const outside = c.document(path.resolve('.validation/unrelated.ts'), '');
+  c.editor(outside);
+  const requests = c.calls.length;
+  await c.resumed('window');
+  assert.equal(c.calls.length, requests, 'window activation must not trigger suggestions outside the practice');
 });
 
 /** 复现两条 import 的截图：多行范围到行末，保留旧 import，输入换行后精确收敛。 */
@@ -277,7 +340,7 @@ test('inline candidates extend compatible IntelliSense without replacing unrelat
   assert.equal((await c.provide(doc, position, { selectedCompletionInfo: { ...selected, text: 'parseFloat' } })).length, 0);
   assert.match(c.status.text, /按 Esc/);
   await c.provide(doc, position);
-  assert.match(c.status.text, /照虚影输入/);
+  assert.match(c.status.text, /目标就绪/);
   assert.equal((await c.provide(doc, position, {}, true)).length, 0);
   assert.equal((await c.provide(doc, new Position(1, 0))).length, 0);
   doc.text = 'fn()'; doc.version++;
