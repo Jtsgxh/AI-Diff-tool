@@ -79,7 +79,7 @@ async function chooseCommit(repo: string, title: string): Promise<string | undef
   const choice = await vscode.window.showQuickPick([
     { label: '$(edit) 输入提交 SHA、分支或标签', hash: '' },
     ...commits.map((commit) => ({ label: `${commit.shortHash} ${commit.message}`, description: commit.author, hash: commit.hash })),
-  ], { title, matchOnDescription: true });
+  ], { title, matchOnDescription: true, ignoreFocusOut: true });
   if (!choice) return;
   return choice.hash || vscode.window.showInputBox({ title, prompt: '输入提交 SHA、分支或标签', ignoreFocusOut: true });
 }

@@ -49,12 +49,17 @@ test('native extension commands open real practice files, save only practice dra
     EventEmitter: class { event = () => disposable; fire() {} dispose() {} },
     TreeItem: class { constructor(public label: string) {} }, ThemeIcon: class { constructor(public id: string) {} },
     Uri: { file: uri, from: (value: any) => value }, ViewColumn: { One: 1, Beside: 2 },
+    ProgressLocation: { Notification: 1 },
     WorkspaceEdit: class { createFile() {} },
     window: {
       createTreeView: (_id: string, options: any) => { provider = options.treeDataProvider; return { ...disposable }; },
       showErrorMessage: (message: string) => { errors.push(message); }, showInformationMessage() {},
       showTextDocument: async (...args: any[]) => { calls.push(['showTextDocument', ...args]); },
-      showInputBox: async () => 'value', showQuickPick: async (items: any[]) => items[0],
+      showInputBox: async (_options?: any) => 'value', showQuickPick: async (items: any[], _options?: any): Promise<any> => items[0],
+      /** 模拟选择练习目录并执行真实创建流程。 */
+      showSaveDialog: async () => uri(path.join(root, 'created-practice')),
+      /** 直接运行通知进度中的操作，不替换 Git 练习创建逻辑。 */
+      withProgress: async (_options: any, callback: () => Promise<unknown>) => callback(),
     },
     commands: {
       registerCommand: (name: string, callback: (...args: any[]) => Promise<unknown>) => { commands.set(name, callback); return disposable; },
@@ -95,6 +100,32 @@ test('native extension commands open real practice files, save only practice dra
   assert.equal((await follow.loadFollow(practice))?.finished, true);
   await commands.get('aiDiff.symbols')!();
   assert.ok(calls.some((call) => call[0] === 'vscode.executeWorkspaceSymbolProvider'));
+  /** 验证两次提交选择都允许切出窗口，且手动输入与列表选择能完成真实练习创建。 */
+  await t.test('commit selectors preserve focus-out interaction through manual and list selection', async () => {
+    native.workspace.workspaceFolders = [{ uri: uri(repo) }];
+    let pickCount = 0;
+    /** 基准改用手动输入，结束提交直接从列表选择，分别检查保持打开选项。 */
+    native.window.showQuickPick = async (items, options) => {
+      assert.equal(options?.ignoreFocusOut, true);
+      pickCount++;
+      return pickCount === 1 ? items[0] : items.find((item) => item.hash === target);
+    };
+    /** 模拟切到外部复制 SHA 后返回输入，输入框同样需要保持打开。 */
+    native.window.showInputBox = async (options) => {
+      assert.equal(options?.ignoreFocusOut, true);
+      return base;
+    };
+    await commands.get('aiDiff.follow.create')!();
+    assert.equal(pickCount, 2);
+    assert.deepEqual(errors, []);
+    const createdPath = path.join(root, 'created-practice');
+    const created = await follow.loadFollow(createdPath);
+    assert.equal(created?.baseHash, base);
+    assert.equal(created?.steps[0].hash, target);
+    // Git 检出遵循本机换行设置；验证基准内容，同时接受 Windows 的 CRLF。
+    assert.match(await fs.readFile(path.join(createdPath, 'sample.ts'), 'utf8'), /^export const value = 1;\r?\n$/);
+    assert.ok(calls.some((call) => call[0] === 'vscode.openFolder' && call[1].fsPath === createdPath && call[2] === true));
+  });
   assert.deepEqual(errors, []);
   for (const item of context.subscriptions) item.dispose?.();
 });
