@@ -31,7 +31,7 @@ test('native extension commands open real practice files, save only practice dra
   git('commit', '--quiet', '-am', 'target');
   const target = git('rev-parse', 'HEAD');
   const practice = path.join(root, 'practice');
-  await follow.createFollow(repo, practice, base, target);
+  await follow.createFollow(repo, practice, base, target, 'commits');
   const commands = new Map<string, (...args: any[]) => Promise<unknown>>();
   const calls: any[][] = [];
   const errors: string[] = [];
@@ -97,6 +97,11 @@ test('native extension commands open real practice files, save only practice dra
   const context = { subscriptions: [] as any[] };
   await module.exports.activate(context);
   assert.equal(provider.getChildren().length, 1);
+  await commands.get('aiDiff.follow.combine')!();
+  assert.equal(practiceSaved, 0, 'combining preserves unsaved practice drafts');
+  assert.equal(unrelatedSaved, 0);
+  assert.equal((await follow.loadFollow(practice))?.mode, 'combined');
+  assert.ok(calls.some((call) => call[0] === 'setContext' && call[1] === 'aiDiff.followMode' && call[2] === 'combined'));
   await commands.get('aiDiff.follow.open')!(provider.getChildren()[0]);
   const opened = calls.find((call) => call[0] === 'showTextDocument');
   assert.equal(opened[1].fsPath, path.join(practice, 'sample.ts'));
@@ -111,7 +116,7 @@ test('native extension commands open real practice files, save only practice dra
   await commands.get('aiDiff.follow.check')!();
   assert.equal(practiceSaved, 1);
   assert.equal(unrelatedSaved, 0);
-  await commands.get('aiDiff.follow.next')!();
+  await commands.get('aiDiff.follow.finish')!();
   assert.equal((await follow.loadFollow(practice))?.finished, true);
   await commands.get('aiDiff.symbols')!();
   assert.ok(calls.some((call) => call[0] === 'vscode.executeWorkspaceSymbolProvider'));
@@ -135,6 +140,8 @@ test('native extension commands open real practice files, save only practice dra
     assert.deepEqual(errors, []);
     const createdPath = path.join(root, 'created-practice');
     const created = await follow.loadFollow(createdPath);
+    assert.equal(created?.mode, 'combined');
+    assert.equal(created?.steps.length, 1);
     assert.equal(created?.baseHash, base);
     assert.equal(created?.steps[0].hash, target);
     // Git 检出遵循本机换行设置；验证基准内容，同时接受 Windows 的 CRLF。

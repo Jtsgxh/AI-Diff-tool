@@ -1,8 +1,8 @@
 {
   "name": "ai-diff-follow",
   "displayName": "AI Diff · 跟写工作台",
-  "description": "在 VS Code 中审查、学习 Git 仓库，并使用原生编辑器逐提交一比一跟写。",
-  "version": "0.1.3",
+  "description": "在 VS Code 中审查、学习 Git 仓库，并将提交范围合为一个目标，用原生虚影一比一跟写。",
+  "version": "0.1.4",
   "publisher": "jtsgxh",
   "license": "ISC",
   "repository": { "type": "git", "url": "https://github.com/Jtsgxh/AI-Diff-tool.git" },
@@ -19,8 +19,10 @@
     "commands": [
       { "command": "aiDiff.open", "title": "打开审查与学习工作台", "category": "AI Diff", "icon": "$(open-preview)" },
       { "command": "aiDiff.follow.create", "title": "创建跟写练习", "category": "AI Diff", "icon": "$(add)" },
-      { "command": "aiDiff.follow.check", "title": "保存并检查本步", "category": "AI Diff", "icon": "$(check)" },
+      { "command": "aiDiff.follow.check", "title": "保存并检查内容", "category": "AI Diff", "icon": "$(check)" },
       { "command": "aiDiff.follow.next", "title": "校验并进入下一步", "category": "AI Diff", "icon": "$(arrow-right)" },
+      { "command": "aiDiff.follow.finish", "title": "校验并完成练习", "category": "AI Diff", "icon": "$(pass)" },
+      { "command": "aiDiff.follow.combine", "title": "将当前练习合并为一个目标", "category": "AI Diff", "icon": "$(git-merge)" },
       { "command": "aiDiff.follow.open", "title": "打开虚影跟写", "category": "AI Diff" },
       { "command": "aiDiff.follow.compare", "title": "查看目标对照", "category": "AI Diff" },
       { "command": "aiDiff.follow.locate", "title": "定位下一处跟写", "category": "AI Diff", "icon": "$(go-to-file)" },
@@ -34,9 +36,16 @@
       "view/title": [
         { "command": "aiDiff.follow.create", "when": "view == aiDiff.follow", "group": "navigation@1" },
         { "command": "aiDiff.follow.check", "when": "view == aiDiff.follow", "group": "navigation@2" },
-        { "command": "aiDiff.follow.next", "when": "view == aiDiff.follow", "group": "navigation@3" },
+        { "command": "aiDiff.follow.next", "when": "view == aiDiff.follow && aiDiff.followMode == commits", "group": "navigation@3" },
+        { "command": "aiDiff.follow.finish", "when": "view == aiDiff.follow && aiDiff.followMode == combined", "group": "navigation@3" },
+        { "command": "aiDiff.follow.combine", "when": "view == aiDiff.follow && aiDiff.followMode == commits", "group": "tools" },
         { "command": "aiDiff.open", "when": "view == aiDiff.follow", "group": "navigation@4" },
         { "command": "aiDiff.symbols", "when": "view == aiDiff.follow", "group": "tools" }
+      ],
+      "commandPalette": [
+        { "command": "aiDiff.follow.next", "when": "aiDiff.followMode == commits" },
+        { "command": "aiDiff.follow.finish", "when": "aiDiff.followMode == combined" },
+        { "command": "aiDiff.follow.combine", "when": "aiDiff.followMode == commits" }
       ],
       "view/item/context": [
         { "command": "aiDiff.follow.compare", "when": "view == aiDiff.follow", "group": "follow" },

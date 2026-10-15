@@ -5,8 +5,10 @@ import { randomUUID } from 'node:crypto';
 import simpleGit from 'simple-git';
 
 export interface FollowStep { hash: string; message: string }
+export type FollowMode = 'combined' | 'commits';
 export interface FollowSession {
   version: 1;
+  mode?: FollowMode;
   referenceRepo: string;
   practiceRepo: string;
   baseHash: string;
@@ -71,12 +73,19 @@ async function readTree(repo: string, revision: string): Promise<Map<string, Tre
   return tree;
 }
 
-/** 按真实祖先关系生成连续路线，合并时优先选择仍可回到基准的第一父节点。 */
-export async function planFollow(repo: string, base: string, target: string): Promise<{ baseHash: string; steps: FollowStep[] }> {
+/** 默认将两端快照合为一个目标；旧逐提交模式仍按真实祖先关系规划路线。 */
+export async function planFollow(repo: string, base: string, target: string,
+  mode: FollowMode = 'combined'): Promise<{ baseHash: string; steps: FollowStep[] }> {
   const baseHash = await resolveCommit(repo, base);
   const targetHash = await resolveCommit(repo, target);
   const git = simpleGit(repo);
-  if (baseHash === targetHash) throw new Error('结束提交必须晚于基准提交。');
+  if (baseHash === targetHash) throw new Error('基准与结束提交不能相同。');
+  if (mode === 'combined') {
+    await readTree(repo, baseHash);
+    await readTree(repo, targetHash);
+    const message = (await git.raw(['show', '-s', '--format=%s', targetHash])).trim();
+    return { baseHash, steps: [{ hash: targetHash, message }] };
+  }
   const raw = await git.raw(['log', '--ancestry-path', '--topo-order', '--format=%H%x00%P%x00%s', `${baseHash}..${targetHash}`]);
   const commits = new Map(raw.trimEnd().split('\n').filter(Boolean).map((record) => {
     const [hash, parents, message] = record.split('\0');
@@ -124,9 +133,11 @@ export async function loadFollow(repo: string): Promise<FollowSession | undefine
   if (raw === undefined) return undefined;
   const value = JSON.parse(raw) as FollowSession;
   if (!value || typeof value !== 'object' || value.version !== 1 || typeof value.referenceRepo !== 'string' || typeof value.practiceRepo !== 'string' ||
+      (value.mode !== undefined && value.mode !== 'combined' && value.mode !== 'commits') ||
       !isWithin(repo, value.practiceRepo) || !isWithin(value.practiceRepo, repo) || !SHA.test(value.baseHash) ||
       !Array.isArray(value.steps) || !value.steps.length || value.steps.some((step) => !step || !SHA.test(step.hash) || typeof step.message !== 'string') ||
       !Number.isInteger(value.stepIndex) || value.stepIndex < 0 || value.stepIndex >= value.steps.length || typeof value.finished !== 'boolean' ||
+      (value.mode === 'combined' && (value.steps.length !== 1 || value.stepIndex !== 0)) ||
       (value.finished && value.stepIndex !== value.steps.length - 1)) {
     throw new Error('练习进度文件无效，未修改练习内容。');
   }
@@ -134,25 +145,34 @@ export async function loadFollow(repo: string): Promise<FollowSession | undefine
 }
 
 /** 创建完全独立的本地克隆；只接受尚不存在的目录，绝不清空已有内容。 */
-export async function createFollow(referenceRepo: string, practiceRepo: string, base: string, target: string): Promise<FollowSession> {
+export async function createFollow(referenceRepo: string, practiceRepo: string, base: string, target: string,
+  mode: FollowMode = 'combined'): Promise<FollowSession> {
   const source = await fs.realpath(referenceRepo);
   const parent = await fs.realpath(path.dirname(practiceRepo));
   const destination = path.join(parent, path.basename(practiceRepo));
   if (isWithin(source, destination) || isWithin(destination, source)) throw new Error('练习目录必须与参考仓库分开。');
-  const plan = await planFollow(source, base, target);
+  const plan = await planFollow(source, base, target, mode);
   await fs.mkdir(destination); // 不使用 recursive；即使目录为空，也不能覆盖用户已有目录。
   try {
     await simpleGit().clone(source, destination, ['--no-hardlinks', '--no-checkout', '--no-recurse-submodules']);
     const git = simpleGit(destination);
     await git.raw(['update-ref', 'refs/ai-diff-follow/target', plan.steps.at(-1)!.hash]);
     await git.raw(['checkout', '--detach', plan.baseHash]);
-    const session: FollowSession = { version: 1, referenceRepo: source, practiceRepo: destination,
+    const session: FollowSession = { version: 1, mode, referenceRepo: source, practiceRepo: destination,
       ...plan, stepIndex: 0, finished: false };
     await saveFollow(session);
     return session;
   } catch (error) {
     throw new Error(`创建练习失败，已保留目录供检查：${destination}\n${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/** 将已有练习收拢为最终目标，只保存练习元数据，保留已写文件和原始基准。 */
+export async function combineFollow(session: FollowSession): Promise<FollowSession> {
+  if (session.mode === 'combined') return session;
+  const combined: FollowSession = { ...session, mode: 'combined', steps: [session.steps.at(-1)!], stepIndex: 0 };
+  await saveFollow(combined);
+  return combined;
 }
 
 /** 批量计算 Git 规范化后的文件哈希，遵循项目的换行和属性规则。 */
@@ -210,7 +230,7 @@ export async function checkFollow(session: FollowSession): Promise<FollowCheck> 
 export async function advanceFollow(session: FollowSession): Promise<FollowSession> {
   if (session.finished) return session;
   const result = await checkFollow(session);
-  if (!result.complete) throw new Error(`还有 ${result.files.filter((file) => !file.complete).length} 个文件未一致，未进入下一步。`);
+  if (!result.complete) throw new Error(`还有 ${result.files.filter((file) => !file.complete).length} 个文件未一致，${session.mode === 'combined' ? '未完成练习' : '未进入下一步'}。`);
   const next = { ...session, stepIndex: Math.min(session.stepIndex + 1, session.steps.length - 1),
     finished: session.stepIndex === session.steps.length - 1 };
   await saveFollow(next);

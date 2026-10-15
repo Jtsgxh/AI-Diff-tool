@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import simpleGit from 'simple-git';
 import { gitService } from '../server/gitService';
-import { advanceFollow, checkFollow, createFollow, isWithin, loadFollow, safePracticePath,
+import { advanceFollow, checkFollow, combineFollow, createFollow, isWithin, loadFollow, safePracticePath,
   type FollowSession, type FollowCheck, type FollowFile } from '../server/followService';
 import { VSCodeWorkbench } from './workbench';
 import { FollowGhost } from './followGhost';
@@ -28,7 +28,7 @@ class ReferenceDocuments implements vscode.TextDocumentContentProvider {
   }
 }
 
-/** 将逐提交进度和本步差异呈现在原生 Explorer 侧栏中。 */
+/** 将当前练习进度和目标差异呈现在原生 Explorer 侧栏中。 */
 class FollowTree implements vscode.TreeDataProvider<FollowFile> {
   readonly change = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.change.event;
@@ -109,8 +109,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await tree.refresh();
     const session = tree.session;
     ghost.setStep(session, tree.result?.files || []);
-    view.description = session ? session.finished ? '全部完成' : `${session.stepIndex + 1} / ${session.steps.length}` : undefined;
-    view.message = session ? `${session.steps[session.stepIndex].hash.slice(0, 7)} · ${session.steps[session.stepIndex].message}` : undefined;
+    view.description = session ? session.finished ? '全部完成' : session.mode === 'combined' ? '合并跟写' : `${session.stepIndex + 1} / ${session.steps.length}` : undefined;
+    view.message = session ? session.mode === 'combined' ?
+      `${session.baseHash.slice(0, 7)} → ${session.steps[0].hash.slice(0, 7)} · ${session.steps[0].message}` :
+      `${session.steps[session.stepIndex].hash.slice(0, 7)} · ${session.steps[session.stepIndex].message}` : undefined;
+    await vscode.commands.executeCommand('setContext', 'aiDiff.followMode', session ? session.mode || 'commits' : undefined);
   };
 
   /** 只保存练习目录内的文档，不影响其他工作区中的未保存内容。 */
@@ -146,13 +149,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!repo) return;
     const base = await chooseCommit(repo, '选择基准提交（练习初始内容）');
     if (!base) return;
-    const target = await chooseCommit(repo, '选择结束提交（跟写到这里）');
+    const target = await chooseCommit(repo, '选择结束提交（合并范围的最终目标）');
     if (!target) return;
     const destination = await vscode.window.showSaveDialog({ title: '选择尚不存在的练习目录', saveLabel: '创建练习目录',
       defaultUri: vscode.Uri.file(path.join(path.dirname(repo), `${path.basename(repo)}-practice`)) });
     if (!destination) return;
     const session = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
-      title: '正在验证提交路线并创建独立练习目录…' }, () => createFollow(repo, destination.fsPath, base, target));
+      title: '正在准备合并范围并创建独立练习目录…' }, () => createFollow(repo, destination.fsPath, base, target));
     await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(session.practiceRepo), true);
   });
 
@@ -160,16 +163,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await savePractice();
     await refresh();
     const missing = tree.result!.files.filter((file) => !file.complete);
-    if (!missing.length) void vscode.window.showInformationMessage('本步文件已与目标提交一致，可以进入下一步。');
+    if (!missing.length) void vscode.window.showInformationMessage(tree.session?.mode === 'combined' ?
+      '全部文件已与结束提交一致，可以完成练习。' : '本步文件已与目标提交一致，可以进入下一步。');
     else void vscode.window.showInformationMessage(`还有 ${missing.length} 个文件未一致，已在跟写侧栏标出。`);
   });
 
-  register('aiDiff.follow.next', async () => {
+  /** 复用完整校验，合并练习直接完成，旧练习继续原有逐提交推进。 */
+  const advance = async () => {
     await savePractice();
     tree.session = await advanceFollow(tree.session!);
     await refresh();
     workbench.updateReference(tree.session.practiceRepo, tree.session.steps[tree.session.stepIndex].hash);
-    if (tree.session.finished) void vscode.window.showInformationMessage('全部提交已完成跟写。');
+    if (tree.session.finished) void vscode.window.showInformationMessage('练习已完成，文件与目标提交一致。');
+  };
+  register('aiDiff.follow.next', advance);
+  register('aiDiff.follow.finish', advance);
+
+  /** 显式转换旧练习，保留磁盘内容和未保存草稿，只更新最终跟写目标。 */
+  register('aiDiff.follow.combine', async () => {
+    if (!tree.session) throw new Error('请先打开跟写练习。');
+    tree.session = await combineFollow(tree.session);
+    await refresh();
+    workbench.updateReference(tree.session.practiceRepo, tree.session.steps[0].hash);
+    void vscode.window.showInformationMessage('已合并为基准到结束提交的一个目标，保留已有编辑内容。');
   });
 
   /** 共用路径和资源检查，默认单文件虚影跟写，右键命令保留目标对照。 */
