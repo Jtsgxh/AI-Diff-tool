@@ -3,6 +3,8 @@
  * scattered as string literals across five components, so a rename in one file
  * silently orphaned the data written by another.
  */
+import { readHostStorage, writeHostStorage } from '../services/vscodeHost';
+
 export const STORAGE_KEYS = {
   lastRepoPath: 'git_last_repo_path',
   recentRepos: 'git_recent_repos',
@@ -32,6 +34,8 @@ export const STORAGE_KEYS = {
  */
 export const storage = {
   get(key: string): string | null {
+    const hosted = readHostStorage(key);
+    if (hosted !== undefined) return hosted;
     try {
       return localStorage.getItem(key);
     } catch {
@@ -40,6 +44,7 @@ export const storage = {
   },
 
   set(key: string, value: string): boolean {
+    if (writeHostStorage(key, value)) return true;
     try {
       localStorage.setItem(key, value);
       return true;
@@ -49,6 +54,7 @@ export const storage = {
   },
 
   remove(key: string): void {
+    if (writeHostStorage(key, null)) return;
     try {
       localStorage.removeItem(key);
     } catch {

@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "name": "AI Diff · VS Code 扩展",
+    "type": "extensionHost",
+    "request": "launch",
+    "args": ["--extensionDevelopmentPath=${workspaceFolder}/vscode"],
+    "outFiles": ["${workspaceFolder}/vscode/out/**/*.cjs"],
+    "preLaunchTask": "build:vscode"
+  }]
+}

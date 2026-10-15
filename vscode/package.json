@@ -1,0 +1,47 @@
+{
+  "name": "ai-diff-follow",
+  "displayName": "AI Diff · 跟写工作台",
+  "description": "在 VS Code 中审查、学习 Git 仓库，并使用原生编辑器逐提交一比一跟写。",
+  "version": "0.1.0",
+  "publisher": "jtsgxh",
+  "license": "ISC",
+  "repository": { "type": "git", "url": "https://github.com/Jtsgxh/AI-Diff-tool.git" },
+  "engines": { "vscode": "^1.100.0" },
+  "categories": ["Other", "Education"],
+  "main": "./out/extension.cjs",
+  "extensionKind": ["workspace"],
+  "activationEvents": ["onStartupFinished"],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": { "supported": false, "description": "需要读取本地 Git 仓库、运行 Git 并创建独立练习目录。" }
+  },
+  "contributes": {
+    "commands": [
+      { "command": "aiDiff.open", "title": "打开审查与学习工作台", "category": "AI Diff", "icon": "$(open-preview)" },
+      { "command": "aiDiff.follow.create", "title": "创建跟写练习", "category": "AI Diff", "icon": "$(add)" },
+      { "command": "aiDiff.follow.check", "title": "保存并检查本步", "category": "AI Diff", "icon": "$(check)" },
+      { "command": "aiDiff.follow.next", "title": "校验并进入下一步", "category": "AI Diff", "icon": "$(arrow-right)" },
+      { "command": "aiDiff.follow.open", "title": "打开跟写对照", "category": "AI Diff" },
+      { "command": "aiDiff.follow.delete", "title": "删除本步要求移除的文件", "category": "AI Diff" },
+      { "command": "aiDiff.follow.sync", "title": "同步本步二进制资源", "category": "AI Diff" },
+      { "command": "aiDiff.symbols", "title": "搜索工作区代码符号", "category": "AI Diff", "icon": "$(symbol-method)" }
+    ],
+    "views": { "explorer": [{ "id": "aiDiff.follow", "name": "AI Diff 跟写" }] },
+    "viewsWelcome": [{ "view": "aiDiff.follow", "contents": "从已有 Git 提交开始，在原生编辑器中一比一跟写。\n[创建练习](command:aiDiff.follow.create)\n[打开审查与学习工作台](command:aiDiff.open)" }],
+    "menus": {
+      "view/title": [
+        { "command": "aiDiff.follow.create", "when": "view == aiDiff.follow", "group": "navigation@1" },
+        { "command": "aiDiff.follow.check", "when": "view == aiDiff.follow", "group": "navigation@2" },
+        { "command": "aiDiff.follow.next", "when": "view == aiDiff.follow", "group": "navigation@3" },
+        { "command": "aiDiff.open", "when": "view == aiDiff.follow", "group": "navigation@4" },
+        { "command": "aiDiff.symbols", "when": "view == aiDiff.follow", "group": "tools" }
+      ],
+      "view/item/context": [
+        { "command": "aiDiff.follow.delete", "when": "view == aiDiff.follow && viewItem == followDeleted", "group": "follow" },
+        { "command": "aiDiff.follow.sync", "when": "view == aiDiff.follow && viewItem == followFile", "group": "follow" }
+      ]
+    }
+  },
+  "scripts": { "vscode:prepublish": "npm --prefix .. run build:vscode" },
+  "devDependencies": { "@types/vscode": "1.100.0" }
+}

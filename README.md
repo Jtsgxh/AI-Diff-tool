@@ -185,6 +185,15 @@ Codex 智能体当前可调用的只读工具：
 
 ## 技术架构
 
+### VS Code 插件与一比一跟写
+
+新增 `vscode/` 扩展入口，使用 VS Code 原生编辑器编辑独立练习目录，复用当前语言扩展的补全、跳转和符号查询；已有审查和学习页面通过受限 Webview 消息通道运行。跟写采用固定 SHA 的线性提交路线，校验整个目标快照后才能推进，并自动保存进度。完整安装、构建和第一版边界见 [VS Code 扩展说明](vscode/README.md)。
+
+```powershell
+npm.cmd ci --prefix vscode
+npm.cmd run build:vscode
+```
+
 ```text
 AI-Diff-Tool
 ├─ shared/

@@ -19,6 +19,7 @@ import type {
 import { resolveRequestTimeoutSeconds, resolveStreamIdleTimeoutSeconds } from '../types';
 import { aiLogger } from './aiLogger';
 import { readEventStream, SSE_DONE } from './sseClient';
+import { hostFetch } from './vscodeHost';
 
 export const API_BASE = '/api';
 
@@ -40,7 +41,7 @@ export interface BrowseDirectoryResponse {
 
 /** Every REST call shares this shape: JSON on success, `{error}` on failure. */
 async function getJson<T>(path: string, fallbackError: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await hostFetch(`${API_BASE}${path}`);
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || fallbackError);
@@ -49,7 +50,7 @@ async function getJson<T>(path: string, fallbackError: string): Promise<T> {
 }
 
 async function postJson<T>(path: string, body: unknown, fallbackError: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await hostFetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

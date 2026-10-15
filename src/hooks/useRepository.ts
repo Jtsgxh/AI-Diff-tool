@@ -11,6 +11,7 @@ import {
 import type { CommitNode } from '../types';
 import { STORAGE_KEYS, storage } from '../constants/storage';
 import { readWorkspace, updateWorkspace } from '../services/workspaceState';
+import { initialVSCodeRepository, initialVSCodeRevision } from '../services/vscodeHost';
 
 const MAX_RECENT_REPOS = 10;
 
@@ -74,7 +75,7 @@ function loadDiffFor(repoPath: string, selection: SelectionState): Promise<DiffR
  */
 export function useRepository() {
   const [repoPath, setRepoPath] = useState<string>(
-    () => storage.get(STORAGE_KEYS.lastRepoPath) || 'current'
+    () => initialVSCodeRepository || storage.get(STORAGE_KEYS.lastRepoPath) || 'current'
   );
   const [recentRepos, setRecentRepos] = useState<string[]>(() =>
     storage.getJson<string[]>(STORAGE_KEYS.recentRepos, [])
@@ -92,6 +93,25 @@ export function useRepository() {
   const [readyRepoPath, setReadyRepoPath] = useState<string | null>(null);
   const loadedRepoPathRef = useRef<string | null>(null);
   const repoRequestIdRef = useRef(0);
+  const requestedRevision = useRef<{ repoPath?: string; revision?: string } | undefined>(
+    initialVSCodeRevision ? { repoPath: initialVSCodeRepository, revision: initialVSCodeRevision } : undefined
+  );
+
+  useEffect(() => {
+    /** 宿主切换跟写步骤时，只更新参考选择，不改练习文件。 */
+    const selectRevision = (event: Event) => {
+      const detail = (event as CustomEvent<{ repoPath: string; revision?: string }>).detail;
+      if (detail.repoPath === repoPath) {
+        requestedRevision.current = undefined;
+        if (detail.revision) setSelection({ type: 'commit', commitHash: detail.revision });
+      } else {
+        requestedRevision.current = detail;
+        setRepoPath(detail.repoPath);
+      }
+    };
+    window.addEventListener('ai-diff-select-revision', selectRevision);
+    return () => window.removeEventListener('ai-diff-select-revision', selectRevision);
+  }, [repoPath]);
 
   /** Monotonic token; only the newest in-flight diff request may set state. */
   const diffRequestIdRef = useRef(0);
@@ -140,7 +160,10 @@ export function useRepository() {
           addRecentRepo(info.path);
         }
 
+        const requested = requestedRevision.current;
+        requestedRevision.current = undefined;
         setSelection((prev) => {
+          if (requested?.revision && requested.repoPath === path) return { type: 'commit', commitHash: requested.revision };
           const candidate = sameRepo ? prev : readWorkspace(info.path || path).selection ?? readWorkspace(path).selection;
           if (candidate && shouldKeepSelection(candidate, commitData.commits)) {
             // New object so the diff effect re-runs (the working tree is live).

@@ -1036,7 +1036,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Footer */}
           <div className="pt-3 border-t border-black/15 flex items-center justify-between shrink-0">
-            <span className="text-[11px] text-zinc-600">配置将持久化保存在本地浏览器</span>
+            <span className="text-[11px] text-zinc-600">配置将持久化保存在本地</span>
             <div className="flex items-center space-x-2">
               <button
                 type="button"

@@ -17,6 +17,7 @@ import type { DiffFile, DiffViewMode } from '../../types';
 import { ActionMenu } from '../common/ActionMenu';
 
 interface DiffToolbarProps {
+  onOpenNative?: () => void;
   compact?: boolean;
   wrapLines?: boolean;
   onToggleWrapLines?: () => void;
@@ -44,6 +45,7 @@ interface DiffToolbarProps {
 /** Header strip above the diff. Memoized: it must not repaint per streamed token. */
 export const DiffToolbar = React.memo<DiffToolbarProps>(
   ({
+    onOpenNative,
     compact = false,
     wrapLines = false,
     onToggleWrapLines,
@@ -79,6 +81,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
         </div>}
         <button className="px-2 font-semibold text-sky-800" onClick={onExplainFile}>AI 解释</button>
         <ActionMenu label="文件的更多操作">
+            {onOpenNative && <button onClick={onOpenNative}>在 VS Code 打开</button>}
             <div className="border-b border-[var(--border-subtle)] px-2 py-2">
               <p className="break-all font-mono text-[11px]">{file.newPath}</p>
               <p className="mt-1"><span className="text-emerald-700">+{file.additions}</span> <span className="text-rose-700">-{file.deletions}</span></p>
@@ -113,6 +116,7 @@ export const DiffToolbar = React.memo<DiffToolbarProps>(
         </div>
 
         <div className="flex items-center space-x-2 shrink-0">
+          {onOpenNative && <button onClick={onOpenNative} disabled={!file.previewSource} className="text-xs px-2 py-1 rounded border border-[var(--border-subtle)]" title="历史文件只读；工作区文件使用原生语言服务">在 VS Code 打开</button>}
           <div className="flex items-center bg-[var(--surface-raised)] border border-[var(--border-subtle)] rounded-md p-0.5 text-xs shrink-0 whitespace-nowrap">
             <button
               onClick={() => onDisplayMode('diff')}

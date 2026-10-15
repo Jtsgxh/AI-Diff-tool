@@ -5,12 +5,13 @@ export interface StartServerOptions {
   host?: string;
   port?: number;
   staticDir?: string;
+  accessToken?: string;
 }
 
 export async function startServer(options: StartServerOptions = {}): Promise<Server> {
   const host = options.host || '127.0.0.1';
   const port = options.port ?? 4000;
-  const app = createApp({ staticDir: options.staticDir });
+  const app = createApp({ staticDir: options.staticDir, accessToken: options.accessToken });
   const server = app.listen(port, host);
 
   // Agent reviews are long-lived SSE. Node's 5-minute requestTimeout would

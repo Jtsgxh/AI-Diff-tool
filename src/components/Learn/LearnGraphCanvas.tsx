@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { LearnEdge, LearnGraph, LearnNode } from '../../types';
 import { communityColor } from '../../utils/learnGraph';
 import { createGraphFrameScheduler } from '../../utils/graphFrameScheduler';
+import LearnGraphLayoutWorker from '../../workers/learnGraphLayout.worker?worker&inline';
 import { placeLearnGraphLabels, type LearnGraphLabel, type GraphLabelRect } from '../../utils/learnGraphLabels';
 import {
   createLearnCommunityLayout,
@@ -577,7 +578,7 @@ export const LearnGraphCanvas = React.memo(function LearnGraphCanvas({
       layoutCache.set(density, cached);
       const entry = cached;
       try {
-        const worker = new Worker(new URL('../../workers/learnGraphLayout.worker.ts', import.meta.url), { type: 'module' });
+        const worker = new LearnGraphLayoutWorker();
         entry.worker = worker;
         worker.onmessage = ({ data }: MessageEvent<LearnCommunityLayout>) => {
           if (layoutCache.get(density) !== entry || entry.worker !== worker) return;

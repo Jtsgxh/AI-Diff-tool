@@ -5,3 +5,7 @@ release/
 .env
 .DS_Store
 *.log
+vscode/out/
+vscode/media/
+*.vsix
+.validation/

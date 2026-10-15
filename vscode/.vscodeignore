@@ -1,0 +1,7 @@
+node_modules/**
+*.ts
+tsconfig.json
+package-lock.json
+.vscodeignore
+!out/**
+!media/**

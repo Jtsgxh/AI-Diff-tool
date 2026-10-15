@@ -18,6 +18,7 @@ import { FullDiffContextBlock } from './FullDiffContextBlock';
 import { readWorkspace, updateWorkspace } from '../../services/workspaceState';
 import { usePersistentDiffScroll } from '../../hooks/usePersistentDiffScroll';
 import { MobileDiffJump } from './MobileDiffJump';
+import { isVSCodeHost, openVSCodeFile } from '../../services/vscodeHost';
 
 interface DiffViewerProps {
   compact?: boolean;
@@ -306,6 +307,10 @@ export const DiffViewer = React.memo<DiffViewerProps>(({
   return (
     <div className={`flex-1 flex flex-col h-full bg-[var(--surface-panel)] overflow-hidden relative ${wrapLines ? 'diff-wrap-lines' : ''} ${showMobileJumps ? 'has-mobile-diff-jumps' : ''}`}>
       <DiffToolbar
+        onOpenNative={isVSCodeHost ? () => {
+          const source = file.previewSource;
+          if (source) openVSCodeFile(repoPath, source.path, source.type === 'revision' ? source.revision : undefined);
+        } : undefined}
         wrapLines={wrapLines}
         onToggleWrapLines={() => setMobileWrapLines((value) => !value)}
         compact={compact}

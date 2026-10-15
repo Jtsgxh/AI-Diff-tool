@@ -6,6 +6,8 @@
  * The transport lives here; callers supply only an event handler.
  */
 
+import { hostFetch } from './vscodeHost';
+
 export interface SseRequest {
   url: string;
   body: unknown;
@@ -87,7 +89,7 @@ export async function readEventStream({
   };
 
   try {
-    const res = await fetch(url, {
+    const res = await hostFetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

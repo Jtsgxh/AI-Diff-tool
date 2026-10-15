@@ -169,3 +169,11 @@ After the checks, the normal mixed graph is available with filtering off. In ric
 disappear from both connection panels. Turn filtering off, pin `CombatTestPipelineAbilitySpec`,
 and enable filtering again: its pin/details must clear, and turning filtering off must not
 resurrect the old pin. Zooming/panning a retained business node must still preserve its pin.
+
+# VS Code 与跟写测试
+
+`followService.test.ts` 在真实临时 Git 仓库中检查连续路线、独立克隆、中文路径、Git 换行归一化、误改和额外文件、进度恢复及路径边界。`vscodeHost.test.ts`、`vscodeWorkbench.test.ts` 和 `vscodeExtension.test.ts` 使用模拟页面或 VS Code API，验证实际桥接代码、真实本地服务和原生命令衔接；不会声称已经验证真实语言扩展的补全。
+
+沿用测试命令 `node --import tsx --test tests/*.test.ts`。受限环境可通过已有的 esbuild 将测试转为 JavaScript 后使用 `node --test` 执行；若用户目录不可写，运行前将已有的 `AI_DIFF_CONVERSATION_DIR` 指向独立的可写测试目录，避免模型测试写入用户历史。
+
+实际 VS Code 手工验收：从仓库 F5 启动扩展，创建两步练习，在右侧原生编辑器中确认语言补全与定义跳转；故意误改其他文件并检查阻止推进；完成后推进、关闭并重开练习目录；在原工作台验证 AI 流式输出、取消、学习图谱及其布局 Worker。需要使用已配置的语言扩展和模型服务。

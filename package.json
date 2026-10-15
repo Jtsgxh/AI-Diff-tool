@@ -10,6 +10,7 @@
     "build:desktop": "npm run build && esbuild desktop/main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist-electron/main.cjs",
     "desktop": "npm run build:desktop && electron .",
     "dist:win": "npm run build:desktop && electron-builder --win nsis portable",
+    "build:vscode": "tsc && tsc -p vscode/tsconfig.json && vite build --base=./ --outDir=vscode/media && esbuild vscode/extension.ts vscode/backend.ts --bundle --platform=node --format=cjs --external:vscode --outdir=vscode/out --out-extension:.js=.cjs",
     "server": "tsx server/index.ts",
     "client": "vite"
   },

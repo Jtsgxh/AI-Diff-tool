@@ -5,14 +5,29 @@ import { errorHandler } from './http/errors';
 import { aiRouter } from './routes/ai';
 import { repoRouter } from './routes/repo';
 import { systemRouter } from './routes/system';
+import { timingSafeEqual } from 'node:crypto';
 
 export interface CreateAppOptions {
   staticDir?: string;
+  accessToken?: string;
 }
 
 /** Creates the single HTTP application used by both development and Electron. */
 export function createApp(options: CreateAppOptions = {}) {
   const app = express();
+
+  if (options.accessToken) {
+    const expected = Buffer.from(options.accessToken);
+    // 扩展只允许自身访问临时本地服务，不向其他网页开放仓库与 AI 配置。
+    app.use((req, res, next) => {
+      const actual = Buffer.from(req.get('x-ai-diff-token') || '');
+      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      next();
+    });
+  }
 
   if (options.staticDir) {
     // The packaged server can read arbitrary local repositories. Keep browser
