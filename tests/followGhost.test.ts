@@ -54,6 +54,9 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   const disposable = { dispose() {} };
   const calls: string[] = [];
   const decorations = new Map<string, any[]>();
+  let lensEnabled = true;
+  let lensChanges = 0;
+  let lensProvider: any;
   let changed: (event: any) => void = () => {};
   const status = { visible: false, text: '', command: '', tooltip: '',
     /** 记录状态栏显示，不模拟文件写入。 */
@@ -62,14 +65,23 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     hide() { this.visible = false; }, dispose() {} };
   const native = {
     Position, Range, Selection, EndOfLine: { LF: 1, CRLF: 2 },
+    /** 记录预览刷新，验证控制器通知原生宿主重新读取代码透镜。 */
+    EventEmitter: class { event = () => disposable; fire() { lensChanges++; } dispose() {} },
+    /** 模拟原生独立预览行及其点击命令。 */
+    CodeLens: class { constructor(public range: Range, public command: any) {} },
     ThemeColor: class { constructor(public id: string) {} },
     DecorationRangeBehavior: { ClosedClosed: 1 }, StatusBarAlignment: { Right: 2 },
     TextEditorRevealType: { InCenterIfOutsideViewport: 0 },
     window: { activeTextEditor: undefined as any, visibleTextEditors: [] as any[],
       createTextEditorDecorationType: (options: any) => ({ ...disposable, key: options.before ? 'ghost' : 'deleted' }), createStatusBarItem: () => status,
       onDidChangeActiveTextEditor: () => disposable },
-    workspace: { onDidChangeTextDocument: (callback: typeof changed) => { changed = callback; return disposable; } },
-    languages: { registerInlineCompletionItemProvider: () => assert.fail('Follow hints must not depend on the completion channel') },
+    workspace: { onDidChangeTextDocument: (callback: typeof changed) => { changed = callback; return disposable; },
+      onDidChangeConfiguration: () => disposable,
+      /** 使用文档作用域读取设置，确保实际语言的覆盖项也能生效。 */
+      getConfiguration: (_section: string, scope: any) => { assert.equal(typeof scope?.getText, 'function'); return { get: () => lensEnabled }; } },
+    languages: { registerInlineCompletionItemProvider: () => assert.fail('Follow hints must not depend on the completion channel'),
+      /** 通过实际注册的提供器检查预览，防止只有内部数据而没有显示入口。 */
+      registerCodeLensProvider: (selector: any, provider: any) => { assert.equal(selector.scheme, 'file'); lensProvider = provider; return disposable; } },
     commands: { executeCommand: async (command: string) => { calls.push(command); } },
   };
   const require = createRequire(path.resolve('package.json'));
@@ -101,6 +113,10 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     return value;
   }
   return { ghost, native, calls, decorations, status, document, editor,
+    /** 暴露真实注册结果和刷新次数，检查宿主的显示接入点。 */
+    get lensProvider() { return lensProvider; }, get lensChanges() { return lensChanges; },
+    /** 模拟用户关闭代码透镜，验证提示能够明确说明缺失的显示条件。 */
+    disableLens() { lensEnabled = false; },
     /** 触发真实控制器的输入监听并等待其短暂防抖。 */
     async changed(doc: any) { changed({ document: doc }); await new Promise((resolve) => setTimeout(resolve, 140)); } };
 }
@@ -155,8 +171,8 @@ test('persistent ghost stays visible away from the caret without occupying compl
   assert.doesNotMatch(c.status.text, /已一致/);
 });
 
-/** 验证空文件立即显示首行、换行后继续下一行，旧请求失效且显示不拆分 Unicode。 */
-test('empty files show a persistent line target and advance through multiline code', async (t) => {
+/** 验证空文件多行目标独立预览，输入前缀后保持完整行，旧请求失效且不拆分 Unicode。 */
+test('empty files preview multiline targets on independent rows', async (t) => {
   let resolve!: (value: any) => void;
   const c = controller(() => new Promise((done) => { resolve = done; }));
   t.after(() => c.ghost.dispose());
@@ -171,32 +187,76 @@ test('empty files show a persistent line target and advance through multiline co
   resolve({ content: 'stale code' });
   await stale;
   assert.equal(c.decorations.get('ghost')!.length, 0);
+  assert.equal(c.ghost.provideCodeLenses(doc).length, 0);
   const target = Array.from({ length: 20 }, (_, index) => `line ${index}`).join('\n') + '\n';
   await c.ghost.open(editor, target);
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'line 0 ↵');
-  assert.match(c.decorations.get('ghost')![0].hoverMessage, /line 1/);
+  assert.equal(c.decorations.get('ghost')!.length, 0);
+  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /待写目标：line 0.*换行/);
+  assert.match(c.ghost.provideCodeLenses(doc)[0].command.tooltip, /line 1/);
   assert.equal(doc.text, '');
   doc.text = 'li'; doc.version++;
   await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'ne 0 ↵');
-  assert.equal(c.decorations.get('ghost')![0].range.start.character, 2, 'typed prefix remains real text and the hint shrinks');
+  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /待写目标：line 0/, 'preview retains the full expected line including the typed prefix');
+  assert.equal(c.ghost.provideCodeLenses(doc)[0].range.start.character, 2);
   doc.text = 'line 0\r\n'; doc.version++;
   await c.changed(doc);
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'line 1 ↵');
-  assert.equal(c.decorations.get('ghost')![0].range.start.line, 1);
+  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /待写目标：line 1/);
+  assert.equal(c.ghost.provideCodeLenses(doc)[0].range.start.line, 1);
   await c.ghost.open(editor, 'x'.repeat(1999) + '😀');
   assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, 'x'.repeat(1999));
   doc.text = ''; doc.version++;
+  await c.ghost.open(editor, `${'x'.repeat(1999)}😀\r\n`);
+  assert.equal(c.ghost.provideCodeLenses(doc)[0].command.title, `待写目标：${'x'.repeat(1999)}  ↵ 换行`, 'independent previews share the Unicode-safe display limit');
   await c.ghost.open(editor, '\t  \n');
-  assert.equal(c.decorations.get('ghost')![0].renderOptions.before.contentText, '⇥·· ↵', 'tabs must not be presented as spaces');
+  assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /⇥··/, 'tabs must not be presented as spaces');
   doc.text = '\t  \r\n'; doc.version++;
   await c.changed(doc);
   assert.equal(c.decorations.get('ghost')!.length, 0);
+  assert.equal(c.ghost.provideCodeLenses(doc).length, 0);
   assert.match(c.status.text, /已一致/);
   c.ghost.setStep({ ...session, finished: true }, files);
   await c.changed(doc);
   assert.equal(c.decorations.get('ghost')!.length, 0);
   assert.equal(c.status.visible, false);
+});
+
+/** 复现截图中的 import 插入，换行目标必须独立成行，不把两个 import 拼成同一行。 */
+test('inserted import lines never concatenate the preview with the existing import', async (t) => {
+  for (const eol of ['\n', '\r\n']) {
+    const c = controller(async () => ({ content: '' }));
+    t.after(() => c.ghost.dispose());
+    const repo = path.resolve('.validation/ghost-practice');
+    c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+      [{ path: 'Imports.java', deleted: false, complete: false }]);
+    const before = `import com.gameplus.service.dmx.DmxCatLogic;${eol}`;
+    const added = 'import com.gameplus.service.activitypro.returncampaign.ReturnCampaignActivity;';
+    const doc = c.document(path.join(repo, 'Imports.java'), before, eol === '\n' ? 1 : 2);
+    const editor = c.editor(doc);
+    await c.ghost.open(editor, `${added}${eol}${before}`);
+    assert.equal(c.lensProvider, c.ghost);
+    assert.ok(c.lensChanges > 0, 'opening the target requests a CodeLens refresh');
+    assert.equal(c.decorations.get('ghost')!.length, 0, 'multiline code must not be injected before existing text');
+    const lens = c.lensProvider.provideCodeLenses(doc)[0];
+    assert.match(lens.command.title, /ReturnCampaignActivity/);
+    assert.doesNotMatch(lens.command.title, /DmxCatLogic/);
+    assert.equal(lens.range.start.line, 0);
+    assert.equal(doc.text, before);
+    doc.text = added + before; doc.version++;
+    assert.equal(c.ghost.provideCodeLenses(doc).length, 0, 'old document versions cannot leak a stale preview');
+    await c.changed(doc);
+    assert.match(c.ghost.provideCodeLenses(doc)[0].command.title, /在此处换行/);
+    assert.equal(c.decorations.get('ghost')!.length, 0);
+    doc.text = `${added}${eol}${before}`; doc.version++;
+    await c.changed(doc);
+    assert.equal(c.ghost.provideCodeLenses(doc).length, 0);
+    assert.match(c.status.text, /已一致/);
+    doc.text = before; doc.version++;
+    c.disableLens();
+    await c.changed(doc);
+    assert.match(c.status.text, /开启代码透镜/);
+    assert.match(c.status.tooltip, /ReturnCampaignActivity/);
+    assert.equal(doc.text, before, 'preview settings never insert line breaks or answers');
+  }
 });
 
 /** 目标读取失败必须给出可见错误，并允许下次输入或定位重试，不能静默变成空白。 */
