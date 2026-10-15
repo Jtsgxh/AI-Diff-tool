@@ -79,6 +79,7 @@
     "@openai/agents": "^0.17.0",
     "@openai/agents-openai": "^0.17.0",
     "cors": "^2.8.6",
+    "diff": "^9.0.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "lucide-react": "^1.33.0",

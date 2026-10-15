@@ -54,7 +54,7 @@ test('native extension commands open real practice files, save only practice dra
     window: {
       createTreeView: (_id: string, options: any) => { provider = options.treeDataProvider; return { ...disposable }; },
       showErrorMessage: (message: string) => { errors.push(message); }, showInformationMessage() {},
-      showTextDocument: async (...args: any[]) => { calls.push(['showTextDocument', ...args]); },
+      showTextDocument: async (...args: any[]) => { calls.push(['showTextDocument', ...args]); return { document: { uri: args[0] } }; },
       showInputBox: async (_options?: any) => 'value', showQuickPick: async (items: any[], _options?: any): Promise<any> => items[0],
       /** 模拟选择练习目录并执行真实创建流程。 */
       showSaveDialog: async () => uri(path.join(root, 'created-practice')),
@@ -83,11 +83,26 @@ test('native extension commands open real practice files, save only practice dra
   const code = transformSync(fsSync.readFileSync('vscode/extension.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   vm.runInNewContext(code, { module, exports: module.exports, URLSearchParams, setTimeout, clearTimeout,
     require: (id: string) => id === 'vscode' ? native : id === '../server/gitService' ? { gitService }
-      : id === '../server/followService' ? follow : id === './workbench' ? { VSCodeWorkbench: class { dispose() {} updateReference() {} } } : require(id) });
+      : id === '../server/followService' ? follow : id === './workbench' ? { VSCodeWorkbench: class { dispose() {} updateReference() {} } }
+      : id === './followGhost' ? { FollowGhost: class {
+        /** 记录真实命令对虚影控制器的调用，具体提示另由专用测试检查。 */
+        open(editor: any, target: string) { calls.push(['ghost.open', editor, target]); }
+        /** 此用例不模拟具体虚影生命周期，生命周期由专用测试覆盖。 */
+        setStep() {}
+        /** 保留定位命令接口供扩展注册。 */
+        locate() {}
+        /** 匹配扩展释放订阅的接口。 */
+        dispose() {}
+      } } : require(id) });
   const context = { subscriptions: [] as any[] };
   await module.exports.activate(context);
   assert.equal(provider.getChildren().length, 1);
   await commands.get('aiDiff.follow.open')!(provider.getChildren()[0]);
+  const opened = calls.find((call) => call[0] === 'showTextDocument');
+  assert.equal(opened[1].fsPath, path.join(practice, 'sample.ts'));
+  assert.equal(calls.some((call) => call[0] === 'vscode.diff'), false, 'default follow opens a single real editor');
+  assert.equal(calls.find((call) => call[0] === 'ghost.open')[2], 'export const value = 2;\n');
+  await commands.get('aiDiff.follow.compare')!(provider.getChildren()[0]);
   const diff = calls.find((call) => call[0] === 'vscode.diff');
   assert.equal(diff[1].scheme, 'ai-diff-reference');
   assert.equal(diff[2].fsPath, path.join(practice, 'sample.ts'));

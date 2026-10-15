@@ -2,7 +2,7 @@
   "name": "ai-diff-follow",
   "displayName": "AI Diff · 跟写工作台",
   "description": "在 VS Code 中审查、学习 Git 仓库，并使用原生编辑器逐提交一比一跟写。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "jtsgxh",
   "license": "ISC",
   "repository": { "type": "git", "url": "https://github.com/Jtsgxh/AI-Diff-tool.git" },
@@ -21,7 +21,9 @@
       { "command": "aiDiff.follow.create", "title": "创建跟写练习", "category": "AI Diff", "icon": "$(add)" },
       { "command": "aiDiff.follow.check", "title": "保存并检查本步", "category": "AI Diff", "icon": "$(check)" },
       { "command": "aiDiff.follow.next", "title": "校验并进入下一步", "category": "AI Diff", "icon": "$(arrow-right)" },
-      { "command": "aiDiff.follow.open", "title": "打开跟写对照", "category": "AI Diff" },
+      { "command": "aiDiff.follow.open", "title": "打开虚影跟写", "category": "AI Diff" },
+      { "command": "aiDiff.follow.compare", "title": "查看目标对照", "category": "AI Diff" },
+      { "command": "aiDiff.follow.locate", "title": "定位下一处跟写", "category": "AI Diff", "icon": "$(go-to-file)" },
       { "command": "aiDiff.follow.delete", "title": "删除本步要求移除的文件", "category": "AI Diff" },
       { "command": "aiDiff.follow.sync", "title": "同步本步二进制资源", "category": "AI Diff" },
       { "command": "aiDiff.symbols", "title": "搜索工作区代码符号", "category": "AI Diff", "icon": "$(symbol-method)" }
@@ -37,6 +39,7 @@
         { "command": "aiDiff.symbols", "when": "view == aiDiff.follow", "group": "tools" }
       ],
       "view/item/context": [
+        { "command": "aiDiff.follow.compare", "when": "view == aiDiff.follow", "group": "follow" },
         { "command": "aiDiff.follow.delete", "when": "view == aiDiff.follow && viewItem == followDeleted", "group": "follow" },
         { "command": "aiDiff.follow.sync", "when": "view == aiDiff.follow && viewItem == followFile", "group": "follow" }
       ]

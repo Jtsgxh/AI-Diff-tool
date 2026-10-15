@@ -6,6 +6,7 @@ import { gitService } from '../server/gitService';
 import { advanceFollow, checkFollow, createFollow, isWithin, loadFollow, safePracticePath,
   type FollowSession, type FollowCheck, type FollowFile } from '../server/followService';
 import { VSCodeWorkbench } from './workbench';
+import { FollowGhost } from './followGhost';
 
 const SCHEME = 'ai-diff-reference';
 
@@ -47,7 +48,7 @@ class FollowTree implements vscode.TreeDataProvider<FollowFile> {
   /** 返回本步文件及所有误改，未打开练习时显示欢迎入口。 */
   getChildren(): FollowFile[] { return this.result?.files || []; }
 
-  /** 用完成图标和未保存提示展示状态，点击进入原生编辑对照。 */
+  /** 用完成图标和未保存提示展示状态，点击进入单文件虚影跟写。 */
   getTreeItem(file: FollowFile): vscode.TreeItem {
     const item = new vscode.TreeItem(file.path);
     const dirty = vscode.workspace.textDocuments.some((document) => document.isDirty && document.uri.scheme === 'file' &&
@@ -55,7 +56,7 @@ class FollowTree implements vscode.TreeDataProvider<FollowFile> {
     item.description = dirty ? '未保存' : file.complete ? '已一致' : file.unexpected ? '额外改动' : file.deleted ? '需要删除' : '待跟写';
     item.iconPath = new vscode.ThemeIcon(file.complete && !dirty ? 'pass' : 'circle-outline');
     item.contextValue = file.deleted ? 'followDeleted' : 'followFile';
-    item.command = { command: 'aiDiff.follow.open', title: '打开跟写对照', arguments: [file] };
+    item.command = { command: 'aiDiff.follow.open', title: '打开虚影跟写', arguments: [file] };
     item.tooltip = `${file.path}\n${item.description}`;
     return item;
   }
@@ -89,6 +90,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (!vscode.workspace.isTrusted) return;
   const tree = new FollowTree();
   const view = vscode.window.createTreeView('aiDiff.follow', { treeDataProvider: tree });
+  const ghost = new FollowGhost();
+  context.subscriptions.push(ghost);
   context.subscriptions.push(view, tree.change, vscode.workspace.registerTextDocumentContentProvider(SCHEME, new ReferenceDocuments()));
   let busy = false;
 
@@ -105,6 +108,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const refresh = async () => {
     await tree.refresh();
     const session = tree.session;
+    ghost.setStep(session, tree.result?.files || []);
     view.description = session ? session.finished ? '全部完成' : `${session.stepIndex + 1} / ${session.steps.length}` : undefined;
     view.message = session ? `${session.steps[session.stepIndex].hash.slice(0, 7)} · ${session.steps[session.stepIndex].message}` : undefined;
   };
@@ -168,7 +172,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (tree.session.finished) void vscode.window.showInformationMessage('全部提交已完成跟写。');
   });
 
-  register('aiDiff.follow.open', async (file: FollowFile) => {
+  /** 共用路径和资源检查，默认单文件虚影跟写，右键命令保留目标对照。 */
+  const openFollow = async (file: FollowFile, compare = false) => {
     if (!tree.session || !file || typeof file.path !== 'string') return;
     const target = tree.session.steps[tree.session.stepIndex].hash;
     const current = (await checkFollow(tree.session)).files.find((candidate) => candidate.path === file.path);
@@ -178,8 +183,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (current.complete) {
         const previous = tree.session.stepIndex ? tree.session.steps[tree.session.stepIndex - 1].hash : tree.session.baseHash;
         await openNative(tree.session.practiceRepo, current.path, previous);
-      } else await vscode.commands.executeCommand('vscode.diff', referenceUri(tree.session.practiceRepo, current.path),
+      } else if (compare) await vscode.commands.executeCommand('vscode.diff', referenceUri(tree.session.practiceRepo, current.path),
         vscode.Uri.file(full), `目标已删除 ↔ 跟写 · ${current.path}`, { preview: false });
+      else {
+        const editor = await vscode.window.showTextDocument(vscode.Uri.file(full), { preview: false });
+        await ghost.open(editor, '');
+      }
       return;
     }
     const preview = await gitService.getFilePreview(tree.session.practiceRepo, current.path, target);
@@ -188,9 +197,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const edit = new vscode.WorkspaceEdit();
     edit.createFile(vscode.Uri.file(full), { ignoreIfExists: true });
     if (!(await vscode.workspace.applyEdit(edit))) throw new Error('无法创建练习文件。');
-    await vscode.commands.executeCommand('vscode.diff', referenceUri(tree.session.practiceRepo, current.path, target),
+    if (compare) await vscode.commands.executeCommand('vscode.diff', referenceUri(tree.session.practiceRepo, current.path, target),
       vscode.Uri.file(full), `参考目标 ↔ 跟写 · ${current.path}`, { viewColumn: vscode.ViewColumn.One, preview: false });
-  });
+    else {
+      const editor = await vscode.window.showTextDocument(vscode.Uri.file(full), { viewColumn: vscode.ViewColumn.One, preview: false });
+      await ghost.open(editor, preview.content);
+    }
+  };
+  register('aiDiff.follow.open', (file: FollowFile) => openFollow(file));
+  register('aiDiff.follow.compare', (file: FollowFile) => openFollow(file, true));
+  register('aiDiff.follow.locate', () => ghost.locate());
 
   register('aiDiff.follow.delete', async (file: FollowFile) => {
     if (!tree.session || !file) return;
