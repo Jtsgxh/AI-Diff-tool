@@ -172,7 +172,7 @@ resurrect the old pin. Zooming/panning a retained business node must still prese
 
 # VS Code 与跟写测试
 
-`followService.test.ts` 在真实临时 Git 仓库中检查连续路线、独立克隆、中文路径、Git 换行归一化、误改和额外文件、进度恢复及路径边界。`vscodeHost.test.ts`、`vscodeWorkbench.test.ts` 和 `vscodeExtension.test.ts` 使用模拟页面或 VS Code API，验证实际桥接代码、真实本地服务和原生命令衔接；不会声称已经验证真实语言扩展的补全。
+`followService.test.ts` 在真实临时 Git 仓库中检查连续路线、已合并分支进入主线、多条可用路线时的父节点优先顺序、合并冲突结果、squash 原提交的祖先关系、独立克隆、中文路径、Git 换行归一化、误改和额外文件、进度恢复及路径边界。`vscodeHost.test.ts`、`vscodeWorkbench.test.ts` 和 `vscodeExtension.test.ts` 使用模拟页面或 VS Code API，验证实际桥接代码、真实本地服务和原生命令衔接；不会声称已经验证真实语言扩展的补全。
 
 沿用测试命令 `node --import tsx --test tests/*.test.ts`。受限环境可通过已有的 esbuild 将测试转为 JavaScript 后使用 `node --test` 执行；若用户目录不可写，运行前将已有的 `AI_DIFF_CONVERSATION_DIR` 指向独立的可写测试目录，避免模型测试写入用户历史。
 

@@ -71,24 +71,33 @@ async function readTree(repo: string, revision: string): Promise<Map<string, Tre
   return tree;
 }
 
-/** 按第一父节点验证真正连续的路线，不依赖提交列表的显示顺序。 */
+/** 按真实祖先关系生成连续路线，合并时优先选择仍可回到基准的第一父节点。 */
 export async function planFollow(repo: string, base: string, target: string): Promise<{ baseHash: string; steps: FollowStep[] }> {
   const baseHash = await resolveCommit(repo, base);
   const targetHash = await resolveCommit(repo, target);
   const git = simpleGit(repo);
-  const chain = (await git.raw(['rev-list', '--first-parent', targetHash])).trim().split('\n');
-  const baseIndex = chain.indexOf(baseHash);
-  if (baseIndex < 0) throw new Error('基准提交必须位于结束提交的第一父节点历史上。');
-  if (baseIndex === 0) throw new Error('结束提交必须晚于基准提交。');
-  const route = chain.slice(0, baseIndex).reverse();
-  const raw = await git.raw(['log', '--first-parent', '--reverse', '--format=%H%x00%P%x00%s', `${baseHash}..${targetHash}`]);
-  const steps = raw.trimEnd().split('\n').filter(Boolean).map((record) => {
+  if (baseHash === targetHash) throw new Error('结束提交必须晚于基准提交。');
+  const raw = await git.raw(['log', '--ancestry-path', '--topo-order', '--format=%H%x00%P%x00%s', `${baseHash}..${targetHash}`]);
+  const commits = new Map(raw.trimEnd().split('\n').filter(Boolean).map((record) => {
     const [hash, parents, message] = record.split('\0');
-    if (parents.split(' ').length > 1) throw new Error('第一版只支持不含合并提交的连续路线，请缩小跟写范围。');
-    return { hash, message };
-  });
-  if (steps.length !== route.length || steps.some((step, index) => step.hash !== route[index])) throw new Error('无法确定连续的跟写路线。');
-  for (const revision of [baseHash, ...route]) await readTree(repo, revision);
+    return [hash, { parents: parents.split(' '), message }] as const;
+  }));
+  if (!commits.has(targetHash)) {
+    throw new Error('基准提交必须是结束提交的祖先。请检查提交顺序；若曾 squash 或 rebase 合并，原提交可能不在结束提交的历史中。');
+  }
+  const steps: FollowStep[] = [];
+  let current = targetHash;
+  while (current !== baseHash) {
+    const commit = commits.get(current);
+    if (!commit) throw new Error('无法确定连续的跟写路线。');
+    steps.push({ hash: current, message: commit.message });
+    // 候选表仅含基准的后代；选择能回到基准的父节点，保留正常主线并允许从合入分支进入合并点。
+    const parent = commit.parents.find((hash) => hash === baseHash || commits.has(hash));
+    if (!parent) throw new Error('无法确定连续的跟写路线。');
+    current = parent;
+  }
+  steps.reverse();
+  for (const revision of [baseHash, ...steps.map((step) => step.hash)]) await readTree(repo, revision);
   return { baseHash, steps };
 }
 

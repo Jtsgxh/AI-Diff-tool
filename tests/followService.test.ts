@@ -45,19 +45,118 @@ async function fixture(t: TestContext) {
   return { root, repo, base, first, last, practice: path.join(root, 'practice') };
 }
 
-test('follow route uses real first-parent history and rejects equal, reversed and side-branch ranges', async (t) => {
+test('follow route follows ancestry, rejects invalid ranges and prefers the first eligible parent at merges', async (t) => {
   const f = await fixture(t);
   assert.deepEqual((await planFollow(f.repo, f.base, f.last)).steps.map((step) => step.hash), [f.first, f.last]);
   await assert.rejects(planFollow(f.repo, f.base, f.base), /晚于/);
-  await assert.rejects(planFollow(f.repo, f.last, f.base), /第一父节点/);
+  await assert.rejects(planFollow(f.repo, f.last, f.base), /祖先/);
   git(f.repo, 'checkout', '--quiet', '-b', 'side', f.base);
   await fs.writeFile(path.join(f.repo, 'side.txt'), 'side\n');
   git(f.repo, 'add', '.');
   git(f.repo, 'commit', '--quiet', '-m', 'side');
   const side = git(f.repo, 'rev-parse', 'HEAD');
-  await assert.rejects(planFollow(f.repo, side, f.last), /第一父节点/);
+  await assert.rejects(planFollow(f.repo, side, f.last), /祖先/);
   git(f.repo, 'merge', '--quiet', '--no-ff', f.last, '-m', 'merge');
-  await assert.rejects(planFollow(f.repo, f.base, 'HEAD'), /合并提交/);
+  const merge = git(f.repo, 'rev-parse', 'HEAD');
+  assert.deepEqual((await planFollow(f.repo, f.base, merge)).steps.map((step) => step.hash), [side, merge]);
+  assert.deepEqual((await planFollow(f.repo, f.first, merge)).steps.map((step) => step.hash), [f.last, merge]);
+});
+
+/** 验证已合并分支上的基准可经过合并点继续主线，逐步校验完整目标快照并恢复进度。 */
+test('merged branch exercises follow branch commits, merge snapshot and subsequent main commits', async (t) => {
+  const f = await fixture(t);
+  const main = git(f.repo, 'symbolic-ref', '--short', 'HEAD');
+  git(f.repo, 'checkout', '--quiet', '-b', 'feature', f.base);
+  await fs.writeFile(path.join(f.repo, 'feature.txt'), 'feature one\n');
+  git(f.repo, 'add', '.');
+  git(f.repo, 'commit', '--quiet', '-m', 'feature base');
+  const base = git(f.repo, 'rev-parse', 'HEAD');
+  await fs.writeFile(path.join(f.repo, 'feature.txt'), 'feature two\n');
+  git(f.repo, 'commit', '--quiet', '-am', 'feature tip');
+  const feature = git(f.repo, 'rev-parse', 'HEAD');
+  git(f.repo, 'checkout', '--quiet', main);
+  await fs.writeFile(path.join(f.repo, 'main-only.txt'), 'main one\n');
+  git(f.repo, 'add', '.');
+  git(f.repo, 'commit', '--quiet', '-m', 'independent main work');
+  git(f.repo, 'merge', '--quiet', '--no-ff', 'feature', '-m', 'merge feature');
+  const merge = git(f.repo, 'rev-parse', 'HEAD');
+  await fs.writeFile(path.join(f.repo, 'main-only.txt'), 'main two\n');
+  git(f.repo, 'commit', '--quiet', '-am', 'continue main');
+  const target = git(f.repo, 'rev-parse', 'HEAD');
+  let session = await createFollow(f.repo, f.practice, base, target);
+  assert.deepEqual(session.steps.map((step) => step.hash), [feature, merge, target]);
+  assert.equal((await checkFollow(session)).complete, false);
+  await fs.writeFile(path.join(f.practice, 'feature.txt'), 'feature two\n');
+  session = await advanceFollow(session);
+  assert.equal((await loadFollow(f.practice))?.stepIndex, 1);
+  const mergeCheck = await checkFollow(session);
+  assert.equal(mergeCheck.complete, false);
+  assert.equal(mergeCheck.files.find((file) => file.path === 'main.txt')?.deleted, true);
+  assert.ok(mergeCheck.files.some((file) => file.path === 'main-only.txt' && !file.complete));
+  await assert.rejects(advanceFollow(session), /未进入下一步/);
+  await fs.rename(path.join(f.practice, 'main.txt'), path.join(f.practice, 'renamed.txt'));
+  await fs.writeFile(path.join(f.practice, 'renamed.txt'), 'after\n');
+  await fs.writeFile(path.join(f.practice, 'resource.bin'), Buffer.from([0, 255, 12, 8]));
+  await fs.writeFile(path.join(f.practice, 'main-only.txt'), 'main one\n');
+  assert.equal((await checkFollow(session)).complete, true);
+  session = await advanceFollow(session);
+  assert.equal((await loadFollow(f.practice))?.stepIndex, 2);
+  assert.equal((await checkFollow(session)).complete, false);
+  await fs.writeFile(path.join(f.practice, 'main-only.txt'), 'main two\n');
+  session = await advanceFollow(session);
+  assert.equal(session.finished, true);
+  assert.equal((await loadFollow(f.practice))?.finished, true);
+  assert.equal(git(f.practice, 'rev-parse', 'HEAD'), base);
+  assert.equal(git(f.repo, 'rev-parse', 'HEAD'), target);
+  assert.equal(git(f.repo, 'status', '--porcelain'), '');
+});
+
+/** 验证合并冲突的最终解决内容作为目标，而不是把任一父提交当作合并结果。 */
+test('merge steps require conflict resolutions from the actual merge snapshot', async (t) => {
+  const f = await fixture(t);
+  git(f.repo, 'checkout', '--quiet', '-b', 'conflict-main', f.base);
+  await fs.writeFile(path.join(f.repo, 'main.txt'), 'main change\n');
+  git(f.repo, 'commit', '--quiet', '-am', 'main edit');
+  git(f.repo, 'checkout', '--quiet', '-b', 'feature', f.base);
+  await fs.writeFile(path.join(f.repo, 'main.txt'), 'feature one\n');
+  git(f.repo, 'commit', '--quiet', '-am', 'feature base');
+  const base = git(f.repo, 'rev-parse', 'HEAD');
+  await fs.writeFile(path.join(f.repo, 'main.txt'), 'feature two\n');
+  git(f.repo, 'commit', '--quiet', '-am', 'feature tip');
+  const feature = git(f.repo, 'rev-parse', 'HEAD');
+  git(f.repo, 'checkout', '--quiet', 'conflict-main');
+  // Git 的冲突提示位于 stdout；同时验证失败状态和实际的三个未合并索引条目。
+  assert.throws(() => git(f.repo, 'merge', '--no-ff', 'feature', '-m', 'merge feature'), { status: 1 });
+  assert.equal(git(f.repo, 'ls-files', '--unmerged', '--', 'main.txt').split('\n').length, 3);
+  await fs.writeFile(path.join(f.repo, 'main.txt'), 'resolved merge\n');
+  git(f.repo, 'add', '.');
+  git(f.repo, 'commit', '--quiet', '-m', 'resolve merge');
+  const target = git(f.repo, 'rev-parse', 'HEAD');
+  let session = await createFollow(f.repo, f.practice, base, target);
+  assert.deepEqual(session.steps.map((step) => step.hash), [feature, target]);
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'feature two\n');
+  session = await advanceFollow(session);
+  assert.equal((await checkFollow(session)).complete, false);
+  await assert.rejects(advanceFollow(session), /未进入下一步/);
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'resolved merge\n');
+  session = await advanceFollow(session);
+  assert.equal(session.finished, true);
+});
+
+/** 压缩合并只有相同内容，没有原提交的祖先关系，不能据此编造连续路线。 */
+test('squash merged content does not make the original branch commit an ancestor', async (t) => {
+  const f = await fixture(t);
+  const main = git(f.repo, 'symbolic-ref', '--short', 'HEAD');
+  git(f.repo, 'checkout', '--quiet', '-b', 'feature', f.base);
+  await fs.writeFile(path.join(f.repo, 'feature.txt'), 'feature\n');
+  git(f.repo, 'add', '.');
+  git(f.repo, 'commit', '--quiet', '-m', 'original feature');
+  const feature = git(f.repo, 'rev-parse', 'HEAD');
+  git(f.repo, 'checkout', '--quiet', main);
+  git(f.repo, 'merge', '--quiet', '--squash', 'feature');
+  git(f.repo, 'commit', '--quiet', '-m', 'squashed feature');
+  assert.equal(await fs.readFile(path.join(f.repo, 'feature.txt'), 'utf8'), 'feature\n');
+  await assert.rejects(planFollow(f.repo, feature, 'HEAD'), /祖先/);
 });
 
 test('isolated exercise detects missing, mistaken and extra files, resumes and advances only after exact Git content matches', async (t) => {
