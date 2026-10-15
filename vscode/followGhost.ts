@@ -4,6 +4,8 @@ import { gitService } from '../server/gitService';
 import type { FollowFile, FollowSession } from '../server/followService';
 import { nextGhostEdit, type GhostEdit } from '../shared/followGhost';
 
+type DisplayEdit = GhostEdit & { prepareLine?: boolean };
+
 /** 用原生多行虚影展示待写代码，真实文档只保留用户已经输入的内容。 */
 export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.Disposable {
   private readonly deleted = vscode.window.createTextEditorDecorationType({
@@ -13,7 +15,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 10);
   private readonly subscriptions: vscode.Disposable[];
   private readonly targets = new Map<string, Promise<string | undefined>>();
-  private readonly plans = new WeakMap<vscode.TextDocument, { version: number; target: string; edit?: GhostEdit }>();
+  private readonly plans = new WeakMap<vscode.TextDocument, { version: number; key: string; target: string; edit?: DisplayEdit }>();
   private files = new Map<string, FollowFile>();
   private session?: FollowSession;
   private key = '';
@@ -34,7 +36,18 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
         if (event.textEditor === vscode.window.activeTextEditor) this.schedule();
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
-        if (event.document === vscode.window.activeTextEditor?.document) this.schedule();
+        const editor = vscode.window.activeTextEditor;
+        if (event.document !== editor?.document) return;
+        const previous = this.plans.get(event.document);
+        const changes = event.contentChanges;
+        const eol = event.document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+        if (previous?.key === this.key && previous.edit?.prepareLine && previous.version + 1 === event.document.version &&
+          changes?.length === 1 && changes[0].rangeOffset === previous.edit.start && changes[0].rangeLength === 0 && changes[0].text === eol) {
+          // 文件首行没有可借用的上一行；用户按 Enter 后把光标移回新空行，不代写任何答案。
+          const position = event.document.positionAt(previous.edit.start);
+          editor.selection = new vscode.Selection(position, position);
+        }
+        this.schedule();
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('editor.inlineSuggest', vscode.window.activeTextEditor?.document)) this.schedule();
@@ -84,11 +97,22 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   }
 
   /** 同一文档版本复用差异结果，输入后才重新计算下一处内容。 */
-  private plan(document: vscode.TextDocument, target: string): GhostEdit | undefined {
+  private plan(document: vscode.TextDocument, target: string): DisplayEdit | undefined {
     const cached = this.plans.get(document);
-    if (cached?.version === document.version && cached.target === target) return cached.edit;
-    const edit = nextGhostEdit(document.getText(), target);
-    this.plans.set(document, { version: document.version, target, edit });
+    if (cached?.version === document.version && cached.key === this.key && cached.target === target) return cached.edit;
+    const current = document.getText();
+    let edit: DisplayEdit | undefined = nextGhostEdit(current, target);
+    const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+    if (edit && edit.start === edit.end && edit.start >= eol.length && edit.start < current.length &&
+      current[edit.start] !== '\r' && current[edit.start] !== '\n' && edit.text.endsWith(eol) &&
+      current.slice(edit.start - eol.length, edit.start) === eol) {
+      // 整行插入锚定上一行末尾；输入换行后会自然形成空行，不把旧行当成待补全前缀。
+      edit = { start: edit.start - eol.length, end: edit.start - eol.length, text: eol + edit.text.slice(0, -eol.length) };
+    } else if (edit?.start === 0 && edit.end === 0 && edit.text.endsWith(eol) && current && !/^[\r\n]/.test(current)) {
+      // 原生虚影会把首行右侧的旧代码一起染灰，先引导用户空出一行，再显示独立待写行。
+      edit = { start: 0, end: 0, text: eol, prepareLine: true };
+    }
+    this.plans.set(document, { version: document.version, key: this.key, target, edit });
     return edit;
   }
 
@@ -117,7 +141,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     return [];
   }
 
-  /** 提供真实多行内容；换行范围必须到行末，并把现有右侧代码原样带回，避免吞掉或连错行。 */
+  /** 提供多行候选并保留右侧代码；整行新增由显示规划隔离在空行或上一行末尾。 */
   async provideInlineCompletionItems(document: vscode.TextDocument, position: vscode.Position,
     context: vscode.InlineCompletionContext, token: vscode.CancellationToken): Promise<vscode.InlineCompletionItem[]> {
     const key = this.key;
@@ -126,6 +150,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     if (this.disposed || token.isCancellationRequested || key !== this.key || version !== document.version ||
       vscode.window.activeTextEditor?.document !== document || target === undefined) return [];
     const edit = this.plan(document, target);
+    if (edit?.prepareLine) return this.unavailable('先按 Enter 空出待写行', target);
     // 原生虚影不能表达删除：先标红并让用户删掉旧内容，再提供插入，避免把 1 → 2 显示成 21。
     if (!edit?.text || edit.end !== edit.start) return [];
     const start = document.positionAt(edit.start);
@@ -152,7 +177,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     }
     const item = new vscode.InlineCompletionItem(insertText, new vscode.Range(from, to));
     item.filterText = current.slice(fromOffset, toOffset);
-    this.status.text = `$(edit) 跟写 · 第 ${start.line + 1} 行 · 目标就绪`;
+    this.status.text = `$(edit) 跟写 · 第 ${start.line + 1} 行 · ${/^[\r\n]/.test(edit.text) ? '先按 Enter 换行' : '目标就绪'}`;
     this.status.tooltip = `照正文虚影输入；普通补全打开时按 Esc 返回虚影。\n${edit.text.slice(0, 6000)}`;
     this.status.command = 'aiDiff.follow.locate';
     this.status.show();
@@ -184,7 +209,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const range = new vscode.Range(start, editor.document.positionAt(edit.end));
     editor.setDecorations(this.deleted, edit.end > edit.start ? [{ range, hoverMessage: '先删除或替换这些旧内容，再继续跟写虚影。' }] : []);
     this.status.text = deleting ? '$(trash) 跟写 · 需要删除整个文件' :
-      `$(edit) 跟写 · 第 ${start.line + 1} 行 · ${edit.end > edit.start ? '先删除红字' : '点击显示虚影'}`;
+      `$(edit) 跟写 · 第 ${start.line + 1} 行 · ${edit.prepareLine ? '先按 Enter 空出待写行' : edit.end > edit.start ? '先删除红字' : /^[\r\n]/.test(edit.text) ? '先按 Enter 换行' : '点击显示虚影'}`;
     this.status.tooltip = deleting ? '在跟写侧栏右键此文件，选择删除文件并移到回收站。' :
       `目标在正文以原生多行虚影显示；点击定位。普通补全打开时按 Esc 可回到虚影。\n${edit.text.slice(0, 6000)}`;
     const config = vscode.workspace.getConfiguration('editor', editor.document);
@@ -196,7 +221,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       editor.selection = new vscode.Selection(start, start);
       editor.revealRange(new vscode.Range(start, start), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
     }
-    if (edit.start === edit.end && edit.text && config.get<boolean>('inlineSuggest.enabled', true)) {
+    if (!edit.prepareLine && edit.start === edit.end && edit.text && config.get<boolean>('inlineSuggest.enabled', true)) {
       if (editor.selection.isEmpty && editor.selection.active.line === start.line && editor.document.offsetAt(editor.selection.active) <= edit.start) {
         // 新宿主支持按扩展选择提供器；只为练习请求目标，避免混入其他 AI 候选。
         // 老宿主保留通用触发，不能把新版本的命令参数当作最低支持版本的保证。

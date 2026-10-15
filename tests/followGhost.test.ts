@@ -160,7 +160,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       await new Promise(resolve => setTimeout(resolve, 140));
     },
     /** 按原生输入行为使旧候选失效，并等待控制器提供更新。 */
-    async changed(doc: any) { items = []; changed({ document: doc }); await new Promise((resolve) => setTimeout(resolve, 140)); },
+    async changed(doc: any, contentChanges?: any[]) { items = []; changed({ document: doc, contentChanges }); await new Promise((resolve) => setTimeout(resolve, 140)); },
     /** 提供补全菜单与取消场景，检验原生提供器的实际接入逻辑。 */
     async provide(doc: any, position: Position, context: any = {}, cancelled = false) {
       return provider.provideInlineCompletionItems(doc, position, context, { isCancellationRequested: cancelled });
@@ -291,34 +291,56 @@ test('initial ghost requests recover after editor readiness without typing', asy
   assert.equal(c.calls.length, requests, 'window activation must not trigger suggestions outside the practice');
 });
 
-/** 复现两条 import 的截图：多行范围到行末，保留旧 import，输入换行后精确收敛。 */
-test('multiline import suggestions preserve the existing line and actual line breaks', async (t) => {
+/** 复现截图中的相同 import 前缀，新增行独立呈现，已有行不作为候选的一部分重新补写。 */
+test('whole-line import ghosts preserve the existing line without borrowing its common prefix', async (t) => {
   for (const eol of ['\n', '\r\n']) {
-    const c = controller(async () => ({ content: '' }));
-    t.after(() => c.ghost.dispose());
-    const repo = path.resolve('.validation/ghost-practice');
-    c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
-      [{ path: 'Imports.java', deleted: false, complete: false }]);
-    const before = `import com.gameplus.service.dmx.DmxCatLogic;${eol}`;
-    const added = 'import com.gameplus.service.activitypro.returncampaign.ReturnCampaignActivity;';
-    const target = `${added}${eol}${before}`;
-    const doc = c.document(path.join(repo, 'Imports.java'), before, eol === '\n' ? 1 : 2);
-    const editor = c.editor(doc);
-    await c.ghost.open(editor, target);
-    assert.equal(c.items.length, 1);
-    assert.equal(c.items[0].range.end.character, doc.lineAt(0).text.length);
-    assert.equal(proposedText(doc, c.items[0]), target);
-    assert.equal(doc.text, before);
-    assert.ok(c.items[0].insertText.includes(eol));
-    assert.equal(c.items[0].filterText, doc.lineAt(0).text);
-    doc.text = added + before; doc.version++;
-    editor.selection = new Selection(new Position(0, added.length), new Position(0, added.length));
-    await c.changed(doc);
-    assert.equal(c.items[0].insertText, eol + doc.lineAt(0).text.slice(added.length));
-    assert.equal(proposedText(doc, c.items[0]), target);
-    doc.text = target; doc.version++;
-    await c.changed(doc);
-    assert.equal(c.items.length, 0); assert.match(c.status.text, /已一致/);
+    for (const header of ['', `package demo;${eol}${eol}`]) {
+      const c = controller(async () => ({ content: '' }));
+      t.after(() => c.ghost.dispose());
+      const repo = path.resolve('.validation/ghost-practice');
+      c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+        [{ path: 'Imports.java', deleted: false, complete: false }]);
+      const before = `${header}import com.gameplus.core.model.star.FishActivityInfo;${eol}`;
+      const added = 'import com.gameplus.core.gameconfig.dmx.DmxReturnCampaignConf;';
+      const target = `${header}${added}${eol}import com.gameplus.core.model.star.FishActivityInfo;${eol}`;
+      const doc = c.document(path.join(repo, 'Imports.java'), before, eol === '\n' ? 1 : 2);
+      const editor = c.editor(doc);
+      await c.ghost.open(editor, target);
+      if (header) {
+        assert.equal(c.items.length, 1);
+        assert.equal(c.items[0].range.start.line, 1);
+        assert.equal(c.items[0].range.start.character, 0);
+        assert.equal(c.items[0].range.end.character, 0);
+        assert.equal(c.items[0].insertText, eol + added);
+        assert.equal(proposedText(doc, c.items[0]), target);
+        assert.match(c.status.text, /先按 Enter 换行/);
+      } else {
+        assert.equal(c.items.length, 0);
+        assert.match(c.status.text, /先按 Enter/);
+      }
+      assert.equal(doc.text, before);
+      const offset = doc.offsetAt(editor.selection.active);
+      doc.text = before.slice(0, offset) + eol + before.slice(offset); doc.version++;
+      editor.selection = new Selection(doc.positionAt(offset + eol.length), doc.positionAt(offset + eol.length));
+      await c.changed(doc, [{ rangeOffset: offset, rangeLength: 0, text: eol }]);
+      const writing = header ? header.length : 0;
+      assert.equal(doc.offsetAt(editor.selection.active), writing, 'Enter must leave the caret on the blank writing line');
+      assert.equal(c.items[0].insertText, added);
+      assert.equal(proposedText(doc, c.items[0]), target);
+      const prepared = doc.text;
+      for (const typed of ['imp', 'import com.gameplus.core.']) {
+        doc.text = prepared.slice(0, writing) + typed + prepared.slice(writing); doc.version++;
+        const cursor = doc.positionAt(writing + typed.length);
+        editor.selection = new Selection(cursor, cursor);
+        await c.changed(doc);
+        assert.equal(c.items[0].insertText, added.slice(typed.length));
+        assert.doesNotMatch(c.items[0].insertText, /FishActivityInfo/);
+        assert.equal(proposedText(doc, c.items[0]), target);
+      }
+      doc.text = target; doc.version++;
+      await c.changed(doc);
+      assert.equal(c.items.length, 0); assert.match(c.status.text, /已一致/);
+    }
   }
 });
 
@@ -370,11 +392,13 @@ test('native ghost chunks retain multiple lines and never split Unicode or CRLF'
   assert.equal(c.items[0].insertText, 'x'.repeat(3999));
   assert.equal(doc.text, '');
   doc.text = 'x'.repeat(4100); doc.version++;
-  await c.ghost.open(editor, 'new\n' + doc.text);
+  await c.ghost.open(editor, doc.text + 'new\n');
+  // 定位会跳到插入点；手动退回超长共同前缀之前，仍不得提交超过原生渲染预算的候选。
+  await c.moved(new Position(0, 0));
   assert.equal(c.items.length, 0); assert.match(c.status.text, /当前行过长/);
-  doc.text = 'existing'; doc.version++;
+  doc.text = 'prefixexisting'; doc.version++;
   c.prefixMode();
-  await c.ghost.open(editor, 'new\nexisting');
+  await c.ghost.open(editor, 'prefixZZZ\nexisting');
   assert.equal(c.items.length, 0); assert.match(c.status.text, /子词模式/);
   assert.equal((c.status.command as any).arguments[0], '@id:editor.inlineSuggest.mode');
 });

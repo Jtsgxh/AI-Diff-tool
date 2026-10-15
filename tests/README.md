@@ -184,6 +184,10 @@ resurrect the old pin. Zooming/panning a retained business node must still prese
 
 `followGhost.native.cjs` 是真实扩展宿主回归，不加入模拟 API 的 `*.test.ts` 套件。先运行 `npm run build:vscode`，再运行 `node tests/followGhost.native.cjs --prepare .validation/native-follow-<唯一名称>`，准备实际 Git 练习和独立 profile。启动 VS Code，分别传入 `--user-data-dir=<fixture>/profile`、`--extensions-dir=<fixture>/extensions`、`--extensionDevelopmentPath=<repo>/vscode`、`--extensionTestsPath=<repo>/tests/followGhost.native.cjs` 和 `<fixture>/practice`。测试通过实际跟写命令打开空文件和 import 文件，验证未提前写入答案、输入首行后继续提供原生建议、删除旧字再跟写、保存后完整快照可完成；结果写在 `<fixture>/result.json`。
 
-原生验收另通过测试窗口的 Chromium 调试端口只读获取 DOM 布局和截图，检查空文件及已输入首行后的多行虚影、两条 import 位于不同纵坐标。若创建 `<fixture>/capture-enabled`，测试会在四处写出 `capture-request.json` 并等待截图驱动写入 `captured-<name>`，缺少驱动会明确失败。本次机器的安装版被更新锁阻止启动，实际验收使用工作区内同版本 VS Code 1.138.0 的隔离运行副本；仅该副本的发行目标设为 archive，保留原安装和更新锁，并因测试环境的渲染沙箱启动失败而只对隔离运行进程使用 `--no-sandbox`。使用内置语法与独立扩展目录，未验证用户现场的全部 AI 和 Java 语言扩展组合。
+原生验收另通过测试窗口的 Chromium 调试端口只读获取 DOM 布局和截图。若创建 `<fixture>/capture-enabled`，先运行 `node tests/followGhost.capture.mjs <fixture> <port>`（端口默认 9238），再启动使用该独立调试端口、测试 profile、扩展目录和 `.git/ai-diff-follow.code-workspace` 的测试实例；测试在各检查点写出 `capture-request.json` 并等待驱动写入 `captured-<name>`，缺少驱动会明确失败。检查器同时覆盖原生行内灰色节点和额外虚影行，断言新增 import 的整行或尚未输入部分与实际灰色文字精确相等，已有 `FishActivityInfo` 导入位于另一行且没有被染成虚影；只检查两行纵坐标不同无法发现共同前缀被拆分的问题。
+
+整行插入必须避免把已有行及其相同前缀一并交给宿主重新计算字符差异。文件中间从上一行末尾的换行开始；文件首行前插入时先提示用户按 Enter，再把光标移回用户创建的空行。原生用例覆盖首次显示、首行 Enter 准备、逐字符 `imp`、接受候选和最终快照校验；单元测试另覆盖 LF/CRLF。按 Enter 是用户操作，扩展不能为了显示虚影直接修改文件或代写目标。
+
+本机实际原生验收使用工作区内同版本 VS Code 1.138.0 的隔离运行副本，避免安装版的更新锁；仅该副本的发行目标设为 archive，保留原安装和更新锁，并因测试环境的渲染沙箱启动失败而只对隔离运行进程使用 `--no-sandbox`。使用内置语法与独立扩展目录，未验证用户现场的全部 AI 和 Java 语言扩展组合。
 
 实际 VS Code 手工验收：从仓库 F5 启动扩展，选择跨多个提交的范围创建练习，确认侧栏只显示一个合并目标，文件列表只包含两端净变化；点击文件确认默认打开单个原生编辑器、自动定位差异且虚影直接来自结束提交，没有直接写入文件。删除标红旧内容并跟着虚影输入，确认提示逐步更新、普通补全与定义跳转仍可用；通过状态栏定位下一处，故意误改其他文件并确认不能完成，所有文件一致后一次完成，关闭后重开练习目录检查进度。另打开旧逐提交练习，保留未保存草稿后执行合并命令，确认草稿和已写内容保留、目标切至最终提交。原工作台另验收 AI 流式输出、取消、学习图谱及其布局 Worker。需要使用已配置的语言扩展和模型服务。

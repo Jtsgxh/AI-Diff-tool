@@ -3,8 +3,9 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const emptyTarget = 'package demo;\n\npublic class Empty {\n    private int id;\n    private int amount;\n\n    public int getId() {\n        return id;\n    }\n}\n';
-const oldImport = 'import com.gameplus.service.dmx.DmxCatLogic;\n';
-const newImport = 'import com.gameplus.service.activitypro.returncampaign.ReturnCampaignActivity;\n';
+const oldImport = 'import com.gameplus.core.model.star.FishActivityInfo;\n';
+const newImport = 'import com.gameplus.core.gameconfig.dmx.DmxReturnCampaignConf;\n';
+const importHeader = 'package demo;\n\n';
 
 /** 在全新目录调用实际创建服务准备原生验收仓库，不使用用户正在跟写的文件。 */
 async function prepare(root) {
@@ -16,11 +17,13 @@ async function prepare(root) {
   git('init', '--quiet'); git('config', 'user.name', 'Native Follow Test'); git('config', 'user.email', 'native@example.test');
   await fs.writeFile(path.join(source, '.gitattributes'), '* text eol=lf\n');
   await fs.writeFile(path.join(source, 'Imports.java'), oldImport);
+  await fs.writeFile(path.join(source, 'Header.java'), importHeader + oldImport);
   await fs.writeFile(path.join(source, 'replace.ts'), 'const value = 1;\n');
   git('add', '.'); git('commit', '--quiet', '-m', 'base');
   const base = git('rev-parse', 'HEAD');
   await fs.writeFile(path.join(source, 'Empty.java'), emptyTarget);
   await fs.writeFile(path.join(source, 'Imports.java'), newImport + oldImport);
+  await fs.writeFile(path.join(source, 'Header.java'), importHeader + newImport + oldImport);
   await fs.writeFile(path.join(source, 'replace.ts'), 'const value = 2;\n');
   await fs.writeFile(path.join(source, 'New.ts'), 'const custom = 1;\n');
   await fs.writeFile(path.join(source, 'Calls.ts'), 'call(1);\n');
@@ -51,10 +54,10 @@ exports.run = async () => {
   /** 对齐原生新文件默认换行，不把正常的 CRLF 处理误判为功能失败。 */
   const expected = (doc, text) => text.replace(/\n/g, doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n');
   /** 可选地等待外部截图驱动；正常运行时原生接受命令也必须验证候选确实可用。 */
-  const checkpoint = async (name, editor) => {
+  const checkpoint = async (name, editor, expectation = {}) => {
     checks.push({ name, text: editor.document.getText(), file: editor.document.fileName });
     try { await fs.access(path.join(root, 'capture-enabled')); } catch { return; }
-    await fs.writeFile(path.join(root, 'capture-request.json'), JSON.stringify({ name }));
+    await fs.writeFile(path.join(root, 'capture-request.json'), JSON.stringify({ name, ...expectation }));
     for (let i = 0; i < 150; i++) {
       try { await fs.access(path.join(root, `captured-${name}`)); return; } catch { await new Promise(resolve => setTimeout(resolve, 100)); }
     }
@@ -101,9 +104,29 @@ exports.run = async () => {
     await settle();
     editor = vscode.window.activeTextEditor;
     assert.equal(editor.document.getText(), expected(editor.document, oldImport));
-    await checkpoint('imports', editor);
-    await vscode.commands.executeCommand('type', { text: newImport });
+    await checkpoint('imports-needs-line', editor, { expectedGhost: '', existingLine: oldImport.trimEnd() });
+    await vscode.commands.executeCommand('type', { text: '\n' });
+    await settle();
+    assert.equal(editor.selection.active.line, 0, 'Enter must return to the blank writing line');
+    assert.equal(editor.document.getText(), expected(editor.document, '\n' + oldImport));
+    await checkpoint('imports', editor, { expectedGhost: newImport.trimEnd(), existingLine: oldImport.trimEnd() });
+    await vscode.commands.executeCommand('type', { text: newImport.trimEnd() });
     assert.equal(editor.document.getText(), expected(editor.document, newImport + oldImport));
+    await editor.document.save();
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Header.java' });
+    await settle();
+    editor = vscode.window.activeTextEditor;
+    assert.equal(editor.document.getText(), expected(editor.document, importHeader + oldImport));
+    await checkpoint('imports-with-header', editor, { expectedGhost: newImport.trimEnd(), existingLine: oldImport.trimEnd() });
+    await vscode.commands.executeCommand('type', { text: '\n' });
+    for (const text of 'imp') {
+      await vscode.commands.executeCommand('type', { text });
+      await new Promise(resolve => setTimeout(resolve, 160));
+    }
+    await settle();
+    await checkpoint('imports-typed', editor, { expectedGhost: newImport.trimEnd().slice(3), existingLine: oldImport.trimEnd() });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(editor.document.getText(), expected(editor.document, importHeader + newImport + oldImport));
     await editor.document.save();
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'replace.ts' });
     await settle();
