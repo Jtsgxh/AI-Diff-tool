@@ -162,7 +162,14 @@ exports.run = async () => {
     await vscode.commands.executeCommand('aiDiff.follow.locate');
     await settle();
     await checkpoint('key-tab', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }] });
-    assert.match(keyEditor.document.getText(), /^[ \t]+$/, 'Tab must indent without accepting target code');
+    assert.equal(keyEditor.document.getText().trimEnd(), expected(keyEditor.document, emptyTarget).trimEnd(), 'Tab must accept the currently displayed ghost block');
+    await checkpoint('key-tab-undo', keyEditor, { pressKeys: [{ key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90, modifiers: 2 }] });
+    assert.equal(keyEditor.document.getText(), '', 'One undo must remove the accepted ghost block');
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await checkpoint('key-tab-dismiss', keyEditor, { pressKeys: [{ key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }], expectedNoGhost: true });
+    await checkpoint('key-tab-indent', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }] });
+    assert.match(keyEditor.document.getText(), /^[ \t]+$/, 'Tab must still indent when no inline suggestion is visible');
     await checkpoint('key-shift-tab', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 8 }] });
     assert.equal(keyEditor.document.getText(), '', 'Shift+Tab must outdent without accepting target code');
     await vscode.commands.executeCommand('aiDiff.follow.locate');
