@@ -16,6 +16,13 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     before: { color: new vscode.ThemeColor('editorError.foreground'), fontWeight: 'bold', margin: '0 1em 0 0' },
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   });
+  // 用插入边界和行号旁加号强化独立提示行，不给已有代码着色，也不修改全局 CodeLens 样式。
+  private readonly insertion = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true, borderStyle: 'solid', borderWidth: '2px 0 0 0',
+    dark: { borderColor: '#35c98b' }, light: { borderColor: '#147d46' },
+    gutterIconPath: vscode.Uri.parse('data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="3" fill="#147d46" stroke="#80efb0"/><path d="M8 4v8M4 8h8" stroke="white" stroke-width="2"/></svg>')),
+    gutterIconSize: 'contain', rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  });
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 10);
   private readonly lensChange = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.lensChange.event;
@@ -144,7 +151,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       const lines = insertion.text.split(/\r\n|\r|\n/).length - (/[\r\n]$/.test(insertion.text) ? 1 : 0);
       const current = insertion.start === plan.nextInsertionStart;
       return new vscode.CodeLens(new vscode.Range(position, position), {
-        title: `此处待新增 · ${lines} 行${current ? ' · 显示虚影' : ''}`,
+        title: `⬇【此处待新增 · ${lines} 行】${current ? ' 点击显示虚影' : ' 前面完成后跟写'}`,
         command: current ? 'aiDiff.follow.locate' : '',
       });
     });
@@ -154,6 +161,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   private clear(editor: vscode.TextEditor): void {
     editor.setDecorations(this.deleted, []);
     editor.setDecorations(this.instruction, []);
+    editor.setDecorations(this.insertion, []);
   }
 
   /** 控制原生差异渲染的单次负载，保留实际换行和 Tab，截断不拆开 CRLF 或代理对。 */
@@ -246,6 +254,10 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       this.status.show(); return;
     }
     const start = editor.document.positionAt(edit.start);
+    editor.setDecorations(this.insertion, this.plans.get(editor.document)!.insertions.map(insertion => {
+      const position = new vscode.Position(editor.document.positionAt(insertion.start).line, 0);
+      return new vscode.Range(position, position);
+    }));
     const removals = this.plans.get(editor.document)!.removals;
     const current = editor.document.getText();
     const labels = new Set<number>();
@@ -338,6 +350,6 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     if (this.timer) clearTimeout(this.timer);
     this.subscriptions.forEach((subscription) => subscription.dispose());
     for (const editor of vscode.window.visibleTextEditors) this.clear(editor);
-    this.deleted.dispose(); this.instruction.dispose(); this.lensChange.dispose(); this.status.dispose(); this.targets.clear();
+    this.deleted.dispose(); this.instruction.dispose(); this.insertion.dispose(); this.lensChange.dispose(); this.status.dispose(); this.targets.clear();
   }
 }

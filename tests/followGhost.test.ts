@@ -120,6 +120,8 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     show() { this.visible = true; }, hide() { this.visible = false; }, dispose() {} };
   const native = {
     Position, Range, Selection, version: '1.138.0', EndOfLine: { LF: 1, CRLF: 2 },
+    /** 保留内嵌图标 URI，供装饰类型识别新增位置标记。 */
+    Uri: { parse: (value: string) => value },
     /** 原生独立提示行只保存操作命令，不承载目标代码。 */
     CodeLens: class { constructor(public range: Range, public command: any) {} },
     EventEmitter: class { event = () => disposable; fire() {} dispose() {} },
@@ -132,7 +134,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       /** 文字装饰仅标操作说明，实际目标代码仍必须来自原生多行虚影。 */
       createTextEditorDecorationType: (options: any) => {
         if (options.before) assert.equal(options.before.color.id, 'editorError.foreground');
-        return { ...disposable, key: options.before ? 'instruction' : 'deleted' };
+        return { ...disposable, key: options.gutterIconPath ? 'insertion' : options.before ? 'instruction' : 'deleted' };
       },
       createStatusBarItem: () => status,
       /** 模拟普通打开或恢复编辑器，不通过专用跟写打开命令。 */
@@ -287,7 +289,7 @@ test('opening or restoring a large follow file locates the pending insertion and
   await c.laidOut();
   assert.equal(editor.selection.active.line, 21, 'scrolling or selecting after the initial jump must not steal the cursor');
   const lenses = await c.lenses(doc);
-  assert.ok(lenses.some((item: any) => item.range.start.line === 41 && item.command.title === '此处待新增 · 1 行 · 显示虚影' && item.command.command === 'aiDiff.follow.locate'));
+  assert.ok(lenses.some((item: any) => item.range.start.line === 41 && item.command.title === '⬇【此处待新增 · 1 行】 点击显示虚影' && item.command.command === 'aiDiff.follow.locate'));
   assert.equal(c.decorations.get('instruction')!.some(item => item.renderOptions.before.contentText.includes('待新增')), false, 'insertion labels must never be inline with existing code');
   assert.ok(c.decorations.get('instruction')!.every(item => item.hoverMessage === undefined));
   c.ghost.setStep(undefined, []);
@@ -310,6 +312,7 @@ test('insertion code lenses are separate navigation hints and clear when the tar
   await c.ghost.open(editor, target);
   let lenses = await c.lenses(doc);
   assert.equal(lenses.length, 2);
+  assert.deepEqual(c.decorations.get('insertion')!.map(range => range.start.line), [0, 1]);
   assert.equal(lenses[0].command.command, 'aiDiff.follow.locate');
   assert.equal(lenses[1].command.command, '');
   assert.equal(lenses.some((lens: any) => /first|second/.test(lens.command.title)), false);
@@ -319,10 +322,12 @@ test('insertion code lenses are separate navigation hints and clear when the tar
   await c.changed(doc);
   lenses = await c.lenses(doc);
   assert.equal(lenses.length, 1);
+  assert.deepEqual(c.decorations.get('insertion')!.map(range => range.start.line), [2]);
   assert.equal(lenses[0].command.command, 'aiDiff.follow.locate');
   doc.text = target; doc.version++;
   await c.changed(doc);
   assert.equal((await c.lenses(doc)).length, 0);
+  assert.equal(c.decorations.get('insertion')!.length, 0);
   c.ghost.setStep(undefined, []);
   assert.equal((await c.lenses(doc)).length, 0);
 });

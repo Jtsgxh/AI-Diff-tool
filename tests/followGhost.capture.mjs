@@ -53,7 +53,13 @@ for (let attempt = 0; attempt < 1200; attempt++) {
         .map(e => getComputedStyle(e, '::before').content).filter(text => /待删除|待替换|待新增|空白差异/.test(text)),
       lenses: [...document.querySelectorAll('.editor-instance .codelens-decoration')]
         .filter(e => e.getBoundingClientRect().height > 0)
-        .map(e => ({text: e.innerText, y: e.getBoundingClientRect().y, bottom: e.getBoundingClientRect().bottom}))
+        .map(e => ({text: e.innerText, y: e.getBoundingClientRect().y, bottom: e.getBoundingClientRect().bottom})),
+      insertionBorders: [...document.querySelectorAll('.editor-instance *')]
+        .filter(e => parseFloat(getComputedStyle(e).borderTopWidth) > 0 && ['rgb(53, 201, 139)', 'rgb(20, 125, 70)'].includes(getComputedStyle(e).borderTopColor))
+        .map(e => ({y: e.getBoundingClientRect().y, width: e.getBoundingClientRect().width})),
+      insertionGutters: [...document.querySelectorAll('.editor-instance *')]
+        .filter(e => getComputedStyle(e).backgroundImage.includes('data:image/svg+xml'))
+        .map(e => ({y: e.getBoundingClientRect().y, height: e.getBoundingClientRect().height}))
     })`, returnByValue: true });
     const state = JSON.parse(dom.result.value);
     await fs.writeFile(path.join(root, `${request.name}.json`), JSON.stringify(state, null, 2));
@@ -75,6 +81,9 @@ for (let attempt = 0; attempt < 1200; attempt++) {
     if (request.expectedInsertion) {
       const lens = state.lenses.find(item => item.text.includes('此处待新增'));
       assert.ok(lens, 'Insertion instructions must occupy a separate CodeLens row');
+      assert.ok(lens.text.includes('⬇【此处待新增'), 'Insertion labels must have a clear arrow and bracketed action');
+      assert.ok(state.insertionBorders.some(item => item.width > 100), 'Pending insertions must have a visible green boundary');
+      assert.ok(state.insertionGutters.some(item => item.height > 0), 'Pending insertions must have a visible plus gutter icon');
       assert.equal(state.instructions.some(text => text.includes('待新增')), false, 'Insertion instructions must not be inserted before existing code');
       if (request.existingLine) {
         const existing = state.lines.find(item => item.text === request.existingLine);
