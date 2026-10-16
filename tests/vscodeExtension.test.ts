@@ -102,6 +102,10 @@ test('native extension commands open real practice files, save only practice dra
   await module.exports.activate(context);
   assert.equal(provider.getChildren().length, 2);
   const sample = provider.getChildren().find((file: any) => file.path === 'sample.ts');
+  // VS Code 会规范化 Windows 盘符大小写，未保存标识仍需对应同一个练习文件。
+  if (process.platform === 'win32') draft.uri.fsPath = draft.uri.fsPath[0].toLowerCase() + draft.uri.fsPath.slice(1);
+  assert.equal(provider.getTreeItem(sample).description, '未保存');
+  assert.equal(provider.getTreeItem({ ...sample, complete: true }).iconPath.id, 'circle-outline');
   const removed = provider.getChildren().find((file: any) => file.path === 'removed.ts');
   const removedItem = provider.getTreeItem(removed);
   assert.equal(removedItem.iconPath.id, 'pass');

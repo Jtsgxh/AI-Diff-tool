@@ -9,7 +9,7 @@ const captured = new Set();
 /** 等待隔离原生测试窗口的检查点，不触碰用户正在编辑的工作区。 */
 const pause = () => new Promise(resolve => setTimeout(resolve, 100));
 
-for (let attempt = 0; attempt < 1200; attempt++) {
+for (let attempt = 0; attempt < 2400; attempt++) {
   try {
     const result = JSON.parse(await fs.readFile(path.join(root, 'result.json'), 'utf8'));
     assert.equal(result.passed, true, result.error);
@@ -108,6 +108,12 @@ for (let attempt = 0; attempt < 1200; attempt++) {
       assert.ok(state.lines.some(item => item.text.includes(request.expectedProtected)), 'The correct first argument must remain visible');
       assert.ok(state.deleted.every(text => !text.trim()), 'Correct argument characters and auto-closing parentheses must not be struck through');
       assert.ok(state.instructions.some(text => text.includes('空白差异')), 'Whitespace differences must not claim the entire line needs deletion');
+    }
+    if (request.expectedLens) assert.ok(state.lenses.some(item => item.text.includes(request.expectedLens)), 'The operation hint must state the exact text to write or replace');
+    if (request.expectedNoInsertionBorder) assert.equal(state.insertionBorders.length, 0, 'Inline edits must not suggest rewriting the whole line');
+    if (request.expectedNoHints) {
+      assert.equal(state.lenses.length, 0, 'Completed files must not retain follow operation hints');
+      assert.equal(state.insertionGutters.length, 0, 'Completed files must not retain insertion gutter icons');
     }
     if (request.expectedGhostContains) assert.ok(state.ghost.map(item => item.text).join('').includes(request.expectedGhostContains), 'The missing argument must appear as actual ghost text');
     await fs.writeFile(path.join(root, `captured-${request.name}`), 'captured');

@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { transformSync } from 'esbuild';
-import { ghostInsertionEdits, ghostRemovalEdits, nextGhostEdit } from '../shared/followGhost';
+import { ghostEdits, ghostInsertionEdits, ghostRemovalEdits, nextGhostEdit } from '../shared/followGhost';
 
 /** 覆盖新文件、局部替换、自动闭合、多个改动、删除、换行和 UTF-16 原生偏移。 */
 test('ghost planning preserves existing code and identifies only the next change', () => {
@@ -39,6 +39,32 @@ test('successive ghost edits converge exactly without overlooking whitespace or 
       current = current.slice(0, edit.start) + edit.text + current.slice(edit.end);
     }
     assert.equal(current, target);
+  }
+});
+
+/** 所有展示入口必须复用同一组差异，且从后往前应用整组编辑应精确恢复目标。 */
+test('all operation markers and the next ghost share a complete ordered edit plan', () => {
+  const cases = [
+    ['// 双倍惊喜、命运祈福的妖灵\n', '// 双倍惊喜、命运祈福、超级发发发的妖灵\n'],
+    ['if (!old()) { run(); }\n', 'if (!old() && !added()) { run(); }\n'],
+    ['old();\nkeep();\nconst x = 1;\n', 'new();\nkeep();\nconst x = 2;\nlast();\n'],
+    ['😀 foo()\n\tkeep();\n', '😀 foo(中文)\n\tkeep();\n'],
+    ['remove();\n', ''], ['', 'first();\nsecond();\n'], ['a b\n', 'a\tb\n'],
+  ];
+  for (const newline of ['\n', '\r\n']) for (const pair of cases) {
+    const [current, target] = pair.map(text => text.replace(/\n/g, newline));
+    const edits = ghostEdits(current, target);
+    assert.deepEqual(nextGhostEdit(current, target), edits[0]);
+    assert.deepEqual(ghostInsertionEdits(current, target), edits.filter(edit => edit.start === edit.end && edit.text));
+    assert.deepEqual(ghostRemovalEdits(current, target), edits.filter(edit => edit.end > edit.start));
+    let rebuilt = current;
+    for (let i = edits.length - 1; i >= 0; i--) {
+      const edit = edits[i];
+      assert.ok(edit.start >= 0 && edit.end >= edit.start && edit.end <= current.length);
+      if (i) assert.ok(edits[i - 1].end <= edit.start);
+      rebuilt = rebuilt.slice(0, edit.start) + edit.text + rebuilt.slice(edit.end);
+    }
+    assert.equal(rebuilt, target);
   }
 });
 
@@ -134,7 +160,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       /** 文字装饰仅标操作说明，实际目标代码仍必须来自原生多行虚影。 */
       createTextEditorDecorationType: (options: any) => {
         if (options.before) assert.equal(options.before.color.id, 'editorError.foreground');
-        return { ...disposable, key: options.gutterIconPath ? 'insertion' : options.before ? 'instruction' : 'deleted' };
+        return { ...disposable, key: options.gutterIconPath ? options.borderWidth ? 'insertion' : 'inlineInsertion' : options.before ? 'instruction' : 'deleted' };
       },
       createStatusBarItem: () => status,
       /** 模拟普通打开或恢复编辑器，不通过专用跟写打开命令。 */
@@ -176,7 +202,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   const code = transformSync(fs.readFileSync('vscode/followGhost.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   vm.runInNewContext(code, { module, exports: module.exports, setTimeout, clearTimeout,
     require: (id: string) => id === 'vscode' ? native : id === '../server/gitService' ? { gitService: { getFilePreview: preview } }
-      : id === '../shared/followGhost' ? { nextGhostEdit, ghostRemovalEdits, ghostInsertionEdits } : require(id) });
+      : id === '../shared/followGhost' ? { ghostEdits } : require(id) });
   const ghost = new module.exports.FollowGhost();
   /** 以实际字符串和 UTF-16 偏移模拟文档，行末范围不包含 CRLF。 */
   function document(file: string, text: string, eol = 1) {
@@ -236,6 +262,37 @@ function controller(preview: (...args: any[]) => Promise<any>) {
 function proposedText(doc: any, item: any): string {
   return doc.text.slice(0, doc.offsetAt(item.range.start)) + item.insertText + doc.text.slice(doc.offsetAt(item.range.end));
 }
+
+/** 灰色注释中的补写必须有准确文字说明，且后面的表达式补写也要提前标出。 */
+test('inline comment and expression additions have explicit hints and share the ghost position', async (t) => {
+  const before = '// 双倍惊喜、命运祈福的妖灵\nif (!old()) { run(); }\n';
+  const target = '// 双倍惊喜、命运祈福、超级发发发的妖灵\nif (!old() && !added()) { run(); }\n';
+  const c = controller(async () => ({ content: target }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'comment.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'comment.java'), before);
+  const editor = c.editor(doc);
+  await c.ghost.open(editor, target);
+  let lenses = await c.lenses(doc);
+  assert.match(lenses[0].command.title, /待补写.*「、超级发发发」/);
+  assert.equal(lenses[0].range.start.character, before.indexOf('的妖灵'));
+  assert.equal(c.items[0].insertText, '、超级发发发');
+  assert.ok(lenses.some((item: any) => item.range.start.line === 1 && item.command.title.includes('added')));
+  assert.equal(c.decorations.get('insertion')!.length, 0, 'an inline addition must not mark the entire line as an insertion boundary');
+  assert.equal(c.decorations.get('inlineInsertion')![0].start.character, before.indexOf('的妖灵'));
+  doc.text = proposedText(doc, c.items[0]); doc.version++;
+  await c.changed(doc);
+  await c.ghost.locate();
+  lenses = await c.lenses(doc);
+  assert.equal(lenses[0].range.start.line, 1);
+  assert.match(lenses[0].command.title, /added/);
+  assert.equal(proposedText(doc, c.items[0]), target);
+  doc.text = target; doc.version++;
+  await c.changed(doc);
+  assert.equal((await c.lenses(doc)).length, 0);
+});
 
 /** 末尾空行的多行正文不能被宿主移回上一行；最终换行仍需按原始目标完成。 */
 test('multiline EOF suggestions stay at the blank cursor line and retain final newline as the next edit', async (t) => {
@@ -336,7 +393,7 @@ test('insertion code lenses are separate navigation hints and clear when the tar
   await c.ghost.open(editor, target);
   let lenses = await c.lenses(doc);
   assert.equal(lenses.length, 2);
-  assert.deepEqual(c.decorations.get('insertion')!.map(range => range.start.line), [0, 1]);
+  assert.deepEqual(Array.from(c.decorations.get('insertion')!, item => item.start.line), [0, 1]);
   assert.equal(lenses[0].command.command, 'aiDiff.follow.locate');
   assert.equal(lenses[1].command.command, '');
   assert.equal(lenses.some((lens: any) => /first|second/.test(lens.command.title)), false);
@@ -346,7 +403,7 @@ test('insertion code lenses are separate navigation hints and clear when the tar
   await c.changed(doc);
   lenses = await c.lenses(doc);
   assert.equal(lenses.length, 1);
-  assert.deepEqual(c.decorations.get('insertion')!.map(range => range.start.line), [2]);
+  assert.deepEqual(Array.from(c.decorations.get('insertion')!, item => item.start.line), [2]);
   assert.equal(lenses[0].command.command, 'aiDiff.follow.locate');
   doc.text = target; doc.version++;
   await c.changed(doc);

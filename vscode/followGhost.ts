@@ -2,9 +2,11 @@ import * as vscode from 'vscode';
 import path from 'node:path';
 import { gitService } from '../server/gitService';
 import type { FollowFile, FollowSession } from '../server/followService';
-import { ghostInsertionEdits, ghostRemovalEdits, nextGhostEdit, type GhostEdit } from '../shared/followGhost';
+import { ghostEdits, type GhostEdit } from '../shared/followGhost';
 
 type DisplayEdit = GhostEdit & { prepareLine?: boolean };
+// 行内补写和整行新增共用加号，只为整行新增绘制横向边界。
+const INSERTION_ICON = vscode.Uri.parse('data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="3" fill="#147d46" stroke="#80efb0"/><path d="M8 4v8M4 8h8" stroke="white" stroke-width="2"/></svg>'));
 
 /** 用原生多行虚影展示待写代码，真实文档只保留用户已经输入的内容。 */
 export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.CodeLensProvider, vscode.Disposable {
@@ -20,15 +22,18 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   private readonly insertion = vscode.window.createTextEditorDecorationType({
     isWholeLine: true, borderStyle: 'solid', borderWidth: '2px 0 0 0',
     dark: { borderColor: '#35c98b' }, light: { borderColor: '#147d46' },
-    gutterIconPath: vscode.Uri.parse('data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="3" fill="#147d46" stroke="#80efb0"/><path d="M8 4v8M4 8h8" stroke="white" stroke-width="2"/></svg>')),
+    gutterIconPath: INSERTION_ICON,
     gutterIconSize: 'contain', rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  });
+  private readonly inlineInsertion = vscode.window.createTextEditorDecorationType({
+    gutterIconPath: INSERTION_ICON, gutterIconSize: 'contain', rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   });
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 10);
   private readonly lensChange = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.lensChange.event;
   private readonly subscriptions: vscode.Disposable[];
   private readonly targets = new Map<string, Promise<string | undefined>>();
-  private readonly plans = new WeakMap<vscode.TextDocument, { version: number; key: string; target: string; edit?: DisplayEdit; nextInsertionStart?: number; removals: GhostEdit[]; insertions: GhostEdit[] }>();
+  private readonly plans = new WeakMap<vscode.TextDocument, { version: number; key: string; target: string; edit?: DisplayEdit; edits: GhostEdit[]; removals: GhostEdit[]; insertions: GhostEdit[] }>();
   private files = new Map<string, FollowFile>();
   private session?: FollowSession;
   private key = '';
@@ -121,8 +126,8 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const cached = this.plans.get(document);
     if (cached?.version === document.version && cached.key === this.key && cached.target === target) return cached.edit;
     const current = document.getText();
-    let edit: DisplayEdit | undefined = nextGhostEdit(current, target);
-    const nextInsertionStart = edit?.start === edit?.end ? edit?.start : undefined;
+    const edits = ghostEdits(current, target);
+    let edit: DisplayEdit | undefined = edits[0];
     const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
     if (edit && edit.start === edit.end && edit.start >= eol.length && edit.start < current.length &&
       current[edit.start] !== '\r' && current[edit.start] !== '\n' && edit.text.endsWith(eol) &&
@@ -133,12 +138,12 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       // 原生虚影会把首行右侧的旧代码一起染灰，先引导用户空出一行，再显示独立待写行。
       edit = { start: 0, end: 0, text: eol, prepareLine: true };
     }
-    this.plans.set(document, { version: document.version, key: this.key, target, edit, nextInsertionStart,
-      removals: ghostRemovalEdits(current, target), insertions: ghostInsertionEdits(current, target) });
+    this.plans.set(document, { version: document.version, key: this.key, target, edit, edits,
+      removals: edits.filter(item => item.end > item.start), insertions: edits.filter(item => item.start === item.end && item.text) });
     return edit;
   }
 
-  /** 新增说明使用独立提示行，不挤进已有代码；当前待写处可点击恢复真实虚影。 */
+  /** 独立提示行说明每种操作及要写的具体片段；同一行合并提示，避免漏掉行内补写。 */
   async provideCodeLenses(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<vscode.CodeLens[]> {
     const key = this.key;
     const version = document.version;
@@ -146,15 +151,39 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     if (this.disposed || token.isCancellationRequested || key !== this.key || version !== document.version || target === undefined) return [];
     this.plan(document, target);
     const plan = this.plans.get(document)!;
-    return plan.insertions.map(insertion => {
-      const position = document.positionAt(insertion.start);
-      const lines = insertion.text.split(/\r\n|\r|\n/).length - (/[\r\n]$/.test(insertion.text) ? 1 : 0);
-      const current = insertion.start === plan.nextInsertionStart;
+    const currentText = document.getText();
+    const groups = new Map<number, GhostEdit[]>();
+    for (const edit of plan.edits) {
+      const line = document.positionAt(edit.start).line;
+      const group = groups.get(line) || [];
+      group.push(edit); groups.set(line, group);
+    }
+    return [...groups.values()].map(group => {
+      const edit = group[0];
+      const position = document.positionAt(edit.start);
+      const lines = edit.text.split(/\r\n|\r|\n/).length - (/[\r\n]$/.test(edit.text) ? 1 : 0);
+      const before = currentText.slice(edit.start, edit.end);
+      const current = edit === plan.edits[0];
+      let title: string;
+      if (!before.trim() && !edit.text.trim()) title = `【格式差异】${this.preview(before)} → ${this.preview(edit.text)} · 不影响完成判定`;
+      else if (edit.end > edit.start) title = edit.text ? `【待替换】${this.preview(before)} → ${this.preview(edit.text)} · 先删红字` :
+        `【待删除】${this.preview(before)} · 删除红字`;
+      else if (position.character === 0 && /[\r\n]/.test(edit.text)) title = `⬇【此处待新增 · ${lines} 行】`;
+      else title = `＋【待补写 · 第 ${position.character + 1} 列】${this.preview(edit.text)}`;
+      if (group.length > 1) title += ` · 本行共 ${group.length} 处`;
       return new vscode.CodeLens(new vscode.Range(position, position), {
-        title: `⬇【此处待新增 · ${lines} 行】${current ? ' 点击显示虚影' : ' 前面完成后跟写'}`,
+        title: `${title}${current ? edit.end > edit.start ? ' 点击定位' : ' 点击显示虚影' : ' 前面完成后跟写'}`,
         command: current ? 'aiDiff.follow.locate' : '',
       });
     });
+  }
+
+  /** 用短片段明确待写内容，保留可见换行及 Tab 标识，不在提示行堆放整段代码。 */
+  private preview(text: string): string {
+    if (!text) return '「空」';
+    const visible = (text.trim() ? text : text.replace(/ /g, '·')).replace(/\r\n|\r|\n/g, ' ↵ ').replace(/\t/g, '⇥');
+    const chars = Array.from(visible);
+    return `「${chars.slice(0, 70).join('')}${chars.length > 70 ? '…' : ''}」`;
   }
 
   /** 只清除本扩展自己的装饰，不干预其他扩展的提示或补全。 */
@@ -162,6 +191,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     editor.setDecorations(this.deleted, []);
     editor.setDecorations(this.instruction, []);
     editor.setDecorations(this.insertion, []);
+    editor.setDecorations(this.inlineInsertion, []);
   }
 
   /** 控制原生差异渲染的单次负载，保留实际换行和 Tab，截断不拆开 CRLF 或代理对。 */
@@ -260,10 +290,16 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       this.status.show(); return;
     }
     const start = editor.document.positionAt(edit.start);
-    editor.setDecorations(this.insertion, this.plans.get(editor.document)!.insertions.map(insertion => {
-      const position = new vscode.Position(editor.document.positionAt(insertion.start).line, 0);
-      return new vscode.Range(position, position);
-    }));
+    const fullInsertions: vscode.Range[] = [];
+    const inlineInsertions: vscode.Range[] = [];
+    for (const insertion of this.plans.get(editor.document)!.insertions) {
+      const position = editor.document.positionAt(insertion.start);
+      // 只有整行新增画上边界；行内新增仅保留加号，不能暗示整条已有代码需要重写。
+      const ranges = position.character === 0 && /[\r\n]/.test(insertion.text) ? fullInsertions : inlineInsertions;
+      ranges.push(new vscode.Range(position, position));
+    }
+    editor.setDecorations(this.insertion, fullInsertions);
+    editor.setDecorations(this.inlineInsertion, inlineInsertions);
     const removals = this.plans.get(editor.document)!.removals;
     const current = editor.document.getText();
     const labels = new Set<number>();
@@ -356,6 +392,6 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     if (this.timer) clearTimeout(this.timer);
     this.subscriptions.forEach((subscription) => subscription.dispose());
     for (const editor of vscode.window.visibleTextEditors) this.clear(editor);
-    this.deleted.dispose(); this.instruction.dispose(); this.insertion.dispose(); this.lensChange.dispose(); this.status.dispose(); this.targets.clear();
+    this.deleted.dispose(); this.instruction.dispose(); this.insertion.dispose(); this.inlineInsertion.dispose(); this.lensChange.dispose(); this.status.dispose(); this.targets.clear();
   }
 }

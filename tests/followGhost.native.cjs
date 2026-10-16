@@ -21,6 +21,9 @@ const tableBase = '2109\t境界排行榜\t0\t0\t1\t1\t0\t1\t0\t1\t0\t0\t1\t0\t0\
 /** 保留截图中的中文、数字和 Tab 列，覆盖真实配置表的五行追加。 */
 const tableAdded = ['回归仙途合集', '回归特惠祈愿', '回归特惠礼包', '回归七日签到', '回归征程']
   .map((name, index) => `${2110 + index}\t${name}\t0\t0\t1\t1\t0\t0\t0\t0\t0\t0\t1\t0\t0\t0\t0\n`).join('');
+const commentBase = 'int iLogType = 0;\n// 双倍惊喜、命运祈福的妖灵由活动回调按来源记账，跳过主流程的零金额占位流水。\nif (iAddMoney != 0 || (!PayCode.IsSbjxGift(getChargePropRt.iPayCode)\n        && !PayCode.IsMyqfGift(getChargePropRt.iPayCode)))\n{\n    run();\n}\n';
+const commentTarget = commentBase.replace('命运祈福', '命运祈福、超级发发发')
+  .replace('IsMyqfGift(getChargePropRt.iPayCode)))', 'IsMyqfGift(getChargePropRt.iPayCode)\n        && !PayCode.IsCjfffGift(getChargePropRt.iPayCode)))');
 
 /** 在全新目录调用实际创建服务准备原生验收仓库，不使用用户正在跟写的文件。 */
 async function prepare(root) {
@@ -37,6 +40,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Changed.java'), changedBase);
   await fs.writeFile(path.join(source, 'Large.java'), largeBase);
   await fs.writeFile(path.join(source, 'activity.txt'), tableBase);
+  await fs.writeFile(path.join(source, 'Comment.java'), commentBase);
   git('add', '.'); git('commit', '--quiet', '-m', 'base');
   const base = git('rev-parse', 'HEAD');
   await fs.writeFile(path.join(source, 'Empty.java'), emptyTarget);
@@ -49,6 +53,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Large.java'), largeTarget);
   await fs.writeFile(path.join(source, 'Partial.java'), partialTarget);
   await fs.writeFile(path.join(source, 'activity.txt'), tableBase + tableAdded);
+  await fs.writeFile(path.join(source, 'Comment.java'), commentTarget);
   git('add', '.'); git('commit', '--quiet', '-m', 'target');
   await require('esbuild').build({ entryPoints: ['server/followService.ts'], outfile: path.join(root, 'follow-service.cjs'),
     bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
@@ -87,6 +92,28 @@ exports.run = async () => {
   };
   try {
     await vscode.extensions.getExtension('jtsgxh.ai-diff-follow').activate();
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Comment.java' });
+    const commentEditor = vscode.window.activeTextEditor;
+    await settle();
+    await checkpoint('comment-inline', commentEditor, { expectedGhostContains: '、超级发发发', expectedLens: '「、超级发发发」', expectedNoInsertionBorder: true });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
+    await checkpoint('comment-click', commentEditor, { clickInsertion: true, expectedGhostContains: '、超级发发发', expectedLens: '待补写' });
+    await vscode.commands.executeCommand('type', { text: '、超级' });
+    await settle();
+    await checkpoint('comment-typed', commentEditor, { expectedGhostContains: '发发发', expectedLens: '「发发发」' });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    for (let i = 0; commentEditor.document.getText() !== expected(commentEditor.document, commentTarget) && i < 8; i++) {
+      await vscode.commands.executeCommand('aiDiff.follow.locate');
+      await settle();
+      if (!i) await checkpoint('condition-inline', commentEditor, { expectedGhostContains: 'IsCjfffGift', expectedLens: 'IsCjfffGift' });
+      const previous = commentEditor.document.getText();
+      await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+      assert.notEqual(commentEditor.document.getText(), previous);
+    }
+    assert.equal(commentEditor.document.getText(), expected(commentEditor.document, commentTarget));
+    await settle();
+    await checkpoint('comment-complete', commentEditor, { expectedRemoval: '', expectedNoHints: true });
+    await commentEditor.document.save();
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'activity.txt' });
     const tableEditor = vscode.window.activeTextEditor;
     await settle();
@@ -239,6 +266,7 @@ exports.run = async () => {
     await settle();
     editor = vscode.window.activeTextEditor;
     assert.equal(editor.document.getText(), expected(editor.document, 'const value = 1;\n'));
+    await checkpoint('replacement-before', editor, { expectedLens: '「1」 → 「2」', expectedRemoval: '1', expectedInstruction: '待替换' });
     await vscode.commands.executeCommand('deleteRight');
     await settle();
     assert.equal(editor.document.getText(), expected(editor.document, 'const value = ;\n'));

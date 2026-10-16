@@ -54,7 +54,7 @@ class FollowTree implements vscode.TreeDataProvider<FollowFile> {
     const item = new vscode.TreeItem(file.path);
     const removed = file.deleted && file.complete && !file.unexpected;
     const dirty = vscode.workspace.textDocuments.some((document) => document.isDirty && document.uri.scheme === 'file' &&
-      this.session && document.uri.fsPath === path.join(this.session.practiceRepo, file.path));
+      this.session && path.relative(path.join(this.session.practiceRepo, file.path), document.uri.fsPath) === '');
     item.description = removed ? '目标已删除 · 默认完成' : dirty ? '未保存' : file.complete ? '已一致' : file.unexpected ? '额外改动' : file.deleted ? '需要删除' : '待跟写';
     item.iconPath = new vscode.ThemeIcon(removed || file.complete && !dirty ? 'pass' : 'circle-outline');
     item.contextValue = removed ? 'followDeletedComplete' : file.deleted ? 'followDeleted' : 'followFile';

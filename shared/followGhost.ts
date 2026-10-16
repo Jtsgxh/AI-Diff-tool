@@ -39,38 +39,31 @@ function trimEdit(current: string, target: string): GhostEdit | undefined {
 
 /** 先按行定位再按字符细化，返回当前真实文本距目标最近的一处待跟写内容。 */
 export function nextGhostEdit(current: string, target: string): GhostEdit | undefined {
-  if (current === target) return;
-  const lines = diffLines(current, target, { timeout: 25 });
-  if (!lines) return trimEdit(current, target);
-  const block = changeEdits(lines)[0];
-  if (!block) return;
-  const before = current.slice(block.start, block.end);
-  const chars = diffChars(before, block.text, { timeout: 20 });
-  const edit = chars ? changeEdits(chars)[0] : trimEdit(before, block.text);
-  return edit && { start: block.start + edit.start, end: block.start + edit.end, text: edit.text };
+  return ghostEdits(current, target)[0];
 }
 
-/** 标出所有整段新增的位置，即使光标不在待写行也能发现跟写入口。 */
+/** 标出所有新增的位置，包括注释、表达式中的行内补写。 */
 export function ghostInsertionEdits(current: string, target: string): GhostEdit[] {
-  if (current === target) return [];
-  const lines = diffLines(current, target, { timeout: 25 });
-  const fallback = lines ? undefined : trimEdit(current, target);
-  return (lines ? changeEdits(lines) : fallback ? [fallback] : []).filter(edit => edit.start === edit.end && edit.text);
+  return ghostEdits(current, target).filter(edit => edit.start === edit.end && edit.text);
 }
 
 /** 提前找出全文件待删除或替换的旧内容，不受第一处新增虚影的位置限制。 */
 export function ghostRemovalEdits(current: string, target: string): GhostEdit[] {
+  return ghostEdits(current, target).filter(edit => edit.end > edit.start);
+}
+
+/** 统一计算有序差异，虚影、定位、增删标记必须使用同一份坐标及操作，避免漏掉行内改动。 */
+export function ghostEdits(current: string, target: string): GhostEdit[] {
   if (current === target) return [];
   const lines = diffLines(current, target, { timeout: 25 });
   if (!lines) {
     const edit = trimEdit(current, target);
-    return edit && edit.end > edit.start ? [edit] : [];
+    return edit ? [edit] : [];
   }
-  const removals: GhostEdit[] = [];
+  const edits: GhostEdit[] = [];
   const deadline = Date.now() + 25;
   for (const block of changeEdits(lines)) {
-    if (block.start === block.end) continue;
-    if (!block.text) { removals.push(block); continue; }
+    if (block.start === block.end || !block.text) { edits.push(block); continue; }
     const before = current.slice(block.start, block.end);
     // 多行先按词对齐已写代码，既保护正确参数，也避免借用旧方法内部的零散字符。
     const multiline = /[\r\n]/.test(before.replace(/(?:\r\n|\r|\n)$/, ''));
@@ -78,16 +71,30 @@ export function ghostRemovalEdits(current: string, target: string): GhostEdit[] 
     const changes = remaining > 0 ? (multiline ? diffWordsWithSpace : diffChars)(before, block.text, { timeout: Math.min(20, remaining) }) : undefined;
     const fallback = changes ? undefined : trimEdit(before, block.text);
     for (const edit of changes ? changeEdits(changes) : fallback ? [fallback] : []) {
-      if (edit.end === edit.start) continue;
       const budget = deadline - Date.now();
       // 词级替换继续细化到实际错误字符，缩进差异不能把整行已写参数标成待删除。
       const detail = multiline && edit.text && budget > 0 ? diffChars(before.slice(edit.start, edit.end), edit.text, { timeout: Math.min(20, budget) }) : undefined;
       if (detail) {
         for (const part of changeEdits(detail)) {
-          if (part.end > part.start) removals.push({ start: block.start + edit.start + part.start, end: block.start + edit.start + part.end, text: part.text });
+          edits.push({ start: block.start + edit.start + part.start, end: block.start + edit.start + part.end, text: part.text });
         }
-      } else removals.push({ start: block.start + edit.start, end: block.start + edit.end, text: edit.text });
+      } else edits.push({ start: block.start + edit.start, end: block.start + edit.end, text: edit.text });
     }
   }
-  return removals;
+  // 字符匹配可能借用原有右括号，把一次连续补写拆成“表达式前半段”和一个右括号。
+  // 仅当重排后的文本完全相等时合并相邻插入，保留原有括号并一次显示完整补写片段。
+  const normalized: GhostEdit[] = [];
+  for (const edit of edits) {
+    const previous = normalized.at(-1);
+    if (previous && previous.start === previous.end && edit.start === edit.end) {
+      const gap = current.slice(previous.end, edit.start);
+      const combined = previous.text + gap + edit.text;
+      if (gap.length <= 16 && /^[)\]}; \t]*$/.test(gap) && combined.endsWith(gap)) {
+        previous.text = gap.length ? combined.slice(0, -gap.length) : combined;
+        continue;
+      }
+    }
+    normalized.push({ ...edit });
+  }
+  return normalized;
 }
