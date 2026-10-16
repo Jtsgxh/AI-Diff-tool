@@ -26,9 +26,11 @@ test('native extension commands open real practice files, save only practice dra
   git('config', 'user.name', 'Native Test');
   git('config', 'user.email', 'native@example.test');
   await fs.writeFile(path.join(repo, 'sample.ts'), 'export const value = 1;\n');
+  await fs.writeFile(path.join(repo, 'removed.ts'), 'retained old code\n');
   git('add', '.'); git('commit', '--quiet', '-m', 'base');
   const base = git('rev-parse', 'HEAD');
   await fs.writeFile(path.join(repo, 'sample.ts'), 'export const value = 2;\n');
+  await fs.unlink(path.join(repo, 'removed.ts'));
   git('commit', '--quiet', '-am', 'target');
   const target = git('rev-parse', 'HEAD');
   const practice = path.join(root, 'practice');
@@ -98,7 +100,13 @@ test('native extension commands open real practice files, save only practice dra
       } } : require(id) });
   const context = { subscriptions: [] as any[] };
   await module.exports.activate(context);
-  assert.equal(provider.getChildren().length, 1);
+  assert.equal(provider.getChildren().length, 2);
+  const sample = provider.getChildren().find((file: any) => file.path === 'sample.ts');
+  const removed = provider.getChildren().find((file: any) => file.path === 'removed.ts');
+  const removedItem = provider.getTreeItem(removed);
+  assert.equal(removedItem.iconPath.id, 'pass');
+  assert.match(removedItem.description, /默认完成/);
+  assert.equal(removedItem.contextValue, 'followDeletedComplete');
   await commands.get('aiDiff.follow.stable')!();
   assert.ok(calls.some((call) => call[0] === 'vscode.openFolder' && call[1].fsPath === path.join(practice, '.git', 'ai-diff-follow.code-workspace') && call[2].forceReuseWindow === true));
   // 已在专用工作区时只定位，不重复切换窗口。
@@ -112,12 +120,16 @@ test('native extension commands open real practice files, save only practice dra
   assert.equal(unrelatedSaved, 0);
   assert.equal((await follow.loadFollow(practice))?.mode, 'combined');
   assert.ok(calls.some((call) => call[0] === 'setContext' && call[1] === 'aiDiff.followMode' && call[2] === 'combined'));
-  await commands.get('aiDiff.follow.open')!(provider.getChildren()[0]);
+  await commands.get('aiDiff.follow.open')!(sample);
   const opened = calls.find((call) => call[0] === 'showTextDocument');
   assert.equal(opened[1].fsPath, path.join(practice, 'sample.ts'));
   assert.equal(calls.some((call) => call[0] === 'vscode.diff'), false, 'default follow opens a single real editor');
   assert.equal(calls.find((call) => call[0] === 'ghost.open')[2], 'export const value = 2;\n');
-  await commands.get('aiDiff.follow.compare')!(provider.getChildren()[0]);
+  const ghostCalls = calls.filter(call => call[0] === 'ghost.open').length;
+  await commands.get('aiDiff.follow.open')!(removed);
+  assert.equal(calls.filter(call => call[0] === 'ghost.open').length, ghostCalls);
+  assert.equal(await fs.readFile(path.join(practice, 'removed.ts'), 'utf8').then(text => text.replace(/\r\n/g, '\n')), 'retained old code\n');
+  await commands.get('aiDiff.follow.compare')!(sample);
   const diff = calls.find((call) => call[0] === 'vscode.diff');
   assert.equal(diff[1].scheme, 'ai-diff-reference');
   assert.equal(diff[2].fsPath, path.join(practice, 'sample.ts'));

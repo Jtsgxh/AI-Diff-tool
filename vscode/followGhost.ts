@@ -70,7 +70,9 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   private file(document: vscode.TextDocument): FollowFile | undefined {
     if (!this.key || !this.session || document.uri.scheme !== 'file') return;
     const relative = path.relative(this.session.practiceRepo, document.uri.fsPath).split(path.sep).join('/');
-    return this.files.get(relative);
+    const file = this.files.get(relative);
+    // 目标已删除的文件默认完成，不再把保留的旧内容标红或引导用户清空。
+    return file?.deleted && file.complete ? undefined : file;
   }
 
   /** 按提交缓存目标文本，并按当前原生文档的换行方式生成显示内容。 */

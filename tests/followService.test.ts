@@ -183,6 +183,47 @@ test('new exercises combine the entire range and only finish at the final snapsh
   assert.equal(git(f.repo, 'rev-parse', 'HEAD'), f.last);
 });
 
+/** 目标删除默认完成并保留旧文件；重命名的新路径仍须填写，额外文件不能借此跳过。 */
+test('combined exercises mark target deletions complete without deleting practice files', async (t) => {
+  const f = await fixture(t);
+  const session = await createFollow(f.repo, f.practice, f.base, f.last);
+  let result = await checkFollow(session);
+  assert.equal(result.files.find(file => file.path === 'main.txt')?.complete, true);
+  assert.equal(result.files.find(file => file.path === 'renamed.txt')?.complete, false);
+  await fs.writeFile(path.join(f.practice, 'renamed.txt'), 'after\n');
+  await fs.writeFile(path.join(f.practice, 'resource.bin'), Buffer.from([0, 255, 12, 8]));
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'retained user draft\n');
+  result = await checkFollow(session);
+  assert.equal(result.complete, true);
+  assert.equal(await fs.readFile(path.join(f.practice, 'main.txt'), 'utf8'), 'retained user draft\n');
+  await fs.writeFile(path.join(f.practice, 'extra.txt'), 'extra\n');
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'extra.txt')?.complete, false);
+  await assert.rejects(advanceFollow(session), /未完成练习/);
+  await fs.unlink(path.join(f.practice, 'extra.txt'));
+  assert.equal((await advanceFollow(session)).finished, true);
+});
+
+/** 旧逐提交模式中保留早先删除的文件，后续步骤不再将它误判成额外文件。 */
+test('sequential exercises keep earlier deletions complete across later steps and reloads', async (t) => {
+  const f = await fixture(t);
+  await fs.writeFile(path.join(f.repo, 'untouched.txt'), 'next\n');
+  git(f.repo, 'commit', '--quiet', '-am', 'third step');
+  let session = await createFollow(f.repo, f.practice, f.base, 'HEAD', 'commits');
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'after\n');
+  await fs.writeFile(path.join(f.practice, '中文 space.txt'), 'new\n');
+  session = await advanceFollow(session);
+  assert.equal((await checkFollow(session)).files.find(file => file.path === '中文 space.txt')?.complete, true);
+  await fs.writeFile(path.join(f.practice, 'renamed.txt'), 'after\n');
+  await fs.writeFile(path.join(f.practice, 'resource.bin'), Buffer.from([0, 255, 12, 8]));
+  await advanceFollow(session);
+  session = (await loadFollow(f.practice))!;
+  assert.equal(session.stepIndex, 2);
+  await fs.writeFile(path.join(f.practice, 'untouched.txt'), 'next\n');
+  assert.equal((await checkFollow(session)).complete, true);
+  assert.equal((await advanceFollow(session)).finished, true);
+  assert.equal(await fs.readFile(path.join(f.practice, '中文 space.txt'), 'utf8'), 'new\n');
+});
+
 /** 旧版缺省模式继续按原进度恢复，主动合并只改元数据并保留已写文件。 */
 test('legacy progress can combine its remaining work without changing files or the original base', async (t) => {
   const f = await fixture(t);

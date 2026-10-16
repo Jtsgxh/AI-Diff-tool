@@ -204,13 +204,18 @@ async function matchesFollowText(repo: string, file: string, targetHash: string)
   return expected !== null && actual.replace(/\s+/gu, '') === expected.replace(/\s+/gu, '');
 }
 
-/** 对照整个目标快照检查，文本忽略空白，仍发现本步遗漏、非空白误改和额外文件。 */
+/** 对照目标检查文本与额外文件；历史目标已删除的文件默认完成，无需实际删除。 */
 export async function checkFollow(session: FollowSession): Promise<FollowCheck> {
   const target = session.steps[session.stepIndex].hash;
   const previous = session.stepIndex ? session.steps[session.stepIndex - 1].hash : session.baseHash;
   const repo = session.practiceRepo;
   const git = simpleGit(repo);
   const expected = await readTree(repo, target);
+  const removed = new Set<string>();
+  // 旧逐提交练习可能保留前几步已删除的文件；只有练习历史里的路径可默认完成，额外文件仍须校验。
+  for (const revision of [session.baseHash, ...session.steps.slice(0, session.stepIndex).map(step => step.hash)]) {
+    for (const file of (await readTree(repo, revision)).keys()) if (!expected.has(file)) removed.add(file);
+  }
   const changed = new Set((await git.raw(['diff', '--name-only', '-z', '--no-renames', previous, target])).split('\0').filter(Boolean));
   const tracked = (await git.raw(['ls-files', '-z'])).split('\0').filter(Boolean);
   const untracked = (await git.raw(['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean);
@@ -218,6 +223,7 @@ export async function checkFollow(session: FollowSession): Promise<FollowCheck> 
   const present: string[] = [];
   const failures = new Set<string>();
   for (const file of files) {
+    if (removed.has(file)) continue;
     const fullPath = await safePracticePath(repo, file);
     const stat = await fs.lstat(fullPath).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return undefined;

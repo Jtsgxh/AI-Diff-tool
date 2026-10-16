@@ -217,6 +217,14 @@ test('native ghosts wait for removal, preserve suffixes and update unsaved input
   await c.ghost.open(c.editor(removed), '');
   assert.match(c.status.text, /需要删除整个文件/);
   assert.doesNotMatch(c.status.text, /已一致/);
+  // 默认完成的删除项不再产生清空旧文件的装饰或虚影，保留用户已有文本。
+  c.ghost.setStep(session, [{ path: 'removed.ts', deleted: true, complete: true }]);
+  removed.text = 'retained old code\n'; removed.version++;
+  await c.changed(removed);
+  assert.equal(c.status.visible, false);
+  assert.equal(c.items.length, 0);
+  assert.equal(c.decorations.get('deleted')?.length, 0);
+  assert.equal(removed.text, 'retained old code\n');
 });
 
 /** 空文件应一次获得多行正文，保留真实换行和 Tab，输入后继续剩余目标且不泄漏旧步骤。 */
