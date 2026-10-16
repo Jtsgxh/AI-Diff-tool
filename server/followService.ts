@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import simpleGit from 'simple-git';
+import { decodePreviewBuffer } from './gitService';
 
 export interface FollowStep { hash: string; message: string }
 export type FollowMode = 'combined' | 'commits';
@@ -195,7 +196,15 @@ async function hashFiles(repo: string, files: string[]): Promise<string[]> {
   });
 }
 
-/** 对照整个目标快照检查，既发现本步遗漏，也发现误改和额外文件。 */
+/** 仅完成判定忽略文本中的全部空白，保留二进制精确校验及原有虚影格式。 */
+async function matchesFollowText(repo: string, file: string, targetHash: string): Promise<boolean> {
+  const actual = decodePreviewBuffer(await fs.readFile(await safePracticePath(repo, file))).content;
+  if (actual === null) return false;
+  const expected = decodePreviewBuffer(await simpleGit(repo).binaryCatFile(['-p', targetHash])).content;
+  return expected !== null && actual.replace(/\s+/gu, '') === expected.replace(/\s+/gu, '');
+}
+
+/** 对照整个目标快照检查，文本忽略空白，仍发现本步遗漏、非空白误改和额外文件。 */
 export async function checkFollow(session: FollowSession): Promise<FollowCheck> {
   const target = session.steps[session.stepIndex].hash;
   const previous = session.stepIndex ? session.steps[session.stepIndex - 1].hash : session.baseHash;
@@ -220,7 +229,11 @@ export async function checkFollow(session: FollowSession): Promise<FollowCheck> 
     } else if (stat && !stat.isDirectory()) failures.add(file);
   }
   const hashes = await hashFiles(repo, present);
-  present.forEach((file, index) => { if (hashes[index] !== expected.get(file)!.hash) failures.add(file); });
+  // 哈希一致时直接通过；只为不一致的文件读取文本，不为整仓库重复加载历史正文。
+  for (const [index, file] of present.entries()) {
+    const targetHash = expected.get(file)!.hash;
+    if (hashes[index] !== targetHash && !(await matchesFollowText(repo, file, targetHash))) failures.add(file);
+  }
   const visible = new Set([...changed, ...failures]);
   return { complete: failures.size === 0, files: [...visible].sort().map((file) => ({ path: file,
     deleted: !expected.has(file), complete: !failures.has(file), unexpected: !changed.has(file) })) };

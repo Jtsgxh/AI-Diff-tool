@@ -2,7 +2,7 @@
   "name": "ai-diff-follow",
   "displayName": "AI Diff · 跟写工作台",
   "description": "在 VS Code 中审查、学习 Git 仓库，并将提交范围合为一个目标，用原生虚影一比一跟写。",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "publisher": "jtsgxh",
   "license": "ISC",
   "repository": { "type": "git", "url": "https://github.com/Jtsgxh/AI-Diff-tool.git" },

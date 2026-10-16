@@ -213,7 +213,7 @@ test('legacy progress can combine its remaining work without changing files or t
   assert.equal((await checkFollow(session)).complete, false);
 });
 
-test('isolated exercise detects missing, mistaken and extra files, resumes and advances only after exact Git content matches', async (t) => {
+test('isolated exercise detects missing, mistaken and extra files, resumes and advances after content matches', async (t) => {
   const f = await fixture(t);
   await fs.writeFile(path.join(f.repo, 'untouched.txt'), 'uncommitted user work\n');
   await fs.writeFile(path.join(f.repo, 'personal.txt'), 'untracked user work\n');
@@ -250,6 +250,55 @@ test('isolated exercise detects missing, mistaken and extra files, resumes and a
   assert.equal(git(f.practice, 'rev-parse', 'HEAD'), f.base, 'progress does not create exercise commits');
   assert.equal(git(f.repo, 'status', '--porcelain'), sourceStatus);
   assert.equal(await fs.readFile(path.join(f.repo, 'personal.txt'), 'utf8'), 'untracked user work\n');
+});
+
+/** 完成判定忽略所有位置的空白，但仍拒绝非空白错误、缺失和额外文件，且不重写练习文本。 */
+test('completion ignores spaces, tabs, newlines and Unicode whitespace without rewriting files', async (t) => {
+  const f = await fixture(t);
+  const target = 'class Demo {\n\tString label = "a b"; // 中文注释\n}\n';
+  await fs.writeFile(path.join(f.repo, 'example.java'), target);
+  git(f.repo, 'add', '.');
+  git(f.repo, 'commit', '--quiet', '-m', 'text target');
+  const session = await createFollow(f.repo, f.practice, f.first, 'HEAD');
+  await fs.rename(path.join(f.practice, 'main.txt'), path.join(f.practice, 'renamed.txt'));
+  await fs.unlink(path.join(f.practice, '中文 space.txt'));
+  await fs.writeFile(path.join(f.practice, 'resource.bin'), Buffer.from([0, 255, 12, 8]));
+  await fs.writeFile(path.join(f.practice, 'renamed.txt'), '\ta f\r\nte r\u00a0\u3000\n\n');
+  await fs.writeFile(path.join(f.practice, 'untouched.txt'), ' k\te\ne p ');
+  const compact = 'classDemo{Stringlabel="ab";//中文注释}';
+  await fs.writeFile(path.join(f.practice, 'example.java'), compact);
+  assert.equal((await checkFollow(session)).complete, true);
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'untouched.txt'), undefined);
+  await fs.writeFile(path.join(f.practice, 'example.java'), compact.replace('label', 'wrong'));
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'example.java')?.complete, false);
+  await assert.rejects(advanceFollow(session), /未完成练习/);
+  await fs.writeFile(path.join(f.practice, 'example.java'), compact);
+  await fs.writeFile(path.join(f.practice, 'extra.txt'), '\t\n');
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'extra.txt')?.complete, false);
+  await fs.unlink(path.join(f.practice, 'extra.txt'));
+  await fs.unlink(path.join(f.practice, 'renamed.txt'));
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'renamed.txt')?.complete, false);
+  await fs.writeFile(path.join(f.practice, 'renamed.txt'), 'after');
+  assert.equal((await advanceFollow(session)).finished, true);
+  assert.equal(await fs.readFile(path.join(f.practice, 'example.java'), 'utf8'), compact);
+  assert.equal(await fs.readFile(path.join(f.repo, 'example.java'), 'utf8'), target);
+});
+
+/** 复用预览的 GB18030 解码处理旧项目；二进制中的空白字节不能被忽略。 */
+test('legacy encoded text ignores whitespace while binary resources still require exact bytes', async (t) => {
+  const f = await fixture(t);
+  const chinese = Buffer.from([0xd6, 0xd0, 0xce, 0xc4]); // GBK 编码的“中文”。
+  await fs.writeFile(path.join(f.repo, 'legacy.txt'), Buffer.concat([chinese, Buffer.from(' value\n')]));
+  git(f.repo, 'add', '.');
+  git(f.repo, 'commit', '--quiet', '-m', 'legacy text target');
+  const session = await createFollow(f.repo, f.practice, f.last, 'HEAD');
+  await fs.writeFile(path.join(f.practice, 'legacy.txt'), Buffer.concat([Buffer.from('\t'), chinese, Buffer.from('\r\nv a l u e\n\n')]));
+  assert.equal((await checkFollow(session)).complete, true);
+  await fs.writeFile(path.join(f.practice, 'resource.bin'), Buffer.from([0, 255, 32, 12, 8]));
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'resource.bin')?.complete, false);
+  await fs.writeFile(path.join(f.practice, 'resource.bin'), Buffer.from([0, 255, 12, 8]));
+  await fs.writeFile(path.join(f.practice, 'legacy.txt'), Buffer.concat([chinese, Buffer.from(' wrong\n')]));
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'legacy.txt')?.complete, false);
 });
 
 test('file-to-directory transitions compare file existence without rejecting the replacement directory', async (t) => {

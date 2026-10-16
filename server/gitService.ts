@@ -65,7 +65,8 @@ function countTextLines(content: string): number {
   return count;
 }
 
-function decodePreviewBuffer(buffer: Buffer): {
+/** 以预览支持的编码严格解码文本，二进制或无法解码的内容不作为文本比较。 */
+export function decodePreviewBuffer(buffer: Buffer): {
   content: string | null;
   encoding: FilePreview['encoding'];
   isBinary: boolean;
