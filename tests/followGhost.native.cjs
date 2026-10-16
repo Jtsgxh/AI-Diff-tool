@@ -86,8 +86,11 @@ exports.run = async () => {
     editor.revealRange(new vscode.Range(40, 0, 42, 0), vscode.TextEditorRevealType.InCenter);
     await settle();
     assert.equal(editor.selection.active.line, 21, 'reading elsewhere must not be interrupted by repeated jumps');
-    await checkpoint('large-off-cursor', editor, { expectedInsertion: true });
-    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await checkpoint('large-off-cursor', editor, { expectedInsertion: true, existingLine: oldImport.trimEnd() });
+    const lenses = await vscode.commands.executeCommand('vscode.executeCodeLensProvider', editor.document.uri);
+    const insertionLens = lenses.find(lens => lens.command?.command === 'aiDiff.follow.locate');
+    assert.ok(insertionLens, 'Current insertion must have a clickable display-ghost command');
+    await vscode.commands.executeCommand(insertionLens.command.command, ...(insertionLens.command.arguments || []));
     await settle();
     await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
     assert.equal(editor.document.getText(), expected(editor.document, largeTarget));

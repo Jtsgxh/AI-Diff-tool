@@ -75,6 +75,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   let inlineEnabled = true;
   let inlineMode = 'subwordSmart';
   let provider: any;
+  let lensProvider: any;
   let items: any[] = [];
   let missRequest = false;
   let changed: (event: any) => void = () => {};
@@ -89,6 +90,9 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     show() { this.visible = true; }, hide() { this.visible = false; }, dispose() {} };
   const native = {
     Position, Range, Selection, version: '1.138.0', EndOfLine: { LF: 1, CRLF: 2 },
+    /** 原生独立提示行只保存操作命令，不承载目标代码。 */
+    CodeLens: class { constructor(public range: Range, public command: any) {} },
+    EventEmitter: class { event = () => disposable; fire() {} dispose() {} },
     /** 保留原生提供器返回的真实换行文本与替换范围。 */
     InlineCompletionItem: class { constructor(public insertText: string, public range: Range) {} },
     ThemeColor: class { constructor(public id: string) {} },
@@ -121,7 +125,8 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     languages: {
       /** 记录实际注册入口，测试不会直接调用一个未接入宿主的内部函数。 */
       registerInlineCompletionItemProvider: (selector: any, value: any) => { assert.equal(selector.scheme, 'file'); provider = value; return disposable; },
-      registerCodeLensProvider: () => assert.fail('CodeLens is not a multiline ghost renderer') },
+      /** 单独注册新增操作提示，虚影候选仍由上面的内联提供器产生。 */
+      registerCodeLensProvider: (_selector: any, value: any) => { lensProvider = value; return disposable; } },
     commands: {
       /** 模拟原生编辑器重新请求虚影；禁止全局隐藏其他扩展的提示。 */
       executeCommand: async (command: string, options?: any) => {
@@ -174,6 +179,8 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     },
     /** 返回模拟宿主收到的候选，而不是检查控制器的内部缓存。 */
     get items() { return items; },
+    /** 经注册的提示行提供器读取结果，验证没有混入真实代码或行内装饰。 */
+    async lenses(doc: any) { return lensProvider.provideCodeLenses(doc, { isCancellationRequested: false }); },
     /** 模拟用户关闭内联建议，控制器应明确显示原因。 */
     disableInline() { inlineEnabled = false; },
     /** 模拟前缀模式的限制，避免已有代码之前的多行目标静默消失。 */
@@ -249,13 +256,45 @@ test('opening or restoring a large follow file locates the pending insertion and
   await c.moved(new Position(21, 0));
   await c.laidOut();
   assert.equal(editor.selection.active.line, 21, 'scrolling or selecting after the initial jump must not steal the cursor');
-  assert.ok(c.decorations.get('instruction')!.some(item => item.range.start.line === 41 && item.renderOptions.before.contentText === '【此处待新增 · 1 行】'));
+  const lenses = await c.lenses(doc);
+  assert.ok(lenses.some((item: any) => item.range.start.line === 41 && item.command.title === '此处待新增 · 1 行 · 显示虚影' && item.command.command === 'aiDiff.follow.locate'));
+  assert.equal(c.decorations.get('instruction')!.some(item => item.renderOptions.before.contentText.includes('待新增')), false, 'insertion labels must never be inline with existing code');
   assert.ok(c.decorations.get('instruction')!.every(item => item.hoverMessage === undefined));
   c.ghost.setStep(undefined, []);
   c.ghost.setStep(session, files);
   await c.laidOut();
   assert.equal(editor.selection.active.line, 40, 'restoring the session with an already open editor must also locate');
   assert.equal(doc.text, current);
+});
+
+/** 提示行仅当前待写处可定位，后续插入保持只读说明，完成或取消任务后不残留。 */
+test('insertion code lenses are separate navigation hints and clear when the target is complete', async (t) => {
+  const target = 'first\nkeep\nsecond\nend\n';
+  const c = controller(async () => ({ content: target }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'sample.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'sample.java'), 'keep\nend\n');
+  const editor = c.editor(doc);
+  await c.ghost.open(editor, target);
+  let lenses = await c.lenses(doc);
+  assert.equal(lenses.length, 2);
+  assert.equal(lenses[0].command.command, 'aiDiff.follow.locate');
+  assert.equal(lenses[1].command.command, '');
+  assert.equal(lenses.some((lens: any) => /first|second/.test(lens.command.title)), false);
+  await c.ghost.locate();
+  assert.equal(editor.selection.active.line, 0);
+  doc.text = 'first\nkeep\nend\n'; doc.version++;
+  await c.changed(doc);
+  lenses = await c.lenses(doc);
+  assert.equal(lenses.length, 1);
+  assert.equal(lenses[0].command.command, 'aiDiff.follow.locate');
+  doc.text = target; doc.version++;
+  await c.changed(doc);
+  assert.equal((await c.lenses(doc)).length, 0);
+  c.ghost.setStep(undefined, []);
+  assert.equal((await c.lenses(doc)).length, 0);
 });
 
 /** 首次定位等待目标期间发生输入时，取消过期结果后仍应完成定位。 */

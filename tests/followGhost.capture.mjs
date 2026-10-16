@@ -50,7 +50,10 @@ for (let attempt = 0; attempt < 1200; attempt++) {
         .filter(e => getComputedStyle(e).textDecorationLine.includes('line-through'))
         .map(e => e.innerText.replace(/\u00a0/g, ' ')),
       instructions: [...document.querySelectorAll('.editor-instance .view-line span')]
-        .map(e => getComputedStyle(e, '::before').content).filter(text => /待删除|待替换|待新增/.test(text))
+        .map(e => getComputedStyle(e, '::before').content).filter(text => /待删除|待替换|待新增/.test(text)),
+      lenses: [...document.querySelectorAll('.editor-instance .codelens-decoration')]
+        .filter(e => e.getBoundingClientRect().height > 0)
+        .map(e => ({text: e.innerText, y: e.getBoundingClientRect().y, bottom: e.getBoundingClientRect().bottom}))
     })`, returnByValue: true });
     const state = JSON.parse(dom.result.value);
     await fs.writeFile(path.join(root, `${request.name}.json`), JSON.stringify(state, null, 2));
@@ -69,7 +72,16 @@ for (let attempt = 0; attempt < 1200; attempt++) {
       if (request.expectedInstruction) assert.ok(state.instructions.some(text => text.includes(request.expectedInstruction)), 'Deletion must include a visible operation label');
       else assert.equal(state.instructions.length, 0, 'Completed code must not retain operation labels');
     }
-    if (request.expectedInsertion) assert.ok(state.instructions.some(text => text.includes('此处待新增')), 'Insertion markers must remain visible when the cursor is elsewhere');
+    if (request.expectedInsertion) {
+      const lens = state.lenses.find(item => item.text.includes('此处待新增'));
+      assert.ok(lens, 'Insertion instructions must occupy a separate CodeLens row');
+      assert.equal(state.instructions.some(text => text.includes('待新增')), false, 'Insertion instructions must not be inserted before existing code');
+      if (request.existingLine) {
+        const existing = state.lines.find(item => item.text === request.existingLine);
+        assert.ok(existing, 'Existing import must remain intact');
+        assert.ok(lens.bottom <= existing.y + 1, 'Insertion instruction must be above the existing import, not on the same row');
+      }
+    }
     await fs.writeFile(path.join(root, `captured-${request.name}`), 'captured');
     captured.add(request.name);
     console.log(`Captured ${request.name}`);
