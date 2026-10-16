@@ -237,6 +237,30 @@ function proposedText(doc: any, item: any): string {
   return doc.text.slice(0, doc.offsetAt(item.range.start)) + item.insertText + doc.text.slice(doc.offsetAt(item.range.end));
 }
 
+/** 末尾空行的多行正文不能被宿主移回上一行；最终换行仍需按原始目标完成。 */
+test('multiline EOF suggestions stay at the blank cursor line and retain final newline as the next edit', async (t) => {
+  for (const eol of ['\n', '\r\n']) {
+    const base = `2109\t境界排行榜\t0\t1${eol}`;
+    const added = `2110\t回归仙途合集\t0\t1${eol}2111\t回归特惠祈愿\t0\t1${eol}`;
+    const c = controller(async () => ({ content: base + added }));
+    t.after(() => c.ghost.dispose());
+    const repo = path.resolve('.validation/ghost-practice');
+    c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+      [{ path: 'activity.txt', deleted: false, complete: false }]);
+    const doc = c.document(path.join(repo, 'activity.txt'), base, eol === '\r\n' ? 2 : 1);
+    const editor = c.editor(doc);
+    await c.ghost.open(editor, base + added);
+    assert.equal(doc.text, base);
+    assert.equal(editor.selection.active.line, 1);
+    assert.equal(c.items[0].insertText, added.slice(0, -eol.length));
+    doc.text = proposedText(doc, c.items[0]); doc.version++;
+    editor.selection = new Selection(doc.positionAt(doc.text.length), doc.positionAt(doc.text.length));
+    await c.changed(doc);
+    assert.equal(c.items[0].insertText, eol);
+    assert.equal(proposedText(doc, c.items[0]), base + added);
+  }
+});
+
 /** 模拟停留在后面的待删方法，顶部仍未跟写时也必须能直接读懂操作，并随输入清除旧标记。 */
 test('later removal blocks stay visibly marked with instructions while the first ghost is elsewhere', async (t) => {
   const c = controller(async () => ({ content: '' }));

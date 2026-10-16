@@ -17,6 +17,10 @@ const firstArgument = '(com.gameplus.dao.star.IFishActivityInfoDao) context.getB
 const secondArgument = '(org.hibernate.SessionFactory) context.getBean("sessionFactoryStar")';
 const partialTarget = `\t\tReturnCampaignActivity.initialize(\n\t\t\t\t${firstArgument}\n\t\t\t\t${secondArgument});\n`;
 const partialTyped = `\t\tReturnCampaignActivity.initialize(\n\t\t\t\t\t${firstArgument}\n\t\t)`;
+const tableBase = '2109\t境界排行榜\t0\t0\t1\t1\t0\t1\t0\t1\t0\t0\t1\t0\t0\t0\t0\n';
+/** 保留截图中的中文、数字和 Tab 列，覆盖真实配置表的五行追加。 */
+const tableAdded = ['回归仙途合集', '回归特惠祈愿', '回归特惠礼包', '回归七日签到', '回归征程']
+  .map((name, index) => `${2110 + index}\t${name}\t0\t0\t1\t1\t0\t0\t0\t0\t0\t0\t1\t0\t0\t0\t0\n`).join('');
 
 /** 在全新目录调用实际创建服务准备原生验收仓库，不使用用户正在跟写的文件。 */
 async function prepare(root) {
@@ -32,6 +36,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'replace.ts'), 'const value = 1;\n');
   await fs.writeFile(path.join(source, 'Changed.java'), changedBase);
   await fs.writeFile(path.join(source, 'Large.java'), largeBase);
+  await fs.writeFile(path.join(source, 'activity.txt'), tableBase);
   git('add', '.'); git('commit', '--quiet', '-m', 'base');
   const base = git('rev-parse', 'HEAD');
   await fs.writeFile(path.join(source, 'Empty.java'), emptyTarget);
@@ -43,6 +48,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Changed.java'), changedTarget);
   await fs.writeFile(path.join(source, 'Large.java'), largeTarget);
   await fs.writeFile(path.join(source, 'Partial.java'), partialTarget);
+  await fs.writeFile(path.join(source, 'activity.txt'), tableBase + tableAdded);
   git('add', '.'); git('commit', '--quiet', '-m', 'target');
   await require('esbuild').build({ entryPoints: ['server/followService.ts'], outfile: path.join(root, 'follow-service.cjs'),
     bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
@@ -81,6 +87,36 @@ exports.run = async () => {
   };
   try {
     await vscode.extensions.getExtension('jtsgxh.ai-diff-follow').activate();
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'activity.txt' });
+    const tableEditor = vscode.window.activeTextEditor;
+    await settle();
+    await checkpoint('table-initial', tableEditor, { expectedGhostContains: '2110' });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await checkpoint('table-command', tableEditor, { expectedGhostContains: '2110' });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
+    await checkpoint('table-click', tableEditor, { clickInsertion: true, expectedGhostContains: '2110', expectedInsertion: true });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(tableEditor.document.getText(), expected(tableEditor.document, tableBase + tableAdded.trimEnd()));
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(tableEditor.document.getText(), expected(tableEditor.document, tableBase + tableAdded));
+    // 同一个独立测试文件改用 Windows 换行，重验点击及逐字输入，不改动用户练习。
+    await tableEditor.edit(edit => edit.replace(new vscode.Range(0, 0, tableEditor.document.lineCount, 0), tableBase));
+    await tableEditor.edit(edit => edit.setEndOfLine(vscode.EndOfLine.CRLF));
+    assert.equal(tableEditor.document.eol, vscode.EndOfLine.CRLF);
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
+    await checkpoint('table-crlf-click', tableEditor, { clickInsertion: true, expectedGhostContains: '2110' });
+    await vscode.commands.executeCommand('type', { text: '21' });
+    await settle();
+    await checkpoint('table-typed', tableEditor, { expectedGhostContains: '回归仙途合集' });
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(tableEditor.document.getText(), expected(tableEditor.document, tableBase + tableAdded));
+    await tableEditor.document.save();
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Partial.java' });
     let editor = vscode.window.activeTextEditor;
     // 重现用户已写第一个参数且编辑器自动缩进多出一个 Tab 的真实缓冲区。

@@ -34,12 +34,25 @@ for (let attempt = 0; attempt < 1200; attempt++) {
     const call = pending.get(value.id);
     if (call) { pending.delete(value.id); value.error ? call.reject(value.error) : call.resolve(value.result); }
   });
-  /** 仅通过指定测试端口读取 DOM 和截图，不改写原生模型或注入候选。 */
+  /** 仅连接指定测试端口；读取截图及发送真实鼠标事件，不改写模型或注入候选。 */
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++sequence;
     pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params }));
   });
   try {
+    // 真实点击独立测试窗口的提示链接，覆盖鼠标焦点与命令触发顺序，不直接代调跟写命令。
+    if (request.clickInsertion) {
+      const link = await send('Runtime.evaluate', { expression: `JSON.stringify((() => {
+        const e = [...document.querySelectorAll('.editor-instance .codelens-decoration a')].find(e => e.innerText.includes('显示虚影'));
+        if (!e) return null;
+        const r = e.getBoundingClientRect(); return {x: r.x + r.width / 2, y: r.y + r.height / 2};
+      })())`, returnByValue: true });
+      const point = JSON.parse(link.result.value);
+      assert.ok(point, 'A clickable insertion lens must exist');
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+      await new Promise(resolve => setTimeout(resolve, 1200));
+    }
     const dom = await send('Runtime.evaluate', { expression: `JSON.stringify({
       ghost: [...document.querySelectorAll('.editor-instance [class*="ghost-text"]')]
         .filter(e => !e.querySelector('[class*="ghost-text"]') && e.getBoundingClientRect().height > 0)

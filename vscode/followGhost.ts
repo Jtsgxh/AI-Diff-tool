@@ -211,7 +211,13 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const toOffset = document.offsetAt(to);
     const prefix = current.slice(fromOffset, edit.start);
     const suffix = current.slice(edit.end, toOffset);
-    const text = this.chunk(edit.text, 4000 - prefix.length - suffix.length);
+    let text = this.chunk(edit.text, 4000 - prefix.length - suffix.length);
+    const eol = document.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+    // 宿主会将空行列首、以换行结尾的多行插入移到上一行，继而按光标位置丢弃。
+    // 先展示正文，末尾换行留给下一次跟写；真实目标与用户文件都不改动。
+    if (from.line > 0 && from.character === 0 && to.character === 0 && text.endsWith(eol) && !text.startsWith(eol)) {
+      text = text.slice(0, -eol.length);
+    }
     if (!text) return this.unavailable('当前行过长，无法显示虚影；悬停查看目标', edit.text);
     const insertText = prefix + text + suffix;
     if (selected && !insertText.startsWith(selected.text)) return this.unavailable('按 Esc 关闭补全菜单，继续显示目标', edit.text);
