@@ -1,4 +1,4 @@
-import { diffChars, diffLines, type Change } from 'diff';
+import { diffChars, diffLines, diffWordsWithSpace, type Change } from 'diff';
 
 export interface GhostEdit { start: number; end: number; text: string }
 
@@ -72,14 +72,21 @@ export function ghostRemovalEdits(current: string, target: string): GhostEdit[] 
     if (block.start === block.end) continue;
     if (!block.text) { removals.push(block); continue; }
     const before = current.slice(block.start, block.end);
-    // 多行旧块全部需要改动，保留整块标记，避免字符匹配借用方法内部的同名字符而漏标。
-    if (/[\r\n]/.test(before.replace(/(?:\r\n|\r|\n)$/, ''))) { removals.push(block); continue; }
-    // 全文件字符细化共享时间预算；纯删除保持整段范围，避免把整段方法拆成碎片。
+    // 多行先按词对齐已写代码，既保护正确参数，也避免借用旧方法内部的零散字符。
+    const multiline = /[\r\n]/.test(before.replace(/(?:\r\n|\r|\n)$/, ''));
     const remaining = deadline - Date.now();
-    const chars = remaining > 0 ? diffChars(before, block.text, { timeout: Math.min(20, remaining) }) : undefined;
-    const fallback = chars ? undefined : trimEdit(before, block.text);
-    for (const edit of chars ? changeEdits(chars) : fallback ? [fallback] : []) {
-      if (edit.end > edit.start) removals.push({ start: block.start + edit.start, end: block.start + edit.end, text: edit.text });
+    const changes = remaining > 0 ? (multiline ? diffWordsWithSpace : diffChars)(before, block.text, { timeout: Math.min(20, remaining) }) : undefined;
+    const fallback = changes ? undefined : trimEdit(before, block.text);
+    for (const edit of changes ? changeEdits(changes) : fallback ? [fallback] : []) {
+      if (edit.end === edit.start) continue;
+      const budget = deadline - Date.now();
+      // 词级替换继续细化到实际错误字符，缩进差异不能把整行已写参数标成待删除。
+      const detail = multiline && edit.text && budget > 0 ? diffChars(before.slice(edit.start, edit.end), edit.text, { timeout: Math.min(20, budget) }) : undefined;
+      if (detail) {
+        for (const part of changeEdits(detail)) {
+          if (part.end > part.start) removals.push({ start: block.start + edit.start + part.start, end: block.start + edit.start + part.end, text: part.text });
+        }
+      } else removals.push({ start: block.start + edit.start, end: block.start + edit.end, text: edit.text });
     }
   }
   return removals;

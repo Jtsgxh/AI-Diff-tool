@@ -13,6 +13,10 @@ const largeHeader = Array.from({ length: 41 }, (_, i) => `// preserved header ${
 const largeTail = Array.from({ length: 20000 }, (_, i) => `// preserved source line ${i} keeps its original content\n`).join('');
 const largeBase = largeHeader + oldImport + largeTail;
 const largeTarget = largeHeader + newImport + oldImport + largeTail;
+const firstArgument = '(com.gameplus.dao.star.IFishActivityInfoDao) context.getBean("fishActivityInfoDao"),';
+const secondArgument = '(org.hibernate.SessionFactory) context.getBean("sessionFactoryStar")';
+const partialTarget = `\t\tReturnCampaignActivity.initialize(\n\t\t\t\t${firstArgument}\n\t\t\t\t${secondArgument});\n`;
+const partialTyped = `\t\tReturnCampaignActivity.initialize(\n\t\t\t\t\t${firstArgument}\n\t\t)`;
 
 /** 在全新目录调用实际创建服务准备原生验收仓库，不使用用户正在跟写的文件。 */
 async function prepare(root) {
@@ -38,6 +42,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Calls.ts'), 'call(1);\n');
   await fs.writeFile(path.join(source, 'Changed.java'), changedTarget);
   await fs.writeFile(path.join(source, 'Large.java'), largeTarget);
+  await fs.writeFile(path.join(source, 'Partial.java'), partialTarget);
   git('add', '.'); git('commit', '--quiet', '-m', 'target');
   await require('esbuild').build({ entryPoints: ['server/followService.ts'], outfile: path.join(root, 'follow-service.cjs'),
     bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
@@ -76,8 +81,28 @@ exports.run = async () => {
   };
   try {
     await vscode.extensions.getExtension('jtsgxh.ai-diff-follow').activate();
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Partial.java' });
+    let editor = vscode.window.activeTextEditor;
+    // 重现用户已写第一个参数且编辑器自动缩进多出一个 Tab 的真实缓冲区。
+    assert.equal(await editor.edit(edit => edit.insert(new vscode.Position(0, 0), expected(editor.document, partialTyped))), true);
+    await settle();
+    await checkpoint('partial-arguments', editor, { expectedProtected: firstArgument, expectedWhitespaceRemoval: true });
+    assert.equal(await editor.edit(edit => edit.delete(new vscode.Range(1, 4, 1, 5))), true);
+    for (let i = 0; editor.document.getText() !== expected(editor.document, partialTarget) && i < 10; i++) {
+      await vscode.commands.executeCommand('aiDiff.follow.locate');
+      await settle();
+      if (i === 0) await checkpoint('partial-parameter-ghost', editor, { expectedGhostContains: 'org.hibernate.SessionFactory' });
+      const before = editor.document.getText();
+      await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+      assert.notEqual(editor.document.getText(), before, 'Missing argument must be available as a ghost insertion');
+      assert.ok(editor.document.getText().includes(firstArgument), 'Completing the call must retain the correct first argument');
+    }
+    assert.equal(editor.document.getText(), expected(editor.document, partialTarget));
+    await settle();
+    await checkpoint('partial-complete', editor, { expectedRemoval: '', expectedInstruction: '' });
+    await editor.document.save();
     // 普通打开并恢复第 22 行旧光标，不调用跟写专用打开命令，验证自动定位入口。
-    let editor = await vscode.window.showTextDocument(vscode.Uri.file(path.join(practice, 'Large.java')));
+    editor = await vscode.window.showTextDocument(vscode.Uri.file(path.join(practice, 'Large.java')));
     editor.selection = new vscode.Selection(21, 0, 21, 0);
     await settle();
     assert.equal(editor.selection.active.line, 40);

@@ -56,7 +56,37 @@ test('all pending removals include later methods and replacements before the fir
     assert.deepEqual(ghostRemovalEdits(target, target), []);
     const adjacent = ghostRemovalEdits(method + 'value = 1;' + eol, 'value = 2;' + eol);
     assert.equal(adjacent[0].start, 0);
-    assert.equal(adjacent[0].end, (method + 'value = 1;' + eol).length, 'adjacent multiline changes must not leave fragments of the deleted method unmarked');
+    assert.equal(adjacent[0].end, method.length, 'the entire deleted method must be marked while retaining the correct value prefix');
+    assert.ok(adjacent.some(edit => (method + 'value = 1;' + eol).slice(edit.start, edit.end) === '1' && edit.text === '2'));
+  }
+});
+
+/** 未写完的多行调用只标实际错字或空白，不能要求删除正确参数及自动闭合括号。 */
+test('partial multiline arguments preserve correct code despite indentation differences', () => {
+  const first = '(com.gameplus.dao.star.IFishActivityInfoDao) context.getBean("fishActivityInfoDao"),';
+  const second = '(org.hibernate.SessionFactory) context.getBean("sessionFactoryStar")';
+  for (const eol of ['\n', '\r\n']) {
+    const target = `initialize(${eol}\t\t${first}${eol}\t\t${second});${eol}`;
+    for (const indent of ['\t\t', '\t\t\t', '        ']) {
+      let current = `initialize(${eol}${indent}${first}${eol}\t)`;
+      const removals = ghostRemovalEdits(current, target);
+      assert.ok(removals.every(edit => !current.slice(edit.start, edit.end).trim()), 'only indentation may be marked; the correct first argument and closing parenthesis must remain');
+      // 跟随真实下一处编辑直至完成，每一步都不能删除正确的非空白代码。
+      for (let step = 0; current !== target && step < 30; step++) {
+        const edit = nextGhostEdit(current, target)!;
+        assert.ok(edit);
+        assert.equal(current.slice(edit.start, edit.end).trim(), '');
+        current = current.slice(0, edit.start) + edit.text + current.slice(edit.end);
+        assert.ok(current.includes(first));
+      }
+      assert.equal(current, target);
+    }
+    const wrong = `initialize(${eol}\t\t${first.replace('fishActivityInfoDao', 'fishActivityWrongDao')}${eol})`;
+    const removals = ghostRemovalEdits(wrong, target);
+    const wrongStart = wrong.indexOf('Wrong');
+    assert.ok(removals.some(edit => edit.start < wrongStart + 5 && edit.end > wrongStart));
+    assert.ok(removals.every(edit => !wrong.slice(edit.start, edit.end).trim() || edit.start >= wrongStart && edit.end <= wrongStart + 5));
+    assert.ok(removals.every(edit => !wrong.slice(edit.start, edit.end).includes('IFishActivityInfoDao')));
   }
 });
 

@@ -172,6 +172,8 @@ resurrect the old pin. Zooming/panning a retained business node must still prese
 
 # VS Code 与跟写测试
 
+未完成多行参数的回归覆盖用户的 `IFishActivityInfoDao` 与 `SessionFactory` 调用：第一个参数正确、第二个未写、自动闭合括号存在，并分别测试多余 Tab、空格缩进及 LF/CRLF。正确参数不能标红，真实错字仍须定位；多行先按词对齐再细化，旧“整个相邻替换块都标红”的断言改为仅标删除方法及错误数字。原生截图检查 `partial-arguments` 只有空白被标记，`partial-parameter-ghost` 显示缺少的第二个参数，接受后第一参数不变且最终文本完全一致。
+
 新增说明改为原生 CodeLens 独立行，模拟测试验证提示只包含操作而非目标代码、仅当前待写处启用定位、完成后清除、没有新增行内装饰。原生 `large-off-cursor` 检查提示行底边位于旧 import 上方，旧 import 保持完整，并通过实际 CodeLens 返回的命令恢复虚影及接受目标。
 
 大文件入口回归用两万行文件模拟第 22 行旧光标、首次新增在第 42 行的场景。模拟宿主与原生测试均覆盖普通打开自动定位、恢复会话、布局事件不丢失定位、光标移开后保留新增标记且不反复跳回；模拟用例另覆盖异步渲染过期后的定位重试。原生检查点 `large-restored` 验证实际虚影，`large-off-cursor` 验证新增标记可见。

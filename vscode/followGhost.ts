@@ -247,6 +247,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     }
     const start = editor.document.positionAt(edit.start);
     const removals = this.plans.get(editor.document)!.removals;
+    const current = editor.document.getText();
     const labels = new Set<number>();
     const instructions: vscode.DecorationOptions[] = [];
     editor.setDecorations(this.deleted, removals.map(removal => {
@@ -256,8 +257,12 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       if (!labels.has(from.line)) {
         labels.add(from.line);
         const anchor = new vscode.Position(from.line, 0);
+        const whitespace = !current.slice(removal.start, removal.end).trim() && !removal.text.trim();
+        const wholeLines = from.character === 0 && (to.character === 0 || removal.end === current.length);
+        const label = whitespace ? '【空白差异】' : removal.text ? '【待替换 · 先删红字】' :
+          wholeLines ? `【待删除 · ${last.line - from.line + 1} 行】` : '【待删除 · 仅红色字符】';
         instructions.push({ range: new vscode.Range(anchor, anchor),
-          renderOptions: { before: { contentText: removal.text ? '【待替换 · 先删红字】' : `【待删除 · ${last.line - from.line + 1} 行】` } } });
+          renderOptions: { before: { contentText: label } } });
       }
       return { range: new vscode.Range(from, to) };
     }));

@@ -50,7 +50,7 @@ for (let attempt = 0; attempt < 1200; attempt++) {
         .filter(e => getComputedStyle(e).textDecorationLine.includes('line-through'))
         .map(e => e.innerText.replace(/\u00a0/g, ' ')),
       instructions: [...document.querySelectorAll('.editor-instance .view-line span')]
-        .map(e => getComputedStyle(e, '::before').content).filter(text => /待删除|待替换|待新增/.test(text)),
+        .map(e => getComputedStyle(e, '::before').content).filter(text => /待删除|待替换|待新增|空白差异/.test(text)),
       lenses: [...document.querySelectorAll('.editor-instance .codelens-decoration')]
         .filter(e => e.getBoundingClientRect().height > 0)
         .map(e => ({text: e.innerText, y: e.getBoundingClientRect().y, bottom: e.getBoundingClientRect().bottom}))
@@ -82,6 +82,12 @@ for (let attempt = 0; attempt < 1200; attempt++) {
         assert.ok(lens.bottom <= existing.y + 1, 'Insertion instruction must be above the existing import, not on the same row');
       }
     }
+    if (request.expectedWhitespaceRemoval) {
+      assert.ok(state.lines.some(item => item.text.includes(request.expectedProtected)), 'The correct first argument must remain visible');
+      assert.ok(state.deleted.every(text => !text.trim()), 'Correct argument characters and auto-closing parentheses must not be struck through');
+      assert.ok(state.instructions.some(text => text.includes('空白差异')), 'Whitespace differences must not claim the entire line needs deletion');
+    }
+    if (request.expectedGhostContains) assert.ok(state.ghost.map(item => item.text).join('').includes(request.expectedGhostContains), 'The missing argument must appear as actual ghost text');
     await fs.writeFile(path.join(root, `captured-${request.name}`), 'captured');
     captured.add(request.name);
     console.log(`Captured ${request.name}`);
