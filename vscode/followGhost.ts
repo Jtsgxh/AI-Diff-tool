@@ -220,14 +220,13 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       const from = editor.document.positionAt(removal.start);
       const to = editor.document.positionAt(removal.end);
       const last = editor.document.positionAt(removal.end - 1);
-      const message = removal.text ? '待替换：删除标红旧内容，再通过“定位下一处跟写”继续输入目标。' : '待删除：选中这段红色删除线代码并删除，无须照抄。';
       if (!labels.has(from.line)) {
         labels.add(from.line);
         const anchor = new vscode.Position(from.line, 0);
-        instructions.push({ range: new vscode.Range(anchor, anchor), hoverMessage: message,
+        instructions.push({ range: new vscode.Range(anchor, anchor),
           renderOptions: { before: { contentText: removal.text ? '【待替换 · 先删红字】' : `【待删除 · ${last.line - from.line + 1} 行】` } } });
       }
-      return { range: new vscode.Range(from, to), hoverMessage: message };
+      return { range: new vscode.Range(from, to) };
     }));
     editor.setDecorations(this.instruction, instructions);
     this.status.text = deleting ? '$(trash) 跟写 · 需要删除整个文件' :

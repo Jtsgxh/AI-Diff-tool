@@ -208,7 +208,8 @@ test('later removal blocks stay visibly marked with instructions while the first
   await c.moved(new Position(4, 0));
   const removal = c.decorations.get('deleted')!.find(item => doc.getText().slice(doc.offsetAt(item.range.start), doc.offsetAt(item.range.end)) === method);
   assert.ok(removal);
-  assert.match(removal.hoverMessage, /选中.*删除.*无须照抄/);
+  assert.ok(c.decorations.get('deleted')!.every(item => item.hoverMessage === undefined));
+  assert.ok(c.decorations.get('instruction')!.every(item => item.hoverMessage === undefined));
   assert.ok(c.decorations.get('instruction')!.some(item => item.renderOptions.before.contentText === '【待删除 · 4 行】'));
   assert.ok(c.decorations.get('instruction')!.some(item => item.renderOptions.before.contentText.includes('待替换')));
   assert.equal(doc.text, current, 'decoration must never write instructions or answers to the real file');
