@@ -127,6 +127,7 @@ class Selection extends Range { active = this.end; isEmpty = true; }
 function controller(preview: (...args: any[]) => Promise<any>) {
   const disposable = { dispose() {} };
   const calls: string[] = [];
+  const commands = new Map<string, (...args: any[]) => Promise<void>>();
   const decorations = new Map<string, any[]>();
   let inlineEnabled = true;
   let inlineMode = 'subwordSmart';
@@ -187,10 +188,14 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       /** 单独注册新增操作提示，虚影候选仍由上面的内联提供器产生。 */
       registerCodeLensProvider: (_selector: any, value: any) => { lensProvider = value; return disposable; } },
     commands: {
-      /** 模拟原生编辑器重新请求虚影；禁止全局隐藏其他扩展的提示。 */
+      /** 保存真实注册的换行入口，供测试验证候选关闭顺序和作用范围。 */
+      registerCommand: (name: string, callback: (...args: any[]) => Promise<void>) => { commands.set(name, callback); return disposable; },
+      /** 模拟原生请求与显式换行命令；普通刷新仍不应主动隐藏候选。 */
       executeCommand: async (command: string, options?: any, value?: any) => {
         calls.push(command);
         if (command === 'setContext') { assert.equal(options, 'aiDiff.followEditing'); native.followEditing = value; return; }
+        if (command === 'hideSuggestWidget' || command === 'editor.action.inlineSuggest.hide') return;
+        if (command === 'default:type') { assert.equal(options.text, '\n'); assert.equal(Object.keys(options).length, 1); return; }
         assert.equal(command, 'editor.action.inlineSuggest.trigger');
         if (native.version === '1.138.0') assert.equal(options.providerId, 'jtsgxh.ai-diff-follow:*');
         else assert.equal(options, undefined);
@@ -224,7 +229,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     native.window.activeTextEditor = value; native.window.visibleTextEditors = [value]; items = [];
     return value;
   }
-  return { ghost, native, calls, decorations, status, document, editor,
+  return { ghost, native, calls, commands, decorations, status, document, editor,
     /** 模拟首次打开时宿主尚未受理请求，随后由真实生命周期事件恢复。 */
     missNextRequest() { missRequest = true; },
     get focused() { return focused; },
@@ -318,6 +323,35 @@ test('follow keyboard context is limited to active practice files and clears on 
   assert.equal(c.native.followEditing, true);
   c.ghost.dispose();
   assert.equal(c.native.followEditing, false);
+});
+
+/** 换行先关闭接受候选，切换文件或完成后不得把挂起的按键写进其他编辑器。 */
+test('follow Enter dismisses completions before native typing and aborts after switching editors', async (t) => {
+  const c = controller(async () => ({ content: 'target' }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  const session = { practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false };
+  c.ghost.setStep(session, [{ path: 'a.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'a.java'), '');
+  c.editor(doc);
+  const newline = c.commands.get('aiDiff.follow.newline')!;
+  assert.equal(typeof newline, 'function');
+  c.calls.length = 0;
+  await newline();
+  assert.deepEqual(c.calls, ['hideSuggestWidget', 'editor.action.inlineSuggest.hide', 'default:type']);
+  c.calls.length = 0;
+  const pending = newline();
+  c.editor(c.document(path.resolve('.validation/outside.java'), ''));
+  await pending;
+  assert.deepEqual(c.calls, ['hideSuggestWidget']);
+  c.calls.length = 0;
+  await newline();
+  assert.deepEqual(c.calls, []);
+  c.editor(doc);
+  c.ghost.setStep({ ...session, finished: true }, []);
+  c.calls.length = 0;
+  await newline();
+  assert.deepEqual(c.calls, []);
 });
 
 /** 末尾空行的多行正文不能被宿主移回上一行；最终换行仍需按原始目标完成。 */

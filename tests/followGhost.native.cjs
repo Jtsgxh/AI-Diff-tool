@@ -24,6 +24,9 @@ const tableAdded = ['回归仙途合集', '回归特惠祈愿', '回归特惠礼
 const commentBase = 'int iLogType = 0;\n// 双倍惊喜、命运祈福的妖灵由活动回调按来源记账，跳过主流程的零金额占位流水。\nif (iAddMoney != 0 || (!PayCode.IsSbjxGift(getChargePropRt.iPayCode)\n        && !PayCode.IsMyqfGift(getChargePropRt.iPayCode)))\n{\n    run();\n}\n';
 const commentTarget = commentBase.replace('命运祈福', '命运祈福、超级发发发')
   .replace('IsMyqfGift(getChargePropRt.iPayCode)))', 'IsMyqfGift(getChargePropRt.iPayCode)\n        && !PayCode.IsCjfffGift(getChargePropRt.iPayCode)))');
+const methodBase = 'public class Methods {\n    public void keep() {\n        run();\n    }\n}\n';
+const methodAdded = '\n    /** 统一加载并校验回流策划表。 */\n    public synchronized boolean ReadReturnCampaignConf() {\n        try {\n            DmxReturnCampaignConf next = new DmxReturnCampaignConf();\n            validateReturnCampaignConf(next);\n            returnCampaignConf = next;\n            return true;\n        } catch (RuntimeException e) {\n            return false;\n        }\n    }\n\n    public DmxReturnCampaignConf getReturnCampaignConf() {\n        return returnCampaignConf;\n    }\n';
+const methodTarget = methodBase.slice(0, -2) + methodAdded + '}\n';
 
 /** 在全新目录调用实际创建服务准备原生验收仓库，不使用用户正在跟写的文件。 */
 async function prepare(root) {
@@ -41,6 +44,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Large.java'), largeBase);
   await fs.writeFile(path.join(source, 'activity.txt'), tableBase);
   await fs.writeFile(path.join(source, 'Comment.java'), commentBase);
+  await fs.writeFile(path.join(source, 'Methods.java'), methodBase);
   git('add', '.'); git('commit', '--quiet', '-m', 'base');
   const base = git('rev-parse', 'HEAD');
   await fs.writeFile(path.join(source, 'Empty.java'), emptyTarget);
@@ -54,6 +58,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Partial.java'), partialTarget);
   await fs.writeFile(path.join(source, 'activity.txt'), tableBase + tableAdded);
   await fs.writeFile(path.join(source, 'Comment.java'), commentTarget);
+  await fs.writeFile(path.join(source, 'Methods.java'), methodTarget);
   git('add', '.'); git('commit', '--quiet', '-m', 'target');
   await require('esbuild').build({ entryPoints: ['server/followService.ts'], outfile: path.join(root, 'follow-service.cjs'),
     bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
@@ -92,6 +97,24 @@ exports.run = async () => {
   };
   try {
     await vscode.extensions.getExtension('jtsgxh.ai-diff-follow').activate();
+    // 覆盖截图中的旧方法右括号后插入整段方法，真实按键必须只增加换行和原生缩进。
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Methods.java' });
+    const methodEditor = vscode.window.activeTextEditor;
+    await settle();
+    await checkpoint('method-before-enter', methodEditor, { expectedGhostContains: 'ReadReturnCampaignConf' });
+    for (const [name, extra] of [['method-enter', {}], ['method-numpad-enter', { code: 'NumpadEnter', location: 3, isKeypad: true }]]) {
+      const before = methodEditor.document.getText();
+      await checkpoint(name, methodEditor, { pressKeys: [{ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r', ...extra }] });
+      const after = methodEditor.document.getText();
+      assert.equal(after.replace(/\s/g, ''), before.replace(/\s/g, ''), 'Enter after an existing brace must not accept the following methods');
+      assert.equal(after.split('\n').length, before.split('\n').length + 1, 'Enter must add exactly one real line');
+      await methodEditor.edit(edit => edit.replace(new vscode.Range(0, 0, methodEditor.document.lineCount, 0), expected(methodEditor.document, methodBase)));
+      await vscode.commands.executeCommand('aiDiff.follow.locate');
+      await settle();
+    }
+    // 单独还原夹具目标，后续完整会话校验仍需覆盖所有文件。
+    await methodEditor.edit(edit => edit.replace(new vscode.Range(0, 0, methodEditor.document.lineCount, 0), expected(methodEditor.document, methodTarget)));
+    await methodEditor.document.save();
     // 日常编辑键必须只处理用户输入，不能把整段跟写目标作为一次按键的结果写入。
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Empty.java' });
     const keyEditor = vscode.window.activeTextEditor;
@@ -139,6 +162,8 @@ exports.run = async () => {
       provideCompletionItems() {
         const item = new vscode.CompletionItem('normalName', vscode.CompletionItemKind.Variable);
         item.insertText = offerWholeBlock ? emptyTarget : 'normalName';
+        // 候选允许以换行提交时，单纯绑定 type(换行) 仍会先接受整段文本。
+        item.commitCharacters = ['\n'];
         return [item];
       },
     });

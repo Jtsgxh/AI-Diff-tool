@@ -46,6 +46,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   constructor() {
     this.status.command = 'aiDiff.follow.locate';
     this.subscriptions = [vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, this),
+      vscode.commands.registerCommand('aiDiff.follow.newline', () => this.newline()),
       vscode.languages.registerCodeLensProvider({ scheme: 'file' }, this),
       vscode.window.onDidChangeActiveTextEditor(() => { this.updateKeyboardContext(); this.schedule(true); }),
       vscode.window.onDidChangeVisibleTextEditors(() => this.schedule()),
@@ -108,6 +109,18 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     if (active === this.keyboardContext) return;
     this.keyboardContext = active;
     void vscode.commands.executeCommand('setContext', 'aiDiff.followEditing', active);
+  }
+
+  /** 先取消候选再换行，避免补全项把换行当作接受字符而写入整段答案。 */
+  private async newline(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (this.disposed || !editor || !this.file(editor.document)) return;
+    await vscode.commands.executeCommand('hideSuggestWidget');
+    if (this.disposed || editor !== vscode.window.activeTextEditor || !this.file(editor.document)) return;
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.hide');
+    if (this.disposed || editor !== vscode.window.activeTextEditor || !this.file(editor.document)) return;
+    // 保留原生缩进、选区替换和撤销；不用编辑 API 拼接文本，也不经过其他扩展的 type 重载。
+    await vscode.commands.executeCommand('default:type', { text: '\n' });
   }
 
   /** 按提交缓存目标文本，并按当前原生文档的换行方式生成显示内容。 */

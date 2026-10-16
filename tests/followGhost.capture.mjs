@@ -61,6 +61,7 @@ for (let attempt = 0; attempt < 2400; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 1200));
     }
     const dom = await send('Runtime.evaluate', { expression: `JSON.stringify({
+      focus: { tag: document.activeElement?.tagName, class: document.activeElement?.className, text: document.activeElement?.textContent, label: document.activeElement?.getAttribute('aria-label') },
       ghost: [...document.querySelectorAll('.editor-instance [class*="ghost-text"]')]
         .filter(e => !e.querySelector('[class*="ghost-text"]') && e.getBoundingClientRect().height > 0)
         .map(e => ({text: e.innerText.replace(/\u00a0/g, ' '), y: e.getBoundingClientRect().y})),
