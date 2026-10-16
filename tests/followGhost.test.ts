@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { transformSync } from 'esbuild';
-import { nextGhostEdit } from '../shared/followGhost';
+import { ghostRemovalEdits, nextGhostEdit } from '../shared/followGhost';
 
 /** 覆盖新文件、局部替换、自动闭合、多个改动、删除、换行和 UTF-16 原生偏移。 */
 test('ghost planning preserves existing code and identifies only the next change', () => {
@@ -39,6 +39,24 @@ test('successive ghost edits converge exactly without overlooking whitespace or 
       current = current.slice(0, edit.start) + edit.text + current.slice(edit.end);
     }
     assert.equal(current, target);
+  }
+});
+
+/** 顶部新增未跟写时，后面的整段删除及字符替换都应定位准确，保留行不能被标红。 */
+test('all pending removals include later methods and replacements before the first insertion is written', () => {
+  for (const eol of ['\n', '\r\n']) {
+    const method = ['/** 旧加载入口 */', 'public static void reload() {', '    load();', '}', ''].join(eol);
+    const before = ['package demo;', '', 'keep();', method + 'keepAfter();', 'value = 1;', 'untouched();', ''].join(eol);
+    const target = ['package demo;', 'import added;', '', 'keep();', 'keepAfter();', 'value = 2;', 'untouched();', ''].join(eol);
+    const edits = ghostRemovalEdits(before, target);
+    assert.ok(nextGhostEdit(before, target)!.text.includes('import added;'));
+    assert.ok(edits.some(edit => before.slice(edit.start, edit.end) === method && edit.text === ''));
+    assert.ok(edits.some(edit => before.slice(edit.start, edit.end) === '1' && edit.text === '2'));
+    assert.ok(edits.every(edit => !before.slice(edit.start, edit.end).includes('keep();') && !before.slice(edit.start, edit.end).includes('untouched();')));
+    assert.deepEqual(ghostRemovalEdits(target, target), []);
+    const adjacent = ghostRemovalEdits(method + 'value = 1;' + eol, 'value = 2;' + eol);
+    assert.equal(adjacent[0].start, 0);
+    assert.equal(adjacent[0].end, (method + 'value = 1;' + eol).length, 'adjacent multiline changes must not leave fragments of the deleted method unmarked');
   }
 });
 
@@ -76,8 +94,11 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     DecorationRangeBehavior: { ClosedClosed: 1 }, StatusBarAlignment: { Right: 2 },
     TextEditorRevealType: { InCenterIfOutsideViewport: 0 },
     window: { activeTextEditor: undefined as any, visibleTextEditors: [] as any[],
-      /** 禁止重新用单行装饰假装承载多行代码。 */
-      createTextEditorDecorationType: (options: any) => { assert.equal(options.before, undefined); return { ...disposable, key: 'deleted' }; },
+      /** 文字装饰仅标操作说明，实际目标代码仍必须来自原生多行虚影。 */
+      createTextEditorDecorationType: (options: any) => {
+        if (options.before) assert.equal(options.before.color.id, 'editorError.foreground');
+        return { ...disposable, key: options.before ? 'instruction' : 'deleted' };
+      },
       createStatusBarItem: () => status, onDidChangeActiveTextEditor: () => disposable,
       /** 模拟布局完成与窗口重新获得焦点，不需要伪造一次文本输入。 */
       onDidChangeVisibleTextEditors: (callback: typeof visibleChanged) => { visibleChanged = callback; return disposable; },
@@ -115,7 +136,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   const code = transformSync(fs.readFileSync('vscode/followGhost.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   vm.runInNewContext(code, { module, exports: module.exports, setTimeout, clearTimeout,
     require: (id: string) => id === 'vscode' ? native : id === '../server/gitService' ? { gitService: { getFilePreview: preview } }
-      : id === '../shared/followGhost' ? { nextGhostEdit } : require(id) });
+      : id === '../shared/followGhost' ? { nextGhostEdit, ghostRemovalEdits } : require(id) });
   const ghost = new module.exports.FollowGhost();
   /** 以实际字符串和 UTF-16 偏移模拟文档，行末范围不包含 CRLF。 */
   function document(file: string, text: string, eol = 1) {
@@ -171,6 +192,34 @@ function controller(preview: (...args: any[]) => Promise<any>) {
 function proposedText(doc: any, item: any): string {
   return doc.text.slice(0, doc.offsetAt(item.range.start)) + item.insertText + doc.text.slice(doc.offsetAt(item.range.end));
 }
+
+/** 模拟停留在后面的待删方法，顶部仍未跟写时也必须能直接读懂操作，并随输入清除旧标记。 */
+test('later removal blocks stay visibly marked with instructions while the first ghost is elsewhere', async (t) => {
+  const c = controller(async () => ({ content: '' }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  const method = '/** 旧加载入口 */\npublic static void reload() {\n    load();\n}\n';
+  const current = 'package demo;\n\nkeep();\n' + method + 'keepAfter();\nvalue = 1;\n';
+  const target = 'package demo;\nimport added;\n\nkeep();\nkeepAfter();\nvalue = 2;\n';
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'sample.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'sample.java'), current);
+  await c.ghost.open(c.editor(doc), target);
+  await c.moved(new Position(4, 0));
+  const removal = c.decorations.get('deleted')!.find(item => doc.getText().slice(doc.offsetAt(item.range.start), doc.offsetAt(item.range.end)) === method);
+  assert.ok(removal);
+  assert.match(removal.hoverMessage, /选中.*删除.*无须照抄/);
+  assert.ok(c.decorations.get('instruction')!.some(item => item.renderOptions.before.contentText === '【待删除 · 4 行】'));
+  assert.ok(c.decorations.get('instruction')!.some(item => item.renderOptions.before.contentText.includes('待替换')));
+  assert.equal(doc.text, current, 'decoration must never write instructions or answers to the real file');
+  doc.text = current.replace(method, ''); doc.version++;
+  await c.changed(doc);
+  assert.equal(c.decorations.get('instruction')!.some(item => item.renderOptions.before.contentText.includes('待删除')), false);
+  doc.text = target; doc.version++;
+  await c.changed(doc);
+  assert.equal(c.decorations.get('deleted')!.length, 0);
+  assert.equal(c.decorations.get('instruction')!.length, 0);
+});
 
 /** 验证替换必须先删除旧字，之后才展示真实目标，输入使用缓存且不会移动光标。 */
 test('native ghosts wait for removal, preserve suffixes and update unsaved input', async (t) => {

@@ -15,10 +15,11 @@ for (let attempt = 0; attempt < 1200; attempt++) {
     assert.equal(result.passed, true, result.error);
     console.log('Native follow checks passed');
     process.exit(0);
-  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  } catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
   let request;
   try { request = JSON.parse(await fs.readFile(path.join(root, 'capture-request.json'), 'utf8')); }
-  catch (error) { if (error.code !== 'ENOENT') throw error; await pause(); continue; }
+  // 检查点由另一进程写入；遇到尚未写完的 JSON 等下一轮，不能将短暂半写内容视为产品失败。
+  catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; await pause(); continue; }
   assert.match(request.name, /^[a-z-]+$/);
   if (captured.has(request.name)) { await pause(); continue; }
   const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
@@ -44,7 +45,12 @@ for (let attempt = 0; attempt < 1200; attempt++) {
         .filter(e => !e.querySelector('[class*="ghost-text"]') && e.getBoundingClientRect().height > 0)
         .map(e => ({text: e.innerText.replace(/\u00a0/g, ' '), y: e.getBoundingClientRect().y})),
       lines: [...document.querySelectorAll('.editor-instance .view-line')]
-        .map(e => ({text: e.innerText.replace(/\u00a0/g, ' '), y: e.getBoundingClientRect().y}))
+        .map(e => ({text: e.innerText.replace(/\u00a0/g, ' '), y: e.getBoundingClientRect().y})),
+      deleted: [...document.querySelectorAll('.editor-instance .view-line span')]
+        .filter(e => getComputedStyle(e).textDecorationLine.includes('line-through'))
+        .map(e => e.innerText.replace(/\u00a0/g, ' ')),
+      instructions: [...document.querySelectorAll('.editor-instance .view-line span')]
+        .map(e => getComputedStyle(e, '::before').content).filter(text => text.includes('【待'))
     })`, returnByValue: true });
     const state = JSON.parse(dom.result.value);
     await fs.writeFile(path.join(root, `${request.name}.json`), JSON.stringify(state, null, 2));
@@ -56,6 +62,12 @@ for (let attempt = 0; attempt < 1200; attempt++) {
       assert.ok(state.lines.some(item => item.text === request.existingLine), 'Existing import must remain a separate line');
       const existingY = state.lines.find(item => item.text === request.existingLine).y;
       assert.ok(state.ghost.every(item => item.y < existingY), 'Existing import must not be recolored as ghost code');
+    }
+    if (request.expectedRemoval !== undefined) {
+      if (request.expectedRemoval) assert.ok(state.deleted.join('').includes(request.expectedRemoval), 'Later deleted method must be visibly struck through before the first import is written');
+      else assert.equal(state.deleted.length, 0, 'Completed code must not retain deletion markings');
+      if (request.expectedInstruction) assert.ok(state.instructions.some(text => text.includes(request.expectedInstruction)), 'Deletion must include a visible operation label');
+      else assert.equal(state.instructions.length, 0, 'Completed code must not retain operation labels');
     }
     await fs.writeFile(path.join(root, `captured-${request.name}`), 'captured');
     captured.add(request.name);
