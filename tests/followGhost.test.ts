@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { test } from 'node:test';
 import { transformSync } from 'esbuild';
-import { ghostRemovalEdits, nextGhostEdit } from '../shared/followGhost';
+import { ghostInsertionEdits, ghostRemovalEdits, nextGhostEdit } from '../shared/followGhost';
 
 /** 覆盖新文件、局部替换、自动闭合、多个改动、删除、换行和 UTF-16 原生偏移。 */
 test('ghost planning preserves existing code and identifies only the next change', () => {
@@ -83,6 +83,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   let visibleChanged: () => void = () => {};
   let windowChanged: (event: any) => void = () => {};
   let focused = 0;
+  let activated: () => void = () => {};
   const status = { visible: false, text: '', command: '', tooltip: '',
     /** 记录状态栏显示和隐藏。 */
     show() { this.visible = true; }, hide() { this.visible = false; }, dispose() {} };
@@ -99,7 +100,9 @@ function controller(preview: (...args: any[]) => Promise<any>) {
         if (options.before) assert.equal(options.before.color.id, 'editorError.foreground');
         return { ...disposable, key: options.before ? 'instruction' : 'deleted' };
       },
-      createStatusBarItem: () => status, onDidChangeActiveTextEditor: () => disposable,
+      createStatusBarItem: () => status,
+      /** 模拟普通打开或恢复编辑器，不通过专用跟写打开命令。 */
+      onDidChangeActiveTextEditor: (callback: typeof activated) => { activated = callback; return disposable; },
       /** 模拟布局完成与窗口重新获得焦点，不需要伪造一次文本输入。 */
       onDidChangeVisibleTextEditors: (callback: typeof visibleChanged) => { visibleChanged = callback; return disposable; },
       onDidChangeTextEditorVisibleRanges: (callback: typeof rangesChanged) => { rangesChanged = callback; return disposable; },
@@ -136,7 +139,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
   const code = transformSync(fs.readFileSync('vscode/followGhost.ts', 'utf8'), { loader: 'ts', format: 'cjs' }).code;
   vm.runInNewContext(code, { module, exports: module.exports, setTimeout, clearTimeout,
     require: (id: string) => id === 'vscode' ? native : id === '../server/gitService' ? { gitService: { getFilePreview: preview } }
-      : id === '../shared/followGhost' ? { nextGhostEdit, ghostRemovalEdits } : require(id) });
+      : id === '../shared/followGhost' ? { nextGhostEdit, ghostRemovalEdits, ghostInsertionEdits } : require(id) });
   const ghost = new module.exports.FollowGhost();
   /** 以实际字符串和 UTF-16 偏移模拟文档，行末范围不包含 CRLF。 */
   function document(file: string, text: string, eol = 1) {
@@ -160,6 +163,8 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     /** 模拟首次打开时宿主尚未受理请求，随后由真实生命周期事件恢复。 */
     missNextRequest() { missRequest = true; },
     get focused() { return focused; },
+    /** 激活后立即触发布局刷新，验证后一个事件不会取消定位意图。 */
+    async activated() { activated(); rangesChanged({ textEditor: native.window.activeTextEditor }); await new Promise(resolve => setTimeout(resolve, 180)); },
     /** 模拟当前编辑器完成布局，不改变文档版本和光标。 */
     async laidOut() { rangesChanged({ textEditor: native.window.activeTextEditor }); await new Promise(resolve => setTimeout(resolve, 140)); },
     /** 模拟编辑器重新可见或窗口切回。 */
@@ -220,6 +225,54 @@ test('later removal blocks stay visibly marked with instructions while the first
   await c.changed(doc);
   assert.equal(c.decorations.get('deleted')!.length, 0);
   assert.equal(c.decorations.get('instruction')!.length, 0);
+});
+
+/** 大文件恢复旧光标时自动定位新增 import；普通滚动不会抢光标，新增位置仍有可见标记。 */
+test('opening or restoring a large follow file locates the pending insertion and preserves markers off-cursor', async (t) => {
+  const header = Array.from({ length: 41 }, (_, i) => `// header ${i}\n`).join('');
+  const tail = Array.from({ length: 20000 }, (_, i) => `// body ${i}\n`).join('');
+  const current = header + 'import existing;\n' + tail;
+  const target = header + 'import added;\nimport existing;\n' + tail;
+  const c = controller(async () => ({ content: target }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  const session = { practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false };
+  const files = [{ path: 'large.java', deleted: false, complete: false }];
+  c.ghost.setStep(session, files);
+  const doc = c.document(path.join(repo, 'large.java'), current);
+  const editor = c.editor(doc);
+  editor.selection = new Selection(new Position(21, 0), new Position(21, 0));
+  await c.activated();
+  assert.equal(editor.selection.active.line, 40);
+  assert.equal(c.items.length, 1);
+  assert.equal(proposedText(doc, c.items[0]), target);
+  await c.moved(new Position(21, 0));
+  await c.laidOut();
+  assert.equal(editor.selection.active.line, 21, 'scrolling or selecting after the initial jump must not steal the cursor');
+  assert.ok(c.decorations.get('instruction')!.some(item => item.range.start.line === 41 && item.renderOptions.before.contentText === '【此处待新增 · 1 行】'));
+  assert.ok(c.decorations.get('instruction')!.every(item => item.hoverMessage === undefined));
+  c.ghost.setStep(undefined, []);
+  c.ghost.setStep(session, files);
+  await c.laidOut();
+  assert.equal(editor.selection.active.line, 40, 'restoring the session with an already open editor must also locate');
+  assert.equal(doc.text, current);
+});
+
+/** 首次定位等待目标期间发生输入时，取消过期结果后仍应完成定位。 */
+test('an obsolete render cannot lose a pending open location request', async (t) => {
+  const c = controller(async () => ({ content: '' }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+    [{ path: 'sample.java', deleted: false, complete: false }]);
+  const doc = c.document(path.join(repo, 'sample.java'), 'package demo;\n\nimport existing;\n');
+  const editor = c.editor(doc);
+  const opened = c.ghost.open(editor, 'package demo;\n\nimport added;\nimport existing;\n');
+  doc.version++;
+  await opened;
+  await c.changed(doc);
+  assert.equal(editor.selection.active.line, 1);
+  assert.equal(c.items.length, 1);
 });
 
 /** 验证替换必须先删除旧字，之后才展示真实目标，输入使用缓存且不会移动光标。 */

@@ -50,6 +50,14 @@ export function nextGhostEdit(current: string, target: string): GhostEdit | unde
   return edit && { start: block.start + edit.start, end: block.start + edit.end, text: edit.text };
 }
 
+/** 标出所有整段新增的位置，即使光标不在待写行也能发现跟写入口。 */
+export function ghostInsertionEdits(current: string, target: string): GhostEdit[] {
+  if (current === target) return [];
+  const lines = diffLines(current, target, { timeout: 25 });
+  const fallback = lines ? undefined : trimEdit(current, target);
+  return (lines ? changeEdits(lines) : fallback ? [fallback] : []).filter(edit => edit.start === edit.end && edit.text);
+}
+
 /** 提前找出全文件待删除或替换的旧内容，不受第一处新增虚影的位置限制。 */
 export function ghostRemovalEdits(current: string, target: string): GhostEdit[] {
   if (current === target) return [];

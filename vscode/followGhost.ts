@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import path from 'node:path';
 import { gitService } from '../server/gitService';
 import type { FollowFile, FollowSession } from '../server/followService';
-import { ghostRemovalEdits, nextGhostEdit, type GhostEdit } from '../shared/followGhost';
+import { ghostInsertionEdits, ghostRemovalEdits, nextGhostEdit, type GhostEdit } from '../shared/followGhost';
 
 type DisplayEdit = GhostEdit & { prepareLine?: boolean };
 
@@ -19,18 +19,19 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 10);
   private readonly subscriptions: vscode.Disposable[];
   private readonly targets = new Map<string, Promise<string | undefined>>();
-  private readonly plans = new WeakMap<vscode.TextDocument, { version: number; key: string; target: string; edit?: DisplayEdit; removals: GhostEdit[] }>();
+  private readonly plans = new WeakMap<vscode.TextDocument, { version: number; key: string; target: string; edit?: DisplayEdit; removals: GhostEdit[]; insertions: GhostEdit[] }>();
   private files = new Map<string, FollowFile>();
   private session?: FollowSession;
   private key = '';
   private timer?: ReturnType<typeof setTimeout>;
   private disposed = false;
+  private locateDocument?: vscode.TextDocument;
 
   /** 输入与切换文件后重新提供多行目标，保留普通语言补全。 */
   constructor() {
     this.status.command = 'aiDiff.follow.locate';
     this.subscriptions = [vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, this),
-      vscode.window.onDidChangeActiveTextEditor(() => this.schedule()),
+      vscode.window.onDidChangeActiveTextEditor(() => this.schedule(true)),
       vscode.window.onDidChangeVisibleTextEditors(() => this.schedule()),
       vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
         if (event.textEditor === vscode.window.activeTextEditor) this.schedule();
@@ -61,13 +62,14 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   /** 步骤推进时丢弃历史目标，保持原有练习目录和用户文本不变。 */
   setStep(session: FollowSession | undefined, files: FollowFile[]): void {
     const key = session && !session.finished ? `${session.practiceRepo}\0${session.steps[session.stepIndex].hash}` : '';
-    if (key !== this.key) {
+    const changed = key !== this.key;
+    if (changed) {
       this.targets.clear(); this.key = key;
       for (const editor of vscode.window.visibleTextEditors) this.clear(editor);
     }
     this.session = session;
     this.files = new Map(files.map((file) => [file.path, file]));
-    this.schedule();
+    this.schedule(changed);
   }
 
   /** 限定提示只能出现在当前步骤内的真实练习文件中。 */
@@ -118,7 +120,8 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       // 原生虚影会把首行右侧的旧代码一起染灰，先引导用户空出一行，再显示独立待写行。
       edit = { start: 0, end: 0, text: eol, prepareLine: true };
     }
-    this.plans.set(document, { version: document.version, key: this.key, target, edit, removals: ghostRemovalEdits(current, target) });
+    this.plans.set(document, { version: document.version, key: this.key, target, edit,
+      removals: ghostRemovalEdits(current, target), insertions: ghostInsertionEdits(current, target) });
     return edit;
   }
 
@@ -194,6 +197,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   /** 全文件提前标记待删旧代码和操作说明，虚影仍按下一处待写内容提供。 */
   private async render(locate = false): Promise<void> {
     const editor = vscode.window.activeTextEditor;
+    if (locate && editor) this.locateDocument = editor.document;
     this.status.hide();
     this.status.command = 'aiDiff.follow.locate';
     for (const visible of vscode.window.visibleTextEditors) if (visible !== editor) this.clear(visible);
@@ -203,10 +207,14 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const target = await this.target(editor.document);
     if (this.disposed || key !== this.key || editor !== vscode.window.activeTextEditor ||
       version !== editor.document.version) return;
-    if (target === undefined) { this.clear(editor); return; }
+    if (target === undefined) {
+      if (this.locateDocument === editor.document) this.locateDocument = undefined;
+      this.clear(editor); return;
+    }
     const edit = this.plan(editor.document, target);
     const deleting = this.file(editor.document)?.deleted && !this.file(editor.document)?.complete;
     if (!edit) {
+      if (this.locateDocument === editor.document) this.locateDocument = undefined;
       this.clear(editor);
       this.status.text = deleting ? '$(trash) 跟写 · 需要删除整个文件' : '$(pass) 跟写内容已一致';
       this.status.tooltip = deleting ? '在跟写侧栏右键此文件，选择删除文件并移到回收站；清空内容不等于删除文件。' : '当前文本已与目标一致，保存后可检查整个练习。';
@@ -228,6 +236,16 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       }
       return { range: new vscode.Range(from, to) };
     }));
+    for (const insertion of this.plans.get(editor.document)!.insertions) {
+      const from = editor.document.positionAt(insertion.start);
+      if (labels.has(from.line)) continue;
+      labels.add(from.line);
+      const anchor = new vscode.Position(from.line, 0);
+      const lines = insertion.text.split(/\r\n|\r|\n/).length - (/[\r\n]$/.test(insertion.text) ? 1 : 0);
+      instructions.push({ range: new vscode.Range(anchor, anchor), renderOptions: {
+        before: { contentText: `【此处待新增 · ${lines} 行】`, color: new vscode.ThemeColor('editorGutter.addedBackground') },
+      } });
+    }
     editor.setDecorations(this.instruction, instructions);
     this.status.text = deleting ? '$(trash) 跟写 · 需要删除整个文件' :
       `$(edit) 跟写 · 第 ${start.line + 1} 行 · ${edit.prepareLine ? '先按 Enter 空出待写行' : edit.end > edit.start ? '先删除红字' : /^[\r\n]/.test(edit.text) ? '先按 Enter 换行' : '点击显示虚影'}`;
@@ -238,7 +256,8 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       this.unavailable('请启用内联建议显示虚影', edit.text, 'editor.inlineSuggest.enabled');
     }
     this.status.show();
-    if (locate) {
+    if (this.locateDocument === editor.document) {
+      this.locateDocument = undefined;
       editor.selection = new vscode.Selection(start, start);
       editor.revealRange(new vscode.Range(start, start), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
     }
@@ -257,7 +276,9 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   }
 
   /** 合并按键事件，延迟刷新不会为每个字符启动 Git 进程。 */
-  private schedule(): void {
+  private schedule(locate = false): void {
+    // 仅进入文件或恢复任务时请求定位；布局、滚动及光标事件不能丢掉尚未完成的定位，也不能反复抢光标。
+    if (locate) this.locateDocument = vscode.window.activeTextEditor?.document;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       const key = this.key;
@@ -277,7 +298,8 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const file = this.file(editor.document);
     if (!file) return;
     this.targets.set(file.path, Promise.resolve(target));
-    await this.render(true);
+    this.locateDocument = editor.document;
+    await this.render();
   }
 
   /** 状态栏与侧栏可能持有焦点，先返回真实编辑器，再请求下一处虚影。 */

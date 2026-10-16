@@ -9,6 +9,10 @@ const importHeader = 'package demo;\n\n';
 const oldMethod = '    /** 旧加载入口 */\n    public static void reload() {\n        load();\n    }\n\n';
 const changedBase = importHeader + oldImport + '\npublic class Changed {\n' + oldMethod + '    public void keep() {}\n    public int value() { return 1; }\n}\n';
 const changedTarget = importHeader + newImport + oldImport + '\npublic class Changed {\n    public void keep() {}\n    public int value() { return 2; }\n}\n';
+const largeHeader = Array.from({ length: 41 }, (_, i) => `// preserved header ${i}\n`).join('');
+const largeTail = Array.from({ length: 20000 }, (_, i) => `// preserved source line ${i} keeps its original content\n`).join('');
+const largeBase = largeHeader + oldImport + largeTail;
+const largeTarget = largeHeader + newImport + oldImport + largeTail;
 
 /** 在全新目录调用实际创建服务准备原生验收仓库，不使用用户正在跟写的文件。 */
 async function prepare(root) {
@@ -23,6 +27,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'Header.java'), importHeader + oldImport);
   await fs.writeFile(path.join(source, 'replace.ts'), 'const value = 1;\n');
   await fs.writeFile(path.join(source, 'Changed.java'), changedBase);
+  await fs.writeFile(path.join(source, 'Large.java'), largeBase);
   git('add', '.'); git('commit', '--quiet', '-m', 'base');
   const base = git('rev-parse', 'HEAD');
   await fs.writeFile(path.join(source, 'Empty.java'), emptyTarget);
@@ -32,6 +37,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'New.ts'), 'const custom = 1;\n');
   await fs.writeFile(path.join(source, 'Calls.ts'), 'call(1);\n');
   await fs.writeFile(path.join(source, 'Changed.java'), changedTarget);
+  await fs.writeFile(path.join(source, 'Large.java'), largeTarget);
   git('add', '.'); git('commit', '--quiet', '-m', 'target');
   await require('esbuild').build({ entryPoints: ['server/followService.ts'], outfile: path.join(root, 'follow-service.cjs'),
     bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
@@ -70,9 +76,25 @@ exports.run = async () => {
   };
   try {
     await vscode.extensions.getExtension('jtsgxh.ai-diff-follow').activate();
+    // 普通打开并恢复第 22 行旧光标，不调用跟写专用打开命令，验证自动定位入口。
+    let editor = await vscode.window.showTextDocument(vscode.Uri.file(path.join(practice, 'Large.java')));
+    editor.selection = new vscode.Selection(21, 0, 21, 0);
+    await settle();
+    assert.equal(editor.selection.active.line, 40);
+    await checkpoint('large-restored', editor, { expectedGhost: newImport.trimEnd(), existingLine: oldImport.trimEnd() });
+    editor.selection = new vscode.Selection(21, 0, 21, 0);
+    editor.revealRange(new vscode.Range(40, 0, 42, 0), vscode.TextEditorRevealType.InCenter);
+    await settle();
+    assert.equal(editor.selection.active.line, 21, 'reading elsewhere must not be interrupted by repeated jumps');
+    await checkpoint('large-off-cursor', editor, { expectedInsertion: true });
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.commit');
+    assert.equal(editor.document.getText(), expected(editor.document, largeTarget));
+    await editor.document.save();
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Changed.java' });
     await settle();
-    let editor = vscode.window.activeTextEditor;
+    editor = vscode.window.activeTextEditor;
     assert.equal(editor.document.getText(), expected(editor.document, changedBase), 'opening must preserve all original code');
     const methodLine = editor.document.positionAt(editor.document.getText().indexOf('    /** 旧加载入口 */')).line;
     editor.selection = new vscode.Selection(methodLine + 1, 0, methodLine + 1, 0);
