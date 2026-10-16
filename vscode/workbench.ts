@@ -28,6 +28,7 @@ export class VSCodeWorkbench implements vscode.Disposable {
   private readonly saved: Record<string, string>;
   private storageQueue = Promise.resolve();
   private opening?: Promise<void>;
+  private openingReference?: Pick<HostBootstrap, 'repoPath' | 'revision'>;
   private disposed = false;
 
   /** 加载非敏感页面状态，API 配置在打开页面时从 SecretStorage 单独取出。 */
@@ -83,27 +84,37 @@ export class VSCodeWorkbench implements vscode.Disposable {
 
   /** 复用已有面板，避免快速连续触发时创建多个后端或页面。 */
   open(repoPath?: string, revision?: string): Promise<void> {
+    if (this.disposed) return Promise.reject(new Error('工作台已关闭。'));
     if (this.panel) {
       this.panel.reveal(vscode.ViewColumn.One);
       if (repoPath) this.updateReference(repoPath, revision);
       return Promise.resolve();
     }
-    if (!this.opening) this.opening = this.create(repoPath, revision).finally(() => { this.opening = undefined; });
+    if (!this.opening || repoPath) this.openingReference = { repoPath, revision };
+    if (!this.opening) this.opening = this.create().finally(() => {
+      this.opening = undefined;
+      this.openingReference = undefined;
+    });
     return this.opening;
   }
 
   /** 已打开参考面板时同步新步骤，不打断编辑器或强制创建页面。 */
   updateReference(repoPath: string, revision?: string): void {
+    if (this.disposed) return;
+    // 页面尚未创建时保留最后一次目标，随初始内容一起交付，不向未加载页面抢发消息。
+    if (this.opening) this.openingReference = { repoPath, revision };
     void this.panel?.webview.postMessage({ type: 'selectRevision', repoPath, revision } satisfies HostResponse);
   }
 
   /** 加载打包资源并建立受限消息通道，原有页面不直接连接本地服务。 */
-  private async create(repoPath?: string, revision?: string): Promise<void> {
+  private async create(): Promise<void> {
     const origin = await this.origin();
     const media = vscode.Uri.joinPath(this.context.extensionUri, 'media');
     let html = await fs.readFile(vscode.Uri.joinPath(media, 'index.html').fsPath, 'utf8');
     const config = await this.context.secrets.get('webviewAIConfig');
-    const bootstrap: HostBootstrap = { repoPath, revision, storage: { ...this.saved, ...(config ? { git_ai_config: config } : {}) } };
+    // 资源和密钥读取均可跨越扩展释放；创建面板前重新确认，避免留下无人管理的页面。
+    if (this.disposed) throw new Error('工作台已关闭。');
+    const bootstrap: HostBootstrap = { ...this.openingReference, storage: { ...this.saved, ...(config ? { git_ai_config: config } : {}) } };
     const panel = vscode.window.createWebviewPanel('aiDiff.workbench', 'AI Diff · 审查与学习', vscode.ViewColumn.One,
       { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [media] });
     this.panel = panel;

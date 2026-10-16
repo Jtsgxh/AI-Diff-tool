@@ -27,6 +27,7 @@ const commentTarget = commentBase.replace('命运祈福', '命运祈福、超级
 const methodBase = 'public class Methods {\n    public void keep() {\n        run();\n    }\n}\n';
 const methodAdded = '\n    /** 统一加载并校验回流策划表。 */\n    public synchronized boolean ReadReturnCampaignConf() {\n        try {\n            DmxReturnCampaignConf next = new DmxReturnCampaignConf();\n            validateReturnCampaignConf(next);\n            returnCampaignConf = next;\n            return true;\n        } catch (RuntimeException e) {\n            return false;\n        }\n    }\n\n    public DmxReturnCampaignConf getReturnCampaignConf() {\n        return returnCampaignConf;\n    }\n';
 const methodTarget = methodBase.slice(0, -2) + methodAdded + '}\n';
+const manualTarget = 'public class Manual {\n\tpublic int value() {\n\t\treturn 1;\n\t}\n}\n';
 
 /** 在全新目录调用实际创建服务准备原生验收仓库，不使用用户正在跟写的文件。 */
 async function prepare(root) {
@@ -59,6 +60,7 @@ async function prepare(root) {
   await fs.writeFile(path.join(source, 'activity.txt'), tableBase + tableAdded);
   await fs.writeFile(path.join(source, 'Comment.java'), commentTarget);
   await fs.writeFile(path.join(source, 'Methods.java'), methodTarget);
+  await fs.writeFile(path.join(source, 'Manual.java'), manualTarget);
   git('add', '.'); git('commit', '--quiet', '-m', 'target');
   await require('esbuild').build({ entryPoints: ['server/followService.ts'], outfile: path.join(root, 'follow-service.cjs'),
     bundle: true, platform: 'node', format: 'cjs', packages: 'external' });
@@ -97,6 +99,30 @@ exports.run = async () => {
   };
   try {
     await vscode.extensions.getExtension('jtsgxh.ai-diff-follow').activate();
+    // 全程逐键手写一个新文件，目标使用 Tab，编辑器自动缩进使用空格；不接受虚影或填入目标。
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Manual.java' });
+    const manualEditor = vscode.window.activeTextEditor;
+    await settle();
+    await checkpoint('manual-empty', manualEditor, { expectedGhostContains: 'public class Manual' });
+    await checkpoint('manual-class', manualEditor, { typeText: 'public class Manual {' });
+    assert.equal(manualEditor.document.getText(), 'public class Manual {}');
+    const enterKey = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' };
+    await checkpoint('manual-class-enter', manualEditor, { pressKeys: [enterKey], expectedGhostContains: 'public int value' });
+    await checkpoint('manual-method', manualEditor, { typeText: 'public int value() {' });
+    await checkpoint('manual-method-enter', manualEditor, { pressKeys: [enterKey], expectedGhostContains: 'return 1;' });
+    await checkpoint('manual-body', manualEditor, { typeText: 'return 1;' });
+    const beforeUndo = manualEditor.document.getText();
+    await checkpoint('manual-undo', manualEditor, { pressKeys: [{ key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90, modifiers: 2 }], expectedGhostSuffixOf: 'return 1;' });
+    assert.notEqual(manualEditor.document.getText(), beforeUndo);
+    await checkpoint('manual-redo', manualEditor, { pressKeys: [{ key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90, modifiers: 10 }] });
+    assert.equal(manualEditor.document.getText(), beforeUndo);
+    await checkpoint('manual-close-lines', manualEditor, { pressKeys: [
+      { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 }, { key: 'End', code: 'End', windowsVirtualKeyCode: 35 },
+      { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 }, { key: 'End', code: 'End', windowsVirtualKeyCode: 35 }, enterKey,
+    ] });
+    assert.equal(manualEditor.document.getText().replace(/\s/g, ''), manualTarget.replace(/\s/g, ''), 'Manual typing with native indentation and auto-closing must finish the target');
+    assert.ok(manualEditor.document.getText().includes('    public int'), 'Exercise keeps the actual native space indentation');
+    await manualEditor.document.save();
     // 覆盖截图中的旧方法右括号后插入整段方法，真实按键必须只增加换行和原生缩进。
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Methods.java' });
     const methodEditor = vscode.window.activeTextEditor;
@@ -120,6 +146,15 @@ exports.run = async () => {
     const keyEditor = vscode.window.activeTextEditor;
     await settle();
     await checkpoint('keys-before', keyEditor, { expectedGhostContains: 'class Empty' });
+    // 快速按回车后立刻输入字符，必须保持用户输入顺序，不等待扩展宿主来回通信。
+    await checkpoint('key-fast-enter-text', keyEditor, { keyDelayMs: 0, pressKeys: [
+      { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
+      { key: 'p', code: 'KeyP', windowsVirtualKeyCode: 80, text: 'p' },
+    ] });
+    assert.equal(keyEditor.document.getText(), expected(keyEditor.document, '\np'), 'Rapid Enter followed by text must preserve input order');
+    await keyEditor.edit(edit => edit.delete(new vscode.Range(0, 0, keyEditor.document.lineCount, 0)));
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
     await checkpoint('key-enter', keyEditor, { pressKeys: [{ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }] });
     assert.equal(keyEditor.document.getText(), expected(keyEditor.document, '\n'), 'Enter must insert only a newline');
     await checkpoint('key-undo', keyEditor, { pressKeys: [{ key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90, modifiers: 2 }] });
@@ -250,9 +285,11 @@ exports.run = async () => {
     // 重现用户已写第一个参数且编辑器自动缩进多出一个 Tab 的真实缓冲区。
     assert.equal(await editor.edit(edit => edit.insert(new vscode.Position(0, 0), expected(editor.document, partialTyped))), true);
     await settle();
-    await checkpoint('partial-arguments', editor, { expectedProtected: firstArgument, expectedWhitespaceRemoval: true });
-    assert.equal(await editor.edit(edit => edit.delete(new vscode.Range(1, 4, 1, 5))), true);
-    for (let i = 0; editor.document.getText() !== expected(editor.document, partialTarget) && i < 10; i++) {
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await checkpoint('partial-arguments', editor, { expectedProtected: firstArgument, expectedRemoval: '', expectedGhostContains: 'org.hibernate.SessionFactory' });
+    // 保留已经写下的额外 Tab，不能为了让虚影出现而在测试中先替用户删缩进。
+    for (let i = 0; editor.document.getText().replace(/\s/g, '') !== partialTarget.replace(/\s/g, '') && i < 10; i++) {
       await vscode.commands.executeCommand('aiDiff.follow.locate');
       await settle();
       if (i === 0) await checkpoint('partial-parameter-ghost', editor, { expectedGhostContains: 'org.hibernate.SessionFactory' });
@@ -261,7 +298,8 @@ exports.run = async () => {
       assert.notEqual(editor.document.getText(), before, 'Missing argument must be available as a ghost insertion');
       assert.ok(editor.document.getText().includes(firstArgument), 'Completing the call must retain the correct first argument');
     }
-    assert.equal(editor.document.getText(), expected(editor.document, partialTarget));
+    assert.equal(editor.document.getText().replace(/\s/g, ''), partialTarget.replace(/\s/g, ''));
+    assert.ok(editor.document.getText().includes('\t'.repeat(5) + firstArgument), 'The already written extra indentation must be preserved');
     await settle();
     await checkpoint('partial-complete', editor, { expectedRemoval: '', expectedInstruction: '' });
     await editor.document.save();
@@ -339,13 +377,18 @@ exports.run = async () => {
     await settle();
     editor = vscode.window.activeTextEditor;
     assert.equal(editor.document.getText(), expected(editor.document, oldImport));
-    await checkpoint('imports-needs-line', editor, { expectedGhost: '', existingLine: oldImport.trimEnd() });
-    await vscode.commands.executeCommand('type', { text: '\n' });
+    await checkpoint('imports-first-line', editor, { expectedGhost: newImport.trimEnd(), existingLine: oldImport.trimEnd() });
+    await checkpoint('imports', editor, { typeText: 'imp', expectedGhost: newImport.trimEnd().slice(3), existingLine: oldImport.trimEnd() });
+    assert.equal(editor.document.getText(), expected(editor.document, 'imp' + oldImport), 'Showing the inserted line must not write the answer or move the existing import');
+    await checkpoint('imports-rest', editor, { typeText: newImport.trimEnd().slice(3) });
+    // 首行直接手写后，快速换行与后一个字符也必须按原生顺序执行，不再异步移回上一行。
+    await checkpoint('imports-fast-enter', editor, { keyDelayMs: 0, pressKeys: [enterKey,
+      { key: 'i', code: 'KeyI', windowsVirtualKeyCode: 73, text: 'i' },
+    ] });
     await settle();
-    assert.equal(editor.selection.active.line, 0, 'Enter must return to the blank writing line');
-    assert.equal(editor.document.getText(), expected(editor.document, '\n' + oldImport));
-    await checkpoint('imports', editor, { expectedGhost: newImport.trimEnd(), existingLine: oldImport.trimEnd() });
-    await vscode.commands.executeCommand('type', { text: newImport.trimEnd() });
+    assert.equal(editor.document.getText(), expected(editor.document, newImport + 'i' + oldImport), 'Fast first-line typing must keep the character after the newline');
+    assert.equal(editor.selection.active.line, 1);
+    await checkpoint('imports-backspace', editor, { pressKeys: [{ key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 }] });
     assert.equal(editor.document.getText(), expected(editor.document, newImport + oldImport));
     await editor.document.save();
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Header.java' });

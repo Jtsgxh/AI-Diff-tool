@@ -254,6 +254,45 @@ test('legacy progress can combine its remaining work without changing files or t
   assert.equal((await checkFollow(session)).complete, false);
 });
 
+/** 合并模式转换后仍认可已完成步骤里出现过的删除路径，并保留用户草稿及额外文件校验。 */
+test('combining preserves completed-step deletion history across reloads', async (t) => {
+  const f = await fixture(t);
+  let session = await createFollow(f.repo, f.practice, f.base, f.last, 'commits');
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'after\n');
+  await fs.writeFile(path.join(f.practice, '中文 space.txt'), 'new\n');
+  session = await advanceFollow(session);
+  await fs.writeFile(path.join(f.practice, '中文 space.txt'), 'retained user draft\n');
+  await fs.writeFile(path.join(f.practice, 'renamed.txt'), 'after\n');
+  await fs.writeFile(path.join(f.practice, 'resource.bin'), Buffer.from([0, 255, 12, 8]));
+  assert.equal((await checkFollow(session)).complete, true);
+  session = await combineFollow(session);
+  session = (await loadFollow(f.practice))!;
+  assert.deepEqual(session.completedStepHashes, [f.first]);
+  assert.equal((await checkFollow(session)).complete, true);
+  assert.equal(await fs.readFile(path.join(f.practice, '中文 space.txt'), 'utf8'), 'retained user draft\n');
+  await fs.writeFile(path.join(f.practice, 'extra.txt'), 'extra\n');
+  assert.equal((await checkFollow(session)).files.find(file => file.path === 'extra.txt')?.complete, false);
+  await fs.unlink(path.join(f.practice, 'extra.txt'));
+  assert.equal((await advanceFollow(session)).finished, true);
+});
+
+/** 已完成练习重新编辑后必须重新检查，不能因历史完成标记跳过错误文件。 */
+test('finishing an already completed exercise rechecks edited files', async (t) => {
+  const f = await fixture(t);
+  let session = await createFollow(f.repo, f.practice, f.base, f.first);
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'after\n');
+  await fs.writeFile(path.join(f.practice, '中文 space.txt'), 'new\n');
+  session = await advanceFollow(session);
+  assert.equal(session.finished, true);
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'later mistake\n');
+  session = (await loadFollow(f.practice))!;
+  assert.equal((await checkFollow(session)).complete, false);
+  await assert.rejects(advanceFollow(session), /未完成练习/);
+  assert.equal(await fs.readFile(path.join(f.practice, 'main.txt'), 'utf8'), 'later mistake\n');
+  await fs.writeFile(path.join(f.practice, 'main.txt'), 'after\n');
+  assert.equal(await advanceFollow(session), session, 'an unchanged finished session remains idempotent');
+});
+
 test('isolated exercise detects missing, mistaken and extra files, resumes and advances after content matches', async (t) => {
   const f = await fixture(t);
   await fs.writeFile(path.join(f.repo, 'untouched.txt'), 'uncommitted user work\n');
@@ -393,5 +432,9 @@ test('missing or malformed progress is explicit and does not alter exercise cont
   await assert.rejects(loadFollow(f.practice), /进度文件无效/);
   await fs.writeFile(marker, JSON.stringify({ ...original, practiceRepo: f.repo }));
   await assert.rejects(loadFollow(f.practice), /进度文件无效/);
+  for (const completedStepHashes of ['invalid', [null], ['--option'], ['not-a-hash']]) {
+    await fs.writeFile(marker, JSON.stringify({ ...original, completedStepHashes }));
+    await assert.rejects(loadFollow(f.practice), /进度文件无效/);
+  }
   assert.equal(await fs.readFile(path.join(f.practice, 'main.txt'), 'utf8'), 'before\n');
 });

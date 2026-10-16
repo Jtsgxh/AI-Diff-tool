@@ -127,7 +127,6 @@ class Selection extends Range { active = this.end; isEmpty = true; }
 function controller(preview: (...args: any[]) => Promise<any>) {
   const disposable = { dispose() {} };
   const calls: string[] = [];
-  const commands = new Map<string, (...args: any[]) => Promise<void>>();
   const decorations = new Map<string, any[]>();
   let inlineEnabled = true;
   let inlineMode = 'subwordSmart';
@@ -188,14 +187,10 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       /** 单独注册新增操作提示，虚影候选仍由上面的内联提供器产生。 */
       registerCodeLensProvider: (_selector: any, value: any) => { lensProvider = value; return disposable; } },
     commands: {
-      /** 保存真实注册的换行入口，供测试验证候选关闭顺序和作用范围。 */
-      registerCommand: (name: string, callback: (...args: any[]) => Promise<void>) => { commands.set(name, callback); return disposable; },
-      /** 模拟原生请求与显式换行命令；普通刷新仍不应主动隐藏候选。 */
+      /** 模拟原生编辑器重新请求虚影；渲染刷新不能隐藏其他扩展的提示。 */
       executeCommand: async (command: string, options?: any, value?: any) => {
         calls.push(command);
         if (command === 'setContext') { assert.equal(options, 'aiDiff.followEditing'); native.followEditing = value; return; }
-        if (command === 'hideSuggestWidget' || command === 'editor.action.inlineSuggest.hide') return;
-        if (command === 'default:type') { assert.equal(options.text, '\n'); assert.equal(Object.keys(options).length, 1); return; }
         assert.equal(command, 'editor.action.inlineSuggest.trigger');
         if (native.version === '1.138.0') assert.equal(options.providerId, 'jtsgxh.ai-diff-follow:*');
         else assert.equal(options, undefined);
@@ -229,7 +224,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     native.window.activeTextEditor = value; native.window.visibleTextEditors = [value]; items = [];
     return value;
   }
-  return { ghost, native, calls, commands, decorations, status, document, editor,
+  return { ghost, native, calls, decorations, status, document, editor,
     /** 模拟首次打开时宿主尚未受理请求，随后由真实生命周期事件恢复。 */
     missNextRequest() { missRequest = true; },
     get focused() { return focused; },
@@ -323,35 +318,6 @@ test('follow keyboard context is limited to active practice files and clears on 
   assert.equal(c.native.followEditing, true);
   c.ghost.dispose();
   assert.equal(c.native.followEditing, false);
-});
-
-/** 换行先关闭接受候选，切换文件或完成后不得把挂起的按键写进其他编辑器。 */
-test('follow Enter dismisses completions before native typing and aborts after switching editors', async (t) => {
-  const c = controller(async () => ({ content: 'target' }));
-  t.after(() => c.ghost.dispose());
-  const repo = path.resolve('.validation/ghost-practice');
-  const session = { practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false };
-  c.ghost.setStep(session, [{ path: 'a.java', deleted: false, complete: false }]);
-  const doc = c.document(path.join(repo, 'a.java'), '');
-  c.editor(doc);
-  const newline = c.commands.get('aiDiff.follow.newline')!;
-  assert.equal(typeof newline, 'function');
-  c.calls.length = 0;
-  await newline();
-  assert.deepEqual(c.calls, ['hideSuggestWidget', 'editor.action.inlineSuggest.hide', 'default:type']);
-  c.calls.length = 0;
-  const pending = newline();
-  c.editor(c.document(path.resolve('.validation/outside.java'), ''));
-  await pending;
-  assert.deepEqual(c.calls, ['hideSuggestWidget']);
-  c.calls.length = 0;
-  await newline();
-  assert.deepEqual(c.calls, []);
-  c.editor(doc);
-  c.ghost.setStep({ ...session, finished: true }, []);
-  c.calls.length = 0;
-  await newline();
-  assert.deepEqual(c.calls, []);
 });
 
 /** 末尾空行的多行正文不能被宿主移回上一行；最终换行仍需按原始目标完成。 */
@@ -641,30 +607,48 @@ test('whole-line import ghosts preserve the existing line without borrowing its 
         assert.equal(proposedText(doc, c.items[0]), target);
         assert.match(c.status.text, /先按 Enter 换行/);
       } else {
-        assert.equal(c.items.length, 0);
-        assert.match(c.status.text, /先按 Enter/);
+        assert.equal(c.items.length, 1);
+        assert.equal(c.items[0].range.start.line, 0);
+        assert.equal(c.items[0].range.start.character, 0);
+        assert.equal(c.items[0].range.end.character, 0);
+        assert.equal(c.items[0].insertText, added + eol);
+        assert.equal(proposedText(doc, c.items[0]), target);
       }
       assert.equal(doc.text, before);
-      const offset = doc.offsetAt(editor.selection.active);
-      doc.text = before.slice(0, offset) + eol + before.slice(offset); doc.version++;
-      editor.selection = new Selection(doc.positionAt(offset + eol.length), doc.positionAt(offset + eol.length));
-      await c.changed(doc, [{ rangeOffset: offset, rangeLength: 0, text: eol }]);
+      if (header) {
+        const offset = doc.offsetAt(editor.selection.active);
+        doc.text = before.slice(0, offset) + eol + before.slice(offset); doc.version++;
+        editor.selection = new Selection(doc.positionAt(offset + eol.length), doc.positionAt(offset + eol.length));
+        await c.changed(doc, [{ rangeOffset: offset, rangeLength: 0, text: eol }]);
+        assert.equal(c.items[0].insertText, added);
+      }
       const writing = header ? header.length : 0;
-      assert.equal(doc.offsetAt(editor.selection.active), writing, 'Enter must leave the caret on the blank writing line');
-      assert.equal(c.items[0].insertText, added);
+      assert.equal(doc.offsetAt(editor.selection.active), writing);
       assert.equal(proposedText(doc, c.items[0]), target);
       const prepared = doc.text;
-      for (const typed of ['imp', 'import com.gameplus.core.']) {
+      for (const typed of ['imp', 'import com.gameplus.core.', added]) {
         doc.text = prepared.slice(0, writing) + typed + prepared.slice(writing); doc.version++;
         const cursor = doc.positionAt(writing + typed.length);
         editor.selection = new Selection(cursor, cursor);
         await c.changed(doc);
-        assert.equal(c.items[0].insertText, added.slice(typed.length));
-        assert.doesNotMatch(c.items[0].insertText, /FishActivityInfo/);
-        assert.equal(proposedText(doc, c.items[0]), target);
+        assert.equal(doc.offsetAt(editor.selection.active), writing + typed.length, 'typing must never asynchronously move the caret');
+        if (header && typed === added) {
+          assert.equal(c.items.length, 0);
+        } else {
+          assert.equal(c.items[0].insertText, added.slice(typed.length) + (header ? '' : eol));
+          assert.doesNotMatch(c.items[0].insertText, /FishActivityInfo/);
+          assert.equal(proposedText(doc, c.items[0]), target);
+        }
       }
-      doc.text = target; doc.version++;
-      await c.changed(doc);
+      if (!header) {
+        const offset = added.length;
+        doc.text = doc.text.slice(0, offset) + eol + doc.text.slice(offset); doc.version++;
+        editor.selection = new Selection(new Position(1, 0), new Position(1, 0));
+        await c.changed(doc, [{ rangeOffset: offset, rangeLength: 0, text: eol }]);
+        assert.equal(editor.selection.active.line, 1, 'the final Enter must retain its native caret position');
+        assert.equal(editor.selection.active.character, 0);
+      }
+      assert.equal(doc.text, target);
       assert.equal(c.items.length, 0); assert.match(c.status.text, /已一致/);
     }
   }
@@ -725,6 +709,12 @@ test('native ghost chunks retain multiple lines and never split Unicode or CRLF'
   doc.text = 'prefixexisting'; doc.version++;
   c.prefixMode();
   await c.ghost.open(editor, 'prefixZZZ\nexisting');
+  // 首行现在使用纯插入范围，不再把已有后缀纳入候选，因此前缀模式也能直接显示。
+  assert.equal(c.items[0].insertText, 'ZZZ\r\n');
+  assert.equal(proposedText(doc, c.items[0]), 'prefixZZZ\r\nexisting');
+  // 非首行的行内多行插入仍需保留后缀，继续验证前缀模式的可见错误入口。
+  doc.text = 'header\r\nprefixexisting'; doc.version++;
+  await c.ghost.open(editor, 'header\nprefixZZZ\nexisting');
   assert.equal(c.items.length, 0); assert.match(c.status.text, /子词模式/);
   assert.equal((c.status.command as any).arguments[0], '@id:editor.inlineSuggest.mode');
 });
@@ -743,4 +733,103 @@ test('target read failures remain visible and can be retried', async (t) => {
   assert.match(c.status.tooltip, /Git target unavailable/);
   await c.changed(doc);
   assert.equal(reads, 2); assert.equal(c.items[0].insertText, 'target'); assert.equal(doc.text, '');
+});
+
+/** 已写缩进或空行与目标不同不能挡住缺失正文，定位、候选与提示必须指向同一处。 */
+test('earlier formatting differences do not block later code or steal its navigation hint', async (t) => {
+  for (const eol of ['\n', '\r\n']) for (const extraLine of ['', eol]) {
+    const current = `class C {${eol}${extraLine}    int a;${eol}`;
+    const target = `class C {${eol}\tint a;${eol}\tint b;${eol}}${eol}`;
+    const c = controller(async () => ({ content: target }));
+    t.after(() => c.ghost.dispose());
+    const repo = path.resolve('.validation/ghost-practice');
+    c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+      [{ path: 'format.java', deleted: false, complete: false }]);
+    const doc = c.document(path.join(repo, 'format.java'), current, eol === '\r\n' ? 2 : 1);
+    const editor = c.editor(doc);
+    await c.ghost.open(editor, target);
+    assert.equal(doc.offsetAt(editor.selection.active), current.length);
+    assert.equal(c.items.length, 1);
+    assert.equal(c.items[0].insertText, `\tint b;${eol}}`, 'unwritten code retains the target indentation and line breaks');
+    assert.equal(doc.text, current, 'the differing written whitespace must never be rewritten automatically');
+    assert.equal(c.decorations.get('deleted')!.length, 0);
+    const lenses = await c.lenses(doc);
+    assert.ok(lenses.some((lens: any) => /格式差异.*可忽略/.test(lens.command.title)));
+    const actionable = lenses.filter((lens: any) => lens.command.command === 'aiDiff.follow.locate');
+    assert.equal(actionable.length, 1);
+    assert.equal(doc.offsetAt(actionable[0].range.start), current.length);
+    assert.match(actionable[0].command.title, /待新增/);
+  }
+});
+
+/** Enter 自动缩进与目标不同后仍能逐字补写，新增正文内部的空行和 Tab 不得被裁掉。 */
+test('typing after auto closing and different indentation keeps offering the remaining body', async (t) => {
+  for (const eol of ['\n', '\r\n']) {
+    const target = `class C {${eol}\tvoid run() {${eol}\t\twork();${eol}\t}${eol}}${eol}`;
+    const c = controller(async () => ({ content: target }));
+    t.after(() => c.ghost.dispose());
+    const repo = path.resolve('.validation/ghost-practice');
+    c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+      [{ path: 'body.java', deleted: false, complete: false }]);
+    const doc = c.document(path.join(repo, 'body.java'), `class C {${eol}\tvoid run() {}${eol}}${eol}`, eol === '\r\n' ? 2 : 1);
+    const editor = c.editor(doc);
+    await c.ghost.open(editor, target);
+    assert.ok(c.items[0].insertText.includes(`\t\twork();${eol}`));
+    for (const typed of ['', 'w', 'work();']) {
+      doc.text = `class C {${eol}\tvoid run() {${eol}        ${typed}${eol}\t}${eol}}${eol}`;
+      doc.version++;
+      editor.selection = new Selection(new Position(2, 8 + typed.length), new Position(2, 8 + typed.length));
+      await c.changed(doc);
+      assert.equal(c.decorations.get('deleted')!.length, 0, 'already typed indentation must not be marked as required deletion');
+      assert.equal(editor.selection.active.character, 8 + typed.length, 'refresh must preserve the typing position');
+      if (typed === 'work();') {
+        assert.equal(c.items.length, 0);
+        assert.match(c.status.text, /正文已完成.*格式差异可忽略/);
+      } else {
+        assert.equal(c.items[0].insertText, 'work();'.slice(typed.length));
+        assert.equal(c.items[0].range.start.character, 8 + typed.length);
+      }
+    }
+    doc.text = `class C {${eol}\tvoid run() {${eol}        ${eol}\t}${eol}}${eol}`;
+    doc.version++;
+    const multilineTarget = target.replace(`work();${eol}`, `work();${eol}${eol}\t\tsecond();${eol}`);
+    await c.ghost.open(editor, multilineTarget);
+    assert.equal(editor.selection.active.line, 2);
+    assert.equal(editor.selection.active.character, 8);
+    assert.equal(c.items[0].insertText, 'work();');
+    doc.text = proposedText(doc, c.items[0]); doc.version++;
+    await c.changed(doc);
+    await c.ghost.locate();
+    assert.equal(c.items[0].insertText, `${eol}${eol}\t\tsecond();`, 'the next operation retains its blank line and original Tab indentation');
+    assert.equal(doc.text.split(eol)[2], '        work();');
+  }
+});
+
+/** 格式可以忽略，但真实错字仍要准确定位并先删除；修正后不得继续要求删缩进。 */
+test('formatting tolerance preserves actual character errors and clears required removals when corrected', async (t) => {
+  for (const eol of ['\n', '\r\n']) {
+    const target = `class C {${eol}\tvoid run() {${eol}\t\twork();${eol}\t}${eol}}${eol}`;
+    const current = `class C {${eol}    void run() {${eol}        w0rk();${eol}    }${eol}}${eol}`;
+    const c = controller(async () => ({ content: target }));
+    t.after(() => c.ghost.dispose());
+    const repo = path.resolve('.validation/ghost-practice');
+    c.ghost.setStep({ practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false },
+      [{ path: 'wrong.java', deleted: false, complete: false }]);
+    const doc = c.document(path.join(repo, 'wrong.java'), current, eol === '\r\n' ? 2 : 1);
+    const editor = c.editor(doc);
+    await c.ghost.open(editor, target);
+    assert.equal(doc.offsetAt(editor.selection.active), current.indexOf('0'));
+    assert.equal(c.items.length, 0);
+    assert.match(c.status.text, /先删除红字/);
+    const removals = c.decorations.get('deleted')!;
+    assert.equal(removals.length, 1);
+    assert.equal(doc.text.slice(doc.offsetAt(removals[0].range.start), doc.offsetAt(removals[0].range.end)), '0');
+    doc.text = current.replace('w0rk', 'wrk'); doc.version++;
+    await c.changed(doc);
+    assert.equal(c.items[0].insertText, 'o');
+    doc.text = current.replace('w0rk', 'work'); doc.version++;
+    await c.changed(doc);
+    assert.equal(c.decorations.get('deleted')!.length, 0);
+    assert.match(c.status.text, /正文已完成.*格式差异可忽略/);
+  }
 });

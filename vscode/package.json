@@ -2,7 +2,7 @@
   "name": "ai-diff-follow",
   "displayName": "AI Diff · 跟写工作台",
   "description": "在 VS Code 中审查、学习 Git 仓库，并将提交范围合为一个目标，用原生虚影一比一跟写。",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "publisher": "jtsgxh",
   "license": "ISC",
   "repository": { "type": "git", "url": "https://github.com/Jtsgxh/AI-Diff-tool.git" },
@@ -32,7 +32,7 @@
       { "command": "aiDiff.symbols", "title": "搜索工作区代码符号", "category": "AI Diff", "icon": "$(symbol-method)" }
     ],
     "keybindings": [
-      { "key": "enter", "command": "aiDiff.follow.newline", "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly" },
+      { "key": "enter", "command": "runCommands", "args": { "commands": ["hideSuggestWidget", "editor.action.inlineSuggest.hide", { "command": "default:type", "args": { "text": "\n" } }] }, "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly" },
       { "key": "tab", "command": "tab", "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly && !editorTabMovesFocus && !suggestWidgetVisible && !inSnippetMode" },
       { "key": "shift+tab", "command": "outdent", "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly && !editorTabMovesFocus && !inSnippetMode" },
       { "key": "tab", "command": "jumpToNextSnippetPlaceholder", "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly && !editorTabMovesFocus && !suggestWidgetVisible && inSnippetMode && hasNextTabstop" },

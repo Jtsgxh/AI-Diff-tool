@@ -19,6 +19,7 @@ function hostFixture() {
   const state = new Map<string, unknown>();
   const secrets = new Map<string, string>();
   const opened: unknown[][] = [];
+  const createdPanels: unknown[] = [];
   let disposePanel: (() => void) | undefined;
   const panel = { webview: { html: '', cspSource: 'https://webview.test',
     asWebviewUri: (uri: { fsPath: string }) => ({ toString: () => `https://webview.test/${path.basename(uri.fsPath)}` }),
@@ -27,7 +28,10 @@ function hostFixture() {
     reveal() {}, onDidDispose: (callback: () => void) => { disposePanel = callback; },
     dispose() { disposePanel?.(); } };
   const native = { ViewColumn: { One: 1 }, Uri: { joinPath: (base: { fsPath: string }, ...parts: string[]) => ({ fsPath: path.join(base.fsPath, ...parts) }) },
-    window: { createWebviewPanel: () => panel, showErrorMessage() {}, showWarningMessage() {} } };
+    window: {
+      /** 记录实际面板创建次数，检查异步加载和释放之间的边界。 */
+      createWebviewPanel: () => { createdPanels.push(panel); return panel; },
+      showErrorMessage() {}, showWarningMessage() {} } };
   const context = { extensionUri: { fsPath: media },
     globalState: { get: (key: string, fallback: unknown) => state.get(key) ?? fallback,
       update: async (key: string, value: unknown) => { state.set(key, value); } },
@@ -39,7 +43,7 @@ function hostFixture() {
   vm.runInNewContext(code, { module, exports: module.exports, Buffer, URL, TextDecoder, AbortController, fetch, process, setTimeout, clearTimeout,
     require: (id: string) => id === 'vscode' ? native : require(id) });
   const workbench = new module.exports.VSCodeWorkbench(context, async (...args: unknown[]) => { opened.push(args); });
-  return { api: module.exports, panel, frames, state, secrets, opened, workbench,
+  return { api: module.exports, panel, frames, state, secrets, opened, workbench, context, createdPanels,
     /** 清理隔离资源目录和真实本地监听，不依赖生产前端已经构建。 */
     dispose() {
       workbench.dispose();
@@ -48,6 +52,27 @@ function hostFixture() {
     },
     /** 模拟页面消息进入宿主。 */
     emit(message: unknown) { receiveCallbacks.forEach((callback) => callback(message)); } };
+}
+
+/** 暂停 SecretStorage 读取，让测试确定性地停在真实后端就绪与面板创建之间。 */
+function pauseSecrets(f: ReturnType<typeof hostFixture>) {
+  let release!: () => void;
+  let entered = false;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  /** 保留实际设置内容，只暂停读取完成时机。 */
+  f.context.secrets.get = async (key: string) => {
+    entered = true;
+    await gate;
+    return f.secrets.get(key);
+  };
+  return { release, entered: () => entered };
+}
+
+/** 读取真正写入 HTML 的初始化状态，不把早于页面加载的消息当作已送达。 */
+function bootstrapFromHtml(html: string) {
+  const attribute = html.match(/data-vscode="([^"]+)"/)?.[1];
+  assert.ok(attribute, 'webview bootstrap must be present');
+  return JSON.parse(attribute.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
 }
 
 /** 等待宿主流完成；超时会使测试失败，不伪造后端响应。 */
@@ -94,4 +119,52 @@ test('workbench stores AI settings in SecretStorage and forwards explicit file n
   assert.equal((f.state.get('webviewStorage') as any).git_ai_config, undefined);
   assert.equal((f.state.get('webviewStorage') as any).git_test, 'normal setting');
   assert.deepEqual(f.opened[0], ['repo', 'file.ts', 'sha']);
+});
+
+/** 异步资源尚未返回时释放工作台，不能再创建孤立面板或接受后续打开。 */
+test('disposing during asynchronous creation prevents a late panel and rejects later opens', async (t) => {
+  const f = hostFixture();
+  const paused = pauseSecrets(f);
+  t.after(() => { paused.release(); f.dispose(); });
+  const opening = f.workbench.open('repo', 'first');
+  await waitUntil(paused.entered);
+  f.workbench.dispose();
+  paused.release();
+  await assert.rejects(opening, /关闭/);
+  assert.equal(f.createdPanels.length, 0, 'a disposed workbench cannot create an orphaned panel');
+  await assert.rejects(f.workbench.open('repo', 'later'), /关闭/);
+  assert.equal(f.createdPanels.length, 0);
+});
+
+/** 连续打开共用同一面板，但其初始仓库和提交必须采用最后一次请求。 */
+test('rapid opens use the latest repository and revision in the initial page bootstrap', async (t) => {
+  const f = hostFixture();
+  const paused = pauseSecrets(f);
+  t.after(() => { paused.release(); f.dispose(); });
+  const first = f.workbench.open('first-repo', 'first-revision');
+  await waitUntil(paused.entered);
+  const latest = f.workbench.open('latest-repo', 'latest-revision');
+  paused.release();
+  await Promise.all([first, latest]);
+  assert.equal(f.createdPanels.length, 1, 'concurrent opens share a single panel');
+  const bootstrap = bootstrapFromHtml(f.panel.webview.html);
+  assert.equal(bootstrap.repoPath, 'latest-repo');
+  assert.equal(bootstrap.revision, 'latest-revision');
+  await f.workbench.open('visible-repo', 'visible-revision');
+  assert.equal(f.createdPanels.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.frames.at(-1))), { type: 'selectRevision', repoPath: 'visible-repo', revision: 'visible-revision' });
+});
+
+/** 创建期间的步骤更新应进入初始页面数据，不能依赖未加载页面接收消息。 */
+test('step changes arriving during creation are included without relying on an unloaded page', async (t) => {
+  const f = hostFixture();
+  const paused = pauseSecrets(f);
+  t.after(() => { paused.release(); f.dispose(); });
+  const opening = f.workbench.open('practice', 'before');
+  await waitUntil(paused.entered);
+  f.workbench.updateReference('practice', 'after');
+  paused.release();
+  await opening;
+  assert.equal(f.createdPanels.length, 1);
+  assert.equal(bootstrapFromHtml(f.panel.webview.html).revision, 'after');
 });

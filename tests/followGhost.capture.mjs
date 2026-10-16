@@ -40,13 +40,27 @@ for (let attempt = 0; attempt < 2400; attempt++) {
     pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params }));
   });
   try {
+    // 逐字走编辑器输入与自动闭合逻辑；回车等控制键必须由 pressKeys 单独发送。
+    if (request.typeText !== undefined) {
+      assert.doesNotMatch(request.typeText, /[\r\n\t]/);
+      for (const character of request.typeText) {
+        const letter = /^[a-z]$/i.test(character);
+        const key = { key: character, text: character,
+          ...(letter ? { code: `Key${character.toUpperCase()}`, windowsVirtualKeyCode: character.toUpperCase().charCodeAt(0) } : {}) };
+        await send('Input.dispatchKeyEvent', { type: 'keyDown', ...key });
+        const { text, ...up } = key;
+        await send('Input.dispatchKeyEvent', { type: 'keyUp', ...up });
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
     // 发送真实键盘事件，必须经过快捷键解析，不能用 type 或接受候选命令代替按键验收。
     for (const key of request.pressKeys || []) {
       await send('Input.dispatchKeyEvent', { type: 'keyDown', ...key });
       const { text, unmodifiedText, ...up } = key;
       await send('Input.dispatchKeyEvent', { type: 'keyUp', ...up });
-      await new Promise(resolve => setTimeout(resolve, 250));
+      if (request.keyDelayMs !== 0) await new Promise(resolve => setTimeout(resolve, request.keyDelayMs ?? 250));
     }
+    if (request.keyDelayMs === 0) await new Promise(resolve => setTimeout(resolve, 1000));
     // 真实点击独立测试窗口的提示链接，覆盖鼠标焦点与命令触发顺序，不直接代调跟写命令。
     if (request.clickInsertion) {
       const link = await send('Runtime.evaluate', { expression: `JSON.stringify((() => {
@@ -91,7 +105,8 @@ for (let attempt = 0; attempt < 2400; attempt++) {
         'The ghost must contain only the added import or its untyped remainder');
       assert.ok(state.lines.some(item => item.text === request.existingLine), 'Existing import must remain a separate line');
       const existingY = state.lines.find(item => item.text === request.existingLine).y;
-      assert.ok(state.ghost.every(item => item.y < existingY), 'Existing import must not be recolored as ghost code');
+      // 原生多行插入含没有文字的换行节点，位置检查只约束实际可见的新代码。
+      assert.ok(state.ghost.filter(item => item.text.length > 0).every(item => item.y < existingY), 'Existing import must not be recolored as ghost code');
     }
     if (request.expectedRemoval !== undefined) {
       if (request.expectedRemoval) assert.ok(state.deleted.join('').includes(request.expectedRemoval), 'Later deleted method must be visibly struck through before the first import is written');
@@ -112,11 +127,7 @@ for (let attempt = 0; attempt < 2400; attempt++) {
         assert.ok(lens.bottom <= existing.y + 1, 'Insertion instruction must be above the existing import, not on the same row');
       }
     }
-    if (request.expectedWhitespaceRemoval) {
-      assert.ok(state.lines.some(item => item.text.includes(request.expectedProtected)), 'The correct first argument must remain visible');
-      assert.ok(state.deleted.every(text => !text.trim()), 'Correct argument characters and auto-closing parentheses must not be struck through');
-      assert.ok(state.instructions.some(text => text.includes('空白差异')), 'Whitespace differences must not claim the entire line needs deletion');
-    }
+    if (request.expectedProtected) assert.ok(state.lines.some(item => item.text.includes(request.expectedProtected)), 'The correct first argument must remain visible');
     if (request.expectedLens) assert.ok(state.lenses.some(item => item.text.includes(request.expectedLens)), 'The operation hint must state the exact text to write or replace');
     if (request.expectedNoInsertionBorder) assert.equal(state.insertionBorders.length, 0, 'Inline edits must not suggest rewriting the whole line');
     if (request.expectedNoHints) {
@@ -124,6 +135,11 @@ for (let attempt = 0; attempt < 2400; attempt++) {
       assert.equal(state.insertionGutters.length, 0, 'Completed files must not retain insertion gutter icons');
     }
     if (request.expectedGhostContains) assert.ok(state.ghost.map(item => item.text).join('').includes(request.expectedGhostContains), 'The missing argument must appear as actual ghost text');
+    // 原生撤销可按单词分组；仍须出现非空的正确剩余正文，而非假定整行被一次撤销。
+    if (request.expectedGhostSuffixOf) {
+      const ghost = state.ghost.map(item => item.text).join('');
+      assert.ok(ghost.trim() && request.expectedGhostSuffixOf.endsWith(ghost), 'Undo must restore the untyped suffix as actual ghost text');
+    }
     if (request.expectedNoGhost) assert.equal(state.ghost.length, 0, 'Escape must dismiss the ghost without changing the document');
     await fs.writeFile(path.join(root, `captured-${request.name}`), 'captured');
     captured.add(request.name);

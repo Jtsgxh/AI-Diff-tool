@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import simpleGit from 'simple-git';
-import { gitService } from '../server/gitService';
+import { decodePreviewBuffer, gitService } from '../server/gitService';
 import { advanceFollow, checkFollow, combineFollow, createFollow, isWithin, loadFollow, safePracticePath,
   type FollowSession, type FollowCheck, type FollowFile } from '../server/followService';
 import { VSCodeWorkbench } from './workbench';
@@ -38,12 +38,14 @@ class FollowTree implements vscode.TreeDataProvider<FollowFile> {
   private revision = 0;
 
   /** 使用会话和磁盘内容刷新；过期检查不会覆盖最新结果。 */
-  async refresh(): Promise<void> {
+  async refresh(): Promise<boolean> {
     const revision = ++this.revision;
-    const result = this.session ? await checkFollow(this.session) : undefined;
-    if (revision !== this.revision) return;
+    const session = this.session;
+    const result = session ? await checkFollow(session) : undefined;
+    if (revision !== this.revision || session !== this.session) return false;
     this.result = result;
     this.change.fire();
+    return true;
   }
 
   /** 返回本步文件及所有误改，未打开练习时显示欢迎入口。 */
@@ -117,14 +119,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   /** 刷新文件状态和步骤标题，完成后保留最后一步以供查看。 */
   const refresh = async () => {
-    await tree.refresh();
     const session = tree.session;
+    // 旧检查被丢弃时，连同其虚影和标题发布一起丢弃，避免把新目标与旧文件表拼接。
+    if (!(await tree.refresh()) || session !== tree.session) return false;
     ghost.setStep(session, tree.result?.files || []);
-    view.description = session ? session.finished ? '全部完成' : session.mode === 'combined' ? '合并跟写' : `${session.stepIndex + 1} / ${session.steps.length}` : undefined;
+    view.description = session ? session.finished ? tree.result?.complete ? '全部完成' : '已完成 · 内容有改动'
+      : session.mode === 'combined' ? '合并跟写' : `${session.stepIndex + 1} / ${session.steps.length}` : undefined;
     view.message = session ? session.mode === 'combined' ?
       `${session.baseHash.slice(0, 7)} → ${session.steps[0].hash.slice(0, 7)} · ${session.steps[0].message}` :
       `${session.steps[session.stepIndex].hash.slice(0, 7)} · ${session.steps[session.stepIndex].message}` : undefined;
     await vscode.commands.executeCommand('setContext', 'aiDiff.followMode', session ? session.mode || 'commits' : undefined);
+    return true;
   };
 
   /** 只保存练习目录内的文档，不影响其他工作区中的未保存内容。 */
@@ -173,7 +178,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   register('aiDiff.follow.check', async () => {
     await savePractice();
-    await refresh();
+    if (!(await refresh())) return;
     const missing = tree.result!.files.filter((file) => !file.complete);
     if (!missing.length) void vscode.window.showInformationMessage(tree.session?.mode === 'combined' ?
       '全部文件已与结束提交一致，可以完成练习。' : '本步文件已与目标提交一致，可以进入下一步。');
@@ -261,12 +266,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const current = (await checkFollow(tree.session)).files.find((candidate) => candidate.path === file.path);
     if (!current || current.deleted || current.complete) throw new Error('该文件不需要资源同步。');
     const target = tree.session.steps[tree.session.stepIndex].hash;
-    const preview = await gitService.getFilePreview(tree.session.practiceRepo, current.path, target);
-    if (!preview.isBinary) throw new Error('文本代码需要手动跟写，不能通过资源同步填入。');
+    // 预览大小上限不代表资源类型；用实际目标字节分类，并在确认后复用同一份内容。
+    const content = await simpleGit(tree.session.practiceRepo).binaryCatFile(['-p', `${target}:${current.path}`]);
+    if (!decodePreviewBuffer(content).isBinary) throw new Error('文本代码需要手动跟写，不能通过资源同步填入。');
     const confirm = await vscode.window.showWarningMessage(`使用目标提交覆盖练习资源 ${current.path}？`, { modal: true }, '同步资源');
     if (confirm !== '同步资源') return;
     const full = await safePracticePath(tree.session.practiceRepo, current.path);
-    const content = await simpleGit(tree.session.practiceRepo).binaryCatFile(['-p', `${target}:${current.path}`]);
     await fs.mkdir(path.dirname(full), { recursive: true });
     await vscode.workspace.fs.writeFile(vscode.Uri.file(full), content);
     await refresh();

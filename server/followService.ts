@@ -14,6 +14,8 @@ export interface FollowSession {
   practiceRepo: string;
   baseHash: string;
   steps: FollowStep[];
+  /** 转为合并模式时保留已完成步骤，继续认可其中已删除的文件；旧版记录可缺省。 */
+  completedStepHashes?: string[];
   stepIndex: number;
   finished: boolean;
 }
@@ -137,6 +139,8 @@ export async function loadFollow(repo: string): Promise<FollowSession | undefine
       (value.mode !== undefined && value.mode !== 'combined' && value.mode !== 'commits') ||
       !isWithin(repo, value.practiceRepo) || !isWithin(value.practiceRepo, repo) || !SHA.test(value.baseHash) ||
       !Array.isArray(value.steps) || !value.steps.length || value.steps.some((step) => !step || !SHA.test(step.hash) || typeof step.message !== 'string') ||
+      (value.completedStepHashes !== undefined && (!Array.isArray(value.completedStepHashes) ||
+        value.completedStepHashes.some((hash) => typeof hash !== 'string' || !SHA.test(hash)))) ||
       !Number.isInteger(value.stepIndex) || value.stepIndex < 0 || value.stepIndex >= value.steps.length || typeof value.finished !== 'boolean' ||
       (value.mode === 'combined' && (value.steps.length !== 1 || value.stepIndex !== 0)) ||
       (value.finished && value.stepIndex !== value.steps.length - 1)) {
@@ -171,7 +175,9 @@ export async function createFollow(referenceRepo: string, practiceRepo: string, 
 /** 将已有练习收拢为最终目标，只保存练习元数据，保留已写文件和原始基准。 */
 export async function combineFollow(session: FollowSession): Promise<FollowSession> {
   if (session.mode === 'combined') return session;
-  const combined: FollowSession = { ...session, mode: 'combined', steps: [session.steps.at(-1)!], stepIndex: 0 };
+  const completedStepHashes = [...new Set([...(session.completedStepHashes || []),
+    ...session.steps.slice(0, session.stepIndex).map(step => step.hash)])];
+  const combined: FollowSession = { ...session, mode: 'combined', steps: [session.steps.at(-1)!], stepIndex: 0, completedStepHashes };
   await saveFollow(combined);
   return combined;
 }
@@ -213,7 +219,8 @@ export async function checkFollow(session: FollowSession): Promise<FollowCheck> 
   const expected = await readTree(repo, target);
   const removed = new Set<string>();
   // 旧逐提交练习可能保留前几步已删除的文件；只有练习历史里的路径可默认完成，额外文件仍须校验。
-  for (const revision of [session.baseHash, ...session.steps.slice(0, session.stepIndex).map(step => step.hash)]) {
+  for (const revision of new Set([session.baseHash, ...(session.completedStepHashes || []),
+    ...session.steps.slice(0, session.stepIndex).map(step => step.hash)])) {
     for (const file of (await readTree(repo, revision)).keys()) if (!expected.has(file)) removed.add(file);
   }
   const changed = new Set((await git.raw(['diff', '--name-only', '-z', '--no-renames', previous, target])).split('\0').filter(Boolean));
@@ -247,9 +254,9 @@ export async function checkFollow(session: FollowSession): Promise<FollowCheck> 
 
 /** 全量校验通过后推进并保存进度；最后一步保留完成状态。 */
 export async function advanceFollow(session: FollowSession): Promise<FollowSession> {
-  if (session.finished) return session;
   const result = await checkFollow(session);
   if (!result.complete) throw new Error(`还有 ${result.files.filter((file) => !file.complete).length} 个文件未一致，${session.mode === 'combined' ? '未完成练习' : '未进入下一步'}。`);
+  if (session.finished) return session;
   const next = { ...session, stepIndex: Math.min(session.stepIndex + 1, session.steps.length - 1),
     finished: session.stepIndex === session.steps.length - 1 };
   await saveFollow(next);
