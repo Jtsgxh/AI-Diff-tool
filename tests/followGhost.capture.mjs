@@ -40,6 +40,13 @@ for (let attempt = 0; attempt < 2400; attempt++) {
     pending.set(id, { resolve, reject }); socket.send(JSON.stringify({ id, method, params }));
   });
   try {
+    // 发送真实键盘事件，必须经过快捷键解析，不能用 type 或接受候选命令代替按键验收。
+    for (const key of request.pressKeys || []) {
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', ...key });
+      const { text, unmodifiedText, ...up } = key;
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', ...up });
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
     // 真实点击独立测试窗口的提示链接，覆盖鼠标焦点与命令触发顺序，不直接代调跟写命令。
     if (request.clickInsertion) {
       const link = await send('Runtime.evaluate', { expression: `JSON.stringify((() => {
@@ -116,6 +123,7 @@ for (let attempt = 0; attempt < 2400; attempt++) {
       assert.equal(state.insertionGutters.length, 0, 'Completed files must not retain insertion gutter icons');
     }
     if (request.expectedGhostContains) assert.ok(state.ghost.map(item => item.text).join('').includes(request.expectedGhostContains), 'The missing argument must appear as actual ghost text');
+    if (request.expectedNoGhost) assert.equal(state.ghost.length, 0, 'Escape must dismiss the ghost without changing the document');
     await fs.writeFile(path.join(root, `captured-${request.name}`), 'captured');
     captured.add(request.name);
     console.log(`Captured ${request.name}`);

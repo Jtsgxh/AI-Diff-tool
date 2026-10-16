@@ -145,6 +145,7 @@ function controller(preview: (...args: any[]) => Promise<any>) {
     /** 记录状态栏显示和隐藏。 */
     show() { this.visible = true; }, hide() { this.visible = false; }, dispose() {} };
   const native = {
+    followEditing: false,
     Position, Range, Selection, version: '1.138.0', EndOfLine: { LF: 1, CRLF: 2 },
     /** 保留内嵌图标 URI，供装饰类型识别新增位置标记。 */
     Uri: { parse: (value: string) => value },
@@ -187,8 +188,9 @@ function controller(preview: (...args: any[]) => Promise<any>) {
       registerCodeLensProvider: (_selector: any, value: any) => { lensProvider = value; return disposable; } },
     commands: {
       /** 模拟原生编辑器重新请求虚影；禁止全局隐藏其他扩展的提示。 */
-      executeCommand: async (command: string, options?: any) => {
+      executeCommand: async (command: string, options?: any, value?: any) => {
         calls.push(command);
+        if (command === 'setContext') { assert.equal(options, 'aiDiff.followEditing'); native.followEditing = value; return; }
         assert.equal(command, 'editor.action.inlineSuggest.trigger');
         if (native.version === '1.138.0') assert.equal(options.providerId, 'jtsgxh.ai-diff-follow:*');
         else assert.equal(options, undefined);
@@ -292,6 +294,30 @@ test('inline comment and expression additions have explicit hints and share the 
   doc.text = target; doc.version++;
   await c.changed(doc);
   assert.equal((await c.lenses(doc)).length, 0);
+});
+
+/** 按键上下文只在练习编辑器生效，退出、完成和释放后不能影响正常文件。 */
+test('follow keyboard context is limited to active practice files and clears on completion', async (t) => {
+  const c = controller(async () => ({ content: 'target' }));
+  t.after(() => c.ghost.dispose());
+  const repo = path.resolve('.validation/ghost-practice');
+  const session = { practiceRepo: repo, steps: [{ hash: 'target' }], stepIndex: 0, finished: false };
+  c.ghost.setStep(session, [{ path: 'a.java', deleted: false, complete: false }]);
+  c.editor(c.document(path.join(repo, 'a.java'), ''));
+  await c.activated();
+  assert.equal(c.native.followEditing, true);
+  c.editor(c.document(path.resolve('.validation/outside.java'), ''));
+  await c.activated();
+  assert.equal(c.native.followEditing, false);
+  c.editor(c.document(path.join(repo, 'a.java'), ''));
+  await c.activated();
+  assert.equal(c.native.followEditing, true);
+  c.ghost.setStep({ ...session, finished: true }, []);
+  assert.equal(c.native.followEditing, false);
+  c.ghost.setStep(session, [{ path: 'a.java', deleted: false, complete: false }]);
+  assert.equal(c.native.followEditing, true);
+  c.ghost.dispose();
+  assert.equal(c.native.followEditing, false);
 });
 
 /** 末尾空行的多行正文不能被宿主移回上一行；最终换行仍需按原始目标完成。 */

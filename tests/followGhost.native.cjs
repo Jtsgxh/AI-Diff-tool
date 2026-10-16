@@ -92,6 +92,82 @@ exports.run = async () => {
   };
   try {
     await vscode.extensions.getExtension('jtsgxh.ai-diff-follow').activate();
+    // 日常编辑键必须只处理用户输入，不能把整段跟写目标作为一次按键的结果写入。
+    await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Empty.java' });
+    const keyEditor = vscode.window.activeTextEditor;
+    await settle();
+    await checkpoint('keys-before', keyEditor, { expectedGhostContains: 'class Empty' });
+    await checkpoint('key-enter', keyEditor, { pressKeys: [{ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }] });
+    assert.equal(keyEditor.document.getText(), expected(keyEditor.document, '\n'), 'Enter must insert only a newline');
+    await checkpoint('key-undo', keyEditor, { pressKeys: [{ key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90, modifiers: 2 }] });
+    assert.equal(keyEditor.document.getText(), '');
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await checkpoint('key-tab', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }] });
+    assert.match(keyEditor.document.getText(), /^[ \t]+$/, 'Tab must indent without accepting target code');
+    await checkpoint('key-shift-tab', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 8 }] });
+    assert.equal(keyEditor.document.getText(), '', 'Shift+Tab must outdent without accepting target code');
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await checkpoint('key-word-right', keyEditor, { pressKeys: [{ key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39, modifiers: 2 }] });
+    assert.equal(keyEditor.document.getText(), '', 'Word navigation must not accept a ghost word');
+    await vscode.commands.executeCommand('aiDiff.follow.locate');
+    await settle();
+    await checkpoint('key-escape', keyEditor, { pressKeys: [{ key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }], expectedNoGhost: true });
+    assert.equal(keyEditor.document.getText(), '');
+    await vscode.commands.executeCommand('type', { text: 'pac' });
+    await settle();
+    await checkpoint('key-backspace', keyEditor, { pressKeys: [{ key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 }] });
+    assert.equal(keyEditor.document.getText(), 'pa');
+    keyEditor.selection = new vscode.Selection(0, 0, 0, 0);
+    await checkpoint('key-delete', keyEditor, { pressKeys: [{ key: 'Delete', code: 'Delete', windowsVirtualKeyCode: 46 }] });
+    assert.equal(keyEditor.document.getText(), 'a');
+    await keyEditor.edit(edit => edit.delete(new vscode.Range(0, 0, 0, 1)));
+    await vscode.commands.executeCommand('editor.action.insertSnippet', { snippet: '${1:x} ${2:y}$0' });
+    await vscode.commands.executeCommand('type', { text: 'pac' });
+    await settle();
+    await checkpoint('key-snippet-tab', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }] });
+    assert.equal(keyEditor.document.getText(), 'pac y');
+    assert.equal(keyEditor.document.getText(keyEditor.selection), 'y');
+    await checkpoint('key-snippet-back', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers: 8 }] });
+    assert.equal(keyEditor.document.getText(keyEditor.selection), 'pac');
+    await vscode.commands.executeCommand('leaveSnippet');
+    await keyEditor.edit(edit => edit.delete(new vscode.Range(0, 0, 0, 5)));
+    let offerWholeBlock = true;
+    const normalCompletion = vscode.languages.registerCompletionItemProvider({ scheme: 'file', pattern: '**/Empty.java' }, {
+      /** 模拟普通语言补全的单词和整段片段，验证 Enter 不接受建议而 Tab 仍可选正常条目。 */
+      provideCompletionItems() {
+        const item = new vscode.CompletionItem('normalName', vscode.CompletionItemKind.Variable);
+        item.insertText = offerWholeBlock ? emptyTarget : 'normalName';
+        return [item];
+      },
+    });
+    try {
+      await vscode.commands.executeCommand('editor.action.triggerSuggest');
+      await settle();
+      await checkpoint('key-enter-menu', keyEditor, { pressKeys: [{ key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' }] });
+      assert.equal(keyEditor.document.getText(), expected(keyEditor.document, '\n'), 'Enter must not accept a completion-menu block');
+      await vscode.commands.executeCommand('hideSuggestWidget');
+      await keyEditor.edit(edit => edit.delete(new vscode.Range(0, 0, 1, 0)));
+      offerWholeBlock = false;
+      await vscode.commands.executeCommand('editor.action.triggerSuggest');
+      await settle();
+      await checkpoint('key-tab-menu', keyEditor, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }] });
+      assert.equal(keyEditor.document.getText(), 'normalName', 'Tab must retain ordinary language completion');
+    } finally { normalCompletion.dispose(); }
+    await keyEditor.edit(edit => edit.delete(new vscode.Range(0, 0, 0, keyEditor.document.getText().length)));
+    // 离开练习后恢复原生 Tab 接受普通内联候选，保护不能泄漏到其他编辑器。
+    const outside = await vscode.window.showTextDocument(vscode.Uri.file(path.join(root, 'source', 'Imports.java')));
+    const outsideBefore = outside.document.getText();
+    const outsideEnd = outside.document.positionAt(outsideBefore.length);
+    outside.selection = new vscode.Selection(outsideEnd, outsideEnd);
+    await settle();
+    await vscode.commands.executeCommand('editor.action.inlineSuggest.trigger');
+    await settle();
+    await checkpoint('key-outside-tab', outside, { pressKeys: [{ key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 }] });
+    assert.equal(outside.document.getText(), outsideBefore + 'COMPETING_PROVIDER_SENTINEL');
+    await vscode.commands.executeCommand('undo');
+    assert.equal(outside.document.getText(), outsideBefore);
     await vscode.commands.executeCommand('aiDiff.follow.open', { path: 'Comment.java' });
     const commentEditor = vscode.window.activeTextEditor;
     await settle();

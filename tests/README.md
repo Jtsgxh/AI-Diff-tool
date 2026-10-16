@@ -220,3 +220,5 @@ resurrect the old pin. Zooming/panning a retained business node must still prese
 | 打开恢复、滚动、切换焦点、补全菜单、自动闭合 | 原生生命周期回归；不向用户文件写入答案 |
 
 检查边界：原生测试使用隔离的 VS Code 1.138 和测试仓库；用户完整 Java 扩展组合、其他 VS Code 版本、每种主题未全部验证。无证据的假设不作为已修复问题；不能仅凭单元测试通过宣称全部用户现场可用。
+
+0.1.21 的按键验收必须经过原生快捷键解析：通过独立测试窗口的 CDP 发送键盘事件，验证 Enter、Tab、Shift+Tab、Ctrl+Right、Esc、退格、Delete、Ctrl+Z、补全列表和片段占位符，不能用 `type` 或 `inlineSuggest.commit` 代替真实按键。保留直接接受命令仅用于验证候选能精确还原目标，不再将它作为手动跟写可用性的证明。隔离测试另加载用户使用的 IntelliJ 键位扩展，验证补全列表里的整段建议不会被 Enter 接受、普通补全仍能用 Tab 选中；离开练习后原生内联接受恢复。按键保护只通过练习上下文的扩展键位实现，不修改全局键位或用户项目配置。

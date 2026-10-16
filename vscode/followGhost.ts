@@ -40,13 +40,14 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   private timer?: ReturnType<typeof setTimeout>;
   private disposed = false;
   private locateDocument?: vscode.TextDocument;
+  private keyboardContext?: boolean;
 
   /** 输入与切换文件后重新提供多行目标，保留普通语言补全。 */
   constructor() {
     this.status.command = 'aiDiff.follow.locate';
     this.subscriptions = [vscode.languages.registerInlineCompletionItemProvider({ scheme: 'file' }, this),
       vscode.languages.registerCodeLensProvider({ scheme: 'file' }, this),
-      vscode.window.onDidChangeActiveTextEditor(() => this.schedule(true)),
+      vscode.window.onDidChangeActiveTextEditor(() => { this.updateKeyboardContext(); this.schedule(true); }),
       vscode.window.onDidChangeVisibleTextEditors(() => this.schedule()),
       vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
         if (event.textEditor === vscode.window.activeTextEditor) this.schedule();
@@ -73,6 +74,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('editor.inlineSuggest', vscode.window.activeTextEditor?.document)) this.schedule();
       })];
+    this.updateKeyboardContext();
   }
 
   /** 步骤推进时丢弃历史目标，保持原有练习目录和用户文本不变。 */
@@ -85,6 +87,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     }
     this.session = session;
     this.files = new Map(files.map((file) => [file.path, file]));
+    this.updateKeyboardContext();
     this.lensChange.fire();
     this.schedule(changed);
   }
@@ -96,6 +99,15 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
     const file = this.files.get(relative);
     // 目标已删除的文件默认完成，不再把保留的旧内容标红或引导用户清空。
     return file?.deleted && file.complete ? undefined : file;
+  }
+
+  /** 按键保护只跟随当前练习文档，离开文件、完成会话或释放扩展时立即撤销。 */
+  private updateKeyboardContext(): void {
+    const document = vscode.window.activeTextEditor?.document;
+    const active = !this.disposed && !!document && !!this.file(document);
+    if (active === this.keyboardContext) return;
+    this.keyboardContext = active;
+    void vscode.commands.executeCommand('setContext', 'aiDiff.followEditing', active);
   }
 
   /** 按提交缓存目标文本，并按当前原生文档的换行方式生成显示内容。 */
@@ -389,6 +401,7 @@ export class FollowGhost implements vscode.InlineCompletionItemProvider, vscode.
   /** 释放事件、装饰和定时器，关闭扩展后清除所有提示。 */
   dispose(): void {
     this.disposed = true;
+    this.updateKeyboardContext();
     if (this.timer) clearTimeout(this.timer);
     this.subscriptions.forEach((subscription) => subscription.dispose());
     for (const editor of vscode.window.visibleTextEditors) this.clear(editor);
