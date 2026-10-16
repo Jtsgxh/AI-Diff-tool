@@ -168,7 +168,14 @@ exports.run = async () => {
     await vscode.commands.executeCommand('aiDiff.follow.locate');
     await settle();
     await checkpoint('key-word-right', keyEditor, { pressKeys: [{ key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39, modifiers: 2 }] });
-    assert.equal(keyEditor.document.getText(), '', 'Word navigation must not accept a ghost word');
+    assert.equal(keyEditor.document.getText(), 'package', 'Ctrl+Right must accept only the next ghost word');
+    await checkpoint('key-word-right-again', keyEditor, { pressKeys: [{ key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39, modifiers: 2 }] });
+    const acceptedWords = keyEditor.document.getText();
+    assert.ok(acceptedWords.length > 'package'.length && acceptedWords.length < emptyTarget.indexOf('\n') && emptyTarget.startsWith(acceptedWords),
+      'Repeated Ctrl+Right must continue accepting the target by word without inserting the full line or block');
+    await checkpoint('key-word-right-undo', keyEditor, { pressKeys: [{ key: 'z', code: 'KeyZ', windowsVirtualKeyCode: 90, modifiers: 2 }] });
+    assert.equal(keyEditor.document.getText(), 'package', 'Undo must remove only the last accepted word');
+    await keyEditor.edit(edit => edit.delete(new vscode.Range(0, 0, 0, 'package'.length)));
     await vscode.commands.executeCommand('aiDiff.follow.locate');
     await settle();
     await checkpoint('key-escape', keyEditor, { pressKeys: [{ key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }], expectedNoGhost: true });

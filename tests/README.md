@@ -244,4 +244,8 @@ resurrect the old pin. Zooming/panning a retained business node must still prese
 
 最终验证：136 项 Node 测试全部通过；打包版本通过 60 个原生按键与渲染检查点，包含完整练习最终完成；TypeScript、前端与扩展构建及 VSIX 打包通过，包内扩展和后端字节与原生测试加载版本一致。
 
+0.1.24 按用户明确要求恢复 Ctrl+Right 的逐词补全（macOS 沿用 Alt+Right），将练习中“虚影可见”时的按词移动覆盖改为原生 `editor.action.inlineSuggest.acceptNextWord`；无虚影时不介入原有键位。原生回归将旧“不得接受单词”的断言改为第一次只写入 `package`、第二次继续写入目标前缀但不接受整行或整段、撤销仅移除最近一次接受。Enter 换行、Tab 缩进和普通菜单补全的回归继续保留。
+
+0.1.24 验证：隔离 Windows VS Code 1.138.0 + IntelliJ 键位的 62 个原生检查点通过，构建和打包通过；包内清单与编译产物均与测试实例一致。macOS 对应键位未实测。
+
 验证边界：真实按键和渲染在隔离 Windows VS Code 1.138.0、IntelliJ 键位及测试补全提供器中执行，不改用户项目或全局设置；未覆盖全部 Java 语言服务器、中文输入法、多窗口同时编辑、其他系统或 VS Code 版本组合。大文本预览限制仍保留；同名旧文件阻挡新目录时必须由用户移走备份，不自动删除；旧版本已经丢弃的合并前历史不能可靠还原。

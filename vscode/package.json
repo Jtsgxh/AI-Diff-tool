@@ -2,7 +2,7 @@
   "name": "ai-diff-follow",
   "displayName": "AI Diff · 跟写工作台",
   "description": "在 VS Code 中审查、学习 Git 仓库，并将提交范围合为一个目标，用原生虚影一比一跟写。",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "publisher": "jtsgxh",
   "license": "ISC",
   "repository": { "type": "git", "url": "https://github.com/Jtsgxh/AI-Diff-tool.git" },
@@ -37,7 +37,7 @@
       { "key": "shift+tab", "command": "outdent", "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly && !editorTabMovesFocus && !inSnippetMode" },
       { "key": "tab", "command": "jumpToNextSnippetPlaceholder", "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly && !editorTabMovesFocus && !suggestWidgetVisible && inSnippetMode && hasNextTabstop" },
       { "key": "shift+tab", "command": "jumpToPrevSnippetPlaceholder", "when": "editorTextFocus && aiDiff.followEditing && !editorReadonly && !editorTabMovesFocus && inSnippetMode && hasPrevTabstop" },
-      { "key": "ctrl+right", "mac": "alt+right", "command": "cursorWordEndRight", "when": "editorTextFocus && aiDiff.followEditing && inlineSuggestionVisible" }
+      { "key": "ctrl+right", "mac": "alt+right", "command": "editor.action.inlineSuggest.acceptNextWord", "when": "editorTextFocus && aiDiff.followEditing && inlineSuggestionVisible && !editorReadonly" }
     ],
     "views": { "explorer": [{ "id": "aiDiff.follow", "name": "AI Diff 跟写" }] },
     "viewsWelcome": [{ "view": "aiDiff.follow", "contents": "从已有 Git 提交开始，在原生编辑器中一比一跟写。\n[创建练习](command:aiDiff.follow.create)\n[打开审查与学习工作台](command:aiDiff.open)" }],
